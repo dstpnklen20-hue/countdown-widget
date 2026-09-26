@@ -18,13 +18,17 @@ android {
         versionName = "1.0.$buildNumber"
     }
 
-    // A fixed key (instead of a random per-machine debug key) lets new builds update the installed app in place.
+    // CI signs with a fixed private key from GitHub Secrets (never stored in the repo), so new builds
+    // can update the installed app in place. Without these variables the default debug key is used.
     signingConfigs {
-        getByName("debug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        val keystoreFile = System.getenv("KEYSTORE_FILE")
+        if (keystoreFile != null) {
+            getByName("debug") {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
         }
     }
 
