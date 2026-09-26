@@ -13,4 +13,12 @@
     <string name="widget_description">Обратный отсчёт времени до заданной даты на главном экране</string>
     <string name="configure_widget_title">Выберите отсчёт для виджета</string>
     <string name="create_new_countdown">+ Новый отсчёт</string>
+    <string name="settings">Настройки</string>
+    <string name="settings_theme_mode">Тема приложения</string>
+    <string name="settings_accent">Акцентный цвет</string>
+    <string name="settings_presets">Готовые темы</string>
+    <string name="mode_system">Системная</string>
+    <string name="mode_light">Светлая</string>
+    <string name="mode_dark">Тёмная</string>
+    <string name="accent_from_theme">Цвет из выбранной темы</string>
 </resources>

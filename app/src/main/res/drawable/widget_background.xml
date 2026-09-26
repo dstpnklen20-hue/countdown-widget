@@ -1,4 +1,5 @@
+<!-- White on purpose: the widget tints it with the current theme's surface color. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <corners android:radius="20dp" />
-    <solid android:color="@color/widget_background" />
+    <solid android:color="#FFFFFFFF" />
 </shape>

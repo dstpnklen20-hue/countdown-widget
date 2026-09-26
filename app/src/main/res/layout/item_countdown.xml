@@ -2,6 +2,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
+    android:tag="card"
     android:background="@drawable/item_background"
     android:padding="16dp"
     android:layout_marginBottom="4dp">
@@ -12,7 +13,6 @@
         android:layout_height="wrap_content"
         android:textSize="17sp"
         android:textStyle="bold"
-        android:textColor="?attr/colorOnSurface"
         android:maxLines="1"
         android:ellipsize="end" />
 
@@ -23,7 +23,7 @@
         android:layout_marginTop="4dp"
         android:textSize="22sp"
         android:textStyle="bold"
-        android:textColor="@color/accent" />
+        android:tag="accent" />
 
     <TextView
         android:id="@+id/item_date"
@@ -31,6 +31,5 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
         android:textSize="13sp"
-        android:textColor="?attr/colorOnSurface"
-        android:alpha="0.6" />
+        android:tag="secondary" />
 </LinearLayout>

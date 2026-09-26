@@ -6,9 +6,16 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.view.View
 import android.widget.RemoteViews
 import com.claudecode.countdown.EditCountdownActivity
 import com.claudecode.countdown.R
+import com.claudecode.countdown.ThemeManager
 import com.claudecode.countdown.data.CountdownRepository
 import com.claudecode.countdown.pluralRu
 import java.util.concurrent.TimeUnit
@@ -17,25 +24,28 @@ class CountdownWidgetProvider : AppWidgetProvider() {
 
     companion object {
         const val ACTION_REFRESH = "com.claudecode.countdown.ACTION_REFRESH_WIDGETS"
+        private const val SUBTITLE_MIN_HEIGHT_DP = 110
 
         fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
             val countdownId = CountdownRepository.getWidgetCountdownId(context, appWidgetId)
             val countdown = countdownId?.let { CountdownRepository.get(context, it) }
             val views = RemoteViews(context.packageName, R.layout.widget_countdown)
+            val palette = ThemeManager.palette(context)
+
+            var value = "–"
+            var unit = ""
+            var subtitle = ""
+            val title: String
 
             if (countdown == null) {
-                views.setTextViewText(R.id.widget_title, context.getString(R.string.widget_not_configured))
-                views.setTextViewText(R.id.widget_value, "–")
-                views.setTextViewText(R.id.widget_unit, "")
-                views.setTextViewText(R.id.widget_subtitle, "")
+                title = context.getString(R.string.widget_not_configured)
             } else {
-                views.setTextViewText(R.id.widget_title, countdown.title)
+                title = countdown.title
                 val remaining = countdown.targetMillis - System.currentTimeMillis()
 
                 if (remaining <= 0) {
-                    views.setTextViewText(R.id.widget_value, "🎉")
-                    views.setTextViewText(R.id.widget_unit, context.getString(R.string.widget_arrived))
-                    views.setTextViewText(R.id.widget_subtitle, "")
+                    value = "🎉"
+                    unit = context.getString(R.string.widget_arrived)
                 } else {
                     val days = TimeUnit.MILLISECONDS.toDays(remaining)
                     val hours = TimeUnit.MILLISECONDS.toHours(remaining) % 24
@@ -43,23 +53,44 @@ class CountdownWidgetProvider : AppWidgetProvider() {
 
                     when {
                         days > 0 -> {
-                            views.setTextViewText(R.id.widget_value, days.toString())
-                            views.setTextViewText(R.id.widget_unit, pluralRu(days, "день", "дня", "дней"))
-                            views.setTextViewText(R.id.widget_subtitle, "$hours ч $minutes мин")
+                            value = days.toString()
+                            unit = pluralRu(days, "день", "дня", "дней")
+                            subtitle = "$hours ч $minutes мин"
                         }
                         hours > 0 -> {
-                            views.setTextViewText(R.id.widget_value, hours.toString())
-                            views.setTextViewText(R.id.widget_unit, pluralRu(hours, "час", "часа", "часов"))
-                            views.setTextViewText(R.id.widget_subtitle, "$minutes мин")
+                            value = hours.toString()
+                            unit = pluralRu(hours, "час", "часа", "часов")
+                            subtitle = "$minutes мин"
                         }
                         else -> {
-                            views.setTextViewText(R.id.widget_value, minutes.toString())
-                            views.setTextViewText(R.id.widget_unit, pluralRu(minutes, "минута", "минуты", "минут"))
-                            views.setTextViewText(R.id.widget_subtitle, "")
+                            value = minutes.toString()
+                            unit = pluralRu(minutes, "минута", "минуты", "минут")
                         }
                     }
                 }
             }
+
+            // Number and unit share one auto-sized TextView, so they always fit the widget cell.
+            val valueText = SpannableString(if (unit.isEmpty()) value else "$value $unit")
+            if (unit.isNotEmpty()) {
+                val unitStart = value.length + 1
+                valueText.setSpan(RelativeSizeSpan(0.5f), unitStart, valueText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                valueText.setSpan(ForegroundColorSpan(palette.textSecondary), unitStart, valueText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+
+            // The extra line only fits when the widget is taller than a single row.
+            val minHeightDp = appWidgetManager.getAppWidgetOptions(appWidgetId)
+                .getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+            val showSubtitle = subtitle.isNotEmpty() && minHeightDp >= SUBTITLE_MIN_HEIGHT_DP
+
+            views.setInt(R.id.widget_bg, "setColorFilter", palette.surface)
+            views.setTextViewText(R.id.widget_title, title)
+            views.setTextColor(R.id.widget_title, palette.textSecondary)
+            views.setTextViewText(R.id.widget_value, valueText)
+            views.setTextColor(R.id.widget_value, palette.accent)
+            views.setTextViewText(R.id.widget_subtitle, subtitle)
+            views.setTextColor(R.id.widget_subtitle, palette.textSecondary)
+            views.setViewVisibility(R.id.widget_subtitle, if (showSubtitle) View.VISIBLE else View.GONE)
 
             val clickIntent = Intent(context, EditCountdownActivity::class.java).apply {
                 countdownId?.let { putExtra(EditCountdownActivity.EXTRA_COUNTDOWN_ID, it) }
@@ -84,6 +115,15 @@ class CountdownWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
         WidgetUpdateScheduler.schedule(context)
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle
+    ) {
+        updateWidget(context, appWidgetManager, appWidgetId)
     }
 
     override fun onReceive(context: Context, intent: Intent) {

@@ -3,13 +3,17 @@ package com.claudecode.countdown.widget
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.ListView
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.claudecode.countdown.EditCountdownActivity
 import com.claudecode.countdown.R
+import com.claudecode.countdown.ThemeManager
 import com.claudecode.countdown.data.CountdownRepository
 import com.claudecode.countdown.model.Countdown
 import java.text.SimpleDateFormat
@@ -33,6 +37,7 @@ class WidgetConfigureActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setResult(RESULT_CANCELED)
         setContentView(R.layout.activity_widget_configure)
+        ThemeManager.apply(this)
 
         appWidgetId = intent.extras?.getInt(
             AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID
@@ -62,7 +67,11 @@ class WidgetConfigureActivity : AppCompatActivity() {
         val listView = findViewById<ListView>(R.id.list_configure)
         val fmt = SimpleDateFormat("d MMMM yyyy, HH:mm", Locale("ru"))
         val labels = countdowns.map { "${it.title}\n${fmt.format(it.targetMillis)}" }
-        listView.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, labels)
+        val textColor = ThemeManager.palette(this).text
+        listView.adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, labels) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+                super.getView(position, convertView, parent).also { (it as TextView).setTextColor(textColor) }
+        }
     }
 
     private fun finishConfiguring(countdownId: String) {

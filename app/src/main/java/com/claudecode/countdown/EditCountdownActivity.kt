@@ -35,6 +35,7 @@ class EditCountdownActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_edit_countdown)
+        ThemeManager.apply(this)
 
         editTitle = findViewById(R.id.edit_title)
         textDate = findViewById(R.id.text_selected_date)

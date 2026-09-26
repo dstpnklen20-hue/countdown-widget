@@ -39,6 +39,7 @@ class MainActivity : AppCompatActivity() {
         listView = findViewById(R.id.list_countdowns)
         emptyView = findViewById(R.id.text_empty)
         val fab = findViewById<FloatingActionButton>(R.id.fab_add)
+        val fabSettings = findViewById<FloatingActionButton>(R.id.fab_settings)
 
         adapter = CountdownAdapter(this, mutableListOf())
         listView.adapter = adapter
@@ -54,6 +55,10 @@ class MainActivity : AppCompatActivity() {
             editLauncher.launch(Intent(this, EditCountdownActivity::class.java))
         }
 
+        fabSettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+
         tickRunnable = object : Runnable {
             override fun run() {
                 adapter.notifyDataSetChanged()
@@ -64,6 +69,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Theme may have changed in SettingsActivity.
+        ThemeManager.apply(this)
+        adapter.palette = ThemeManager.palette(this)
         refreshList()
         handler.post(tickRunnable)
     }
@@ -86,6 +94,8 @@ private class CountdownAdapter(
     private var items: MutableList<Countdown>
 ) : ArrayAdapter<Countdown>(context, 0, items) {
 
+    var palette: ThemeManager.Palette = ThemeManager.palette(context)
+
     fun replace(newItems: List<Countdown>) {
         items = newItems.toMutableList()
         clear()
@@ -104,6 +114,7 @@ private class CountdownAdapter(
         titleView.text = countdown.title
         dateView.text = SimpleDateFormat("d MMMM yyyy, HH:mm", Locale("ru")).format(countdown.targetMillis)
         remainingView.text = formatRemaining(countdown.targetMillis)
+        ThemeManager.paint(view, palette)
 
         return view
     }

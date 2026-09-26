@@ -3,6 +3,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
+        android:name=".CountdownApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -22,6 +23,11 @@
 
         <activity
             android:name=".EditCountdownActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CountdownWidget" />
+
+        <activity
+            android:name=".SettingsActivity"
             android:exported="false"
             android:theme="@style/Theme.CountdownWidget" />
 
