@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,10 +24,22 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon -PbuildNumber=${{ github.run_number }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: countdown-widget-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish release (the app checks this for updates)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk countdown-widget.apk
+          gh release create "build-${{ github.run_number }}" countdown-widget.apk \
+            --title "Сборка ${{ github.run_number }}" \
+            --notes "${COMMIT_MSG:-Автоматическая сборка}" \
+            --latest

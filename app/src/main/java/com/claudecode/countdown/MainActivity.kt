@@ -59,6 +59,10 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
+        if (savedInstanceState == null) {
+            Updater.checkForUpdates(this, manual = false)
+        }
+
         tickRunnable = object : Runnable {
             override fun run() {
                 adapter.notifyDataSetChanged()
