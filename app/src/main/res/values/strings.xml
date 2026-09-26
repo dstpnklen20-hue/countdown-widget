@@ -20,5 +20,19 @@
     <string name="mode_system">Системная</string>
     <string name="mode_light">Светлая</string>
     <string name="mode_dark">Тёмная</string>
+    <string name="settings_updates">Обновления</string>
+    <string name="update_version">Текущая версия: %1$s</string>
+    <string name="update_check">Проверить обновления</string>
+    <string name="update_checking">Проверка обновлений…</string>
+    <string name="update_up_to_date">У вас последняя версия</string>
+    <string name="update_downloading">Скачивание версии %1$d…</string>
+    <string name="update_ready">Версия %1$d скачана</string>
+    <string name="update_error">Не удалось проверить обновления</string>
+    <string name="update_available_title">Доступно обновление</string>
+    <string name="update_available_message">Версия %1$d скачана. Установить сейчас? Данные и виджеты сохранятся.</string>
+    <string name="update_install">Установить</string>
+    <string name="update_later">Позже</string>
+    <string name="update_allow_installs">Разрешите приложению устанавливать обновления и вернитесь назад</string>
+    <string name="update_install_failed">Не удалось установить обновление</string>
     <string name="accent_from_theme">Цвет из выбранной темы</string>
 </resources>

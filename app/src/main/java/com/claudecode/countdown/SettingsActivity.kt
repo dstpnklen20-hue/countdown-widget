@@ -23,6 +23,13 @@ class SettingsActivity : AppCompatActivity() {
         containerMode = findViewById(R.id.container_mode)
         containerAccent = findViewById(R.id.container_accent)
         containerPresets = findViewById(R.id.container_presets)
+
+        val textStatus = findViewById<TextView>(R.id.text_update_status)
+        findViewById<TextView>(R.id.text_version).text =
+            getString(R.string.update_version, Updater.currentVersionName(this))
+        findViewById<View>(R.id.btn_check_update).setOnClickListener {
+            Updater.checkForUpdates(this, manual = true) { textStatus.text = it }
+        }
         render()
     }
 

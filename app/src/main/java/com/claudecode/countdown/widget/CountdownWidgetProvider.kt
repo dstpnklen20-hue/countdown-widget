@@ -11,6 +11,7 @@ import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import com.claudecode.countdown.EditCountdownActivity
@@ -25,6 +26,7 @@ class CountdownWidgetProvider : AppWidgetProvider() {
     companion object {
         const val ACTION_REFRESH = "com.claudecode.countdown.ACTION_REFRESH_WIDGETS"
         private const val SUBTITLE_MIN_HEIGHT_DP = 110
+        private const val COMPACT_MAX_WIDTH_DP = 100
 
         fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
             val countdownId = CountdownRepository.getWidgetCountdownId(context, appWidgetId)
@@ -70,20 +72,28 @@ class CountdownWidgetProvider : AppWidgetProvider() {
                 }
             }
 
-            // Number and unit share one auto-sized TextView, so they always fit the widget cell.
-            val valueText = SpannableString(if (unit.isEmpty()) value else "$value $unit")
-            if (unit.isNotEmpty()) {
+            val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
+            val minWidthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)
+            val minHeightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+
+            // Narrow (1x1) widget, only reachable on tablets: number on top, unit underneath.
+            val compact = minWidthDp in 1 until COMPACT_MAX_WIDTH_DP
+
+            val valueText = SpannableString(if (unit.isEmpty() || compact) value else "$value $unit")
+            if (unit.isNotEmpty() && !compact) {
+                // Number and unit share one auto-sized TextView, so they always fit the widget cell.
                 val unitStart = value.length + 1
                 valueText.setSpan(RelativeSizeSpan(0.5f), unitStart, valueText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 valueText.setSpan(ForegroundColorSpan(palette.textSecondary), unitStart, valueText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
 
             // The extra line only fits when the widget is taller than a single row.
-            val minHeightDp = appWidgetManager.getAppWidgetOptions(appWidgetId)
-                .getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
-            val showSubtitle = subtitle.isNotEmpty() && minHeightDp >= SUBTITLE_MIN_HEIGHT_DP
+            val extraLine = if (compact) unit else subtitle
+            val showSubtitle = extraLine.isNotEmpty() && (compact || minHeightDp >= SUBTITLE_MIN_HEIGHT_DP)
+            subtitle = extraLine
 
             views.setInt(R.id.widget_bg, "setColorFilter", palette.surface)
+            views.setTextViewTextSize(R.id.widget_title, TypedValue.COMPLEX_UNIT_SP, if (compact) 10f else 12f)
             views.setTextViewText(R.id.widget_title, title)
             views.setTextColor(R.id.widget_title, palette.textSecondary)
             views.setTextViewText(R.id.widget_value, valueText)

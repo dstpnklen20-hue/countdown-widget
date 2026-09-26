@@ -97,7 +97,25 @@ object ThemeManager {
             s(0x1F1712, 0x33261E, 0xEBDDD0, 0xD2A679)),
         Preset("mono", "Монохром",
             s(0xFFFFFF, 0xEEEEEE, 0x000000, 0x000000),
-            s(0x000000, 0x161616, 0xFFFFFF, 0xE0E0E0))
+            s(0x000000, 0x161616, 0xFFFFFF, 0xE0E0E0)),
+        Preset("win11", "Windows 11",
+            s(0xF3F3F3, 0xE6E6E6, 0x1B1B1B, 0x0067C0),
+            s(0x202020, 0x2C2C2C, 0xFFFFFF, 0x60CDFF)),
+        Preset("win11blue", "Windows 11 Синяя",
+            s(0xDCE9F8, 0xC6DBF3, 0x0B2545, 0x0063B1),
+            s(0x0B1F3A, 0x16345C, 0xE8F1FF, 0x4CC2FF)),
+        Preset("win10", "Windows 10",
+            s(0xFFFFFF, 0xE6E6E6, 0x000000, 0x0078D7),
+            s(0x1F1F1F, 0x2D2D2D, 0xFFFFFF, 0x0078D7)),
+        Preset("wincontrast", "Windows Контраст",
+            s(0xFFFFFF, 0xE8E8E8, 0x000000, 0x0000CC),
+            s(0x000000, 0x1A1A1A, 0xFFFFFF, 0xFFFF00)),
+        Preset("winaurora", "Windows Аврора",
+            s(0xE4F5F3, 0xCFEAE6, 0x0C2F33, 0x00796B),
+            s(0x0E2A2F, 0x143A41, 0xDDF3F1, 0x3DDAD0)),
+        Preset("midnight", "Полночь",
+            s(0xE8ECFA, 0xD6DDF3, 0x141B3A, 0x3D5AFE),
+            s(0x0A0F1F, 0x121A33, 0xE1E7FF, 0x6C8CFF))
     )
 
     val ACCENTS: List<Int> = listOf(
