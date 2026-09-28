@@ -1,13 +1,10 @@
 <resources>
     <string name="app_name">Tik Tak</string>
-    <string name="add_countdown">Добавить отсчёт</string>
-    <string name="empty_list">Пока нет ни одного отсчёта.\nНажмите «+», чтобы добавить.</string>
     <string name="hint_title">Название события</string>
     <string name="pick_date_time">Выбрать дату и время</string>
     <string name="save">Сохранить</string>
     <string name="delete">Удалить</string>
     <string name="error_empty_title">Введите название</string>
-    <string name="arrived">Событие наступило</string>
     <string name="widget_not_configured">Нажмите, чтобы настроить</string>
     <string name="widget_arrived">Наступило!</string>
     <string name="widget_description">Обратный отсчёт времени до заданной даты на главном экране</string>
