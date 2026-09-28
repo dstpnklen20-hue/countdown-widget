@@ -59,6 +59,7 @@ import com.claudecode.countdown.domain.allDayDue
 import com.claudecode.countdown.domain.localTimeOf
 import com.claudecode.countdown.domain.timedDue
 import com.claudecode.countdown.domain.today
+import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
@@ -133,7 +134,10 @@ fun TextInputDialog(
 ) {
     var text by remember { mutableStateOf(initial) }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(Unit) {
+        awaitFrame()
+        runCatching { focus.requestFocus() }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },

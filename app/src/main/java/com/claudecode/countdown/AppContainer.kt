@@ -6,6 +6,8 @@ import com.claudecode.countdown.data.TaskRepository
 import com.claudecode.countdown.data.db.AppDatabase
 import com.claudecode.countdown.reminders.ReminderScheduler
 import com.claudecode.countdown.widget.CountdownWidgetProvider
+import com.claudecode.countdown.widget.QuickAddWidget
+import com.claudecode.countdown.widget.TodayWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,7 +22,17 @@ class AppContainer(private val context: Context) {
     /** Everything that mirrors task data outside the app: widgets and the reminder alarm. */
     fun onDataChanged() {
         CountdownWidgetProvider.updateAllWidgets(context)
+        appScope.launch { TodayWidget.refresh(context) }
         appScope.launch { reminders.reschedule() }
+    }
+
+    /** After a theme change every widget has to be redrawn with the new colors. */
+    fun refreshAllWidgets() {
+        CountdownWidgetProvider.updateAllWidgets(context)
+        appScope.launch {
+            TodayWidget.refresh(context)
+            QuickAddWidget.refresh(context)
+        }
     }
 }
 

@@ -11,8 +11,19 @@ import com.claudecode.countdown.data.db.DisplayMode
 import com.claudecode.countdown.data.db.Reminder
 import com.claudecode.countdown.data.db.newId
 import com.claudecode.countdown.data.db.now
+import com.claudecode.countdown.data.db.Priority
+import com.claudecode.countdown.domain.Due
+import com.claudecode.countdown.domain.TaskFilter
+import com.claudecode.countdown.domain.allDayDue
+import com.claudecode.countdown.domain.groupTasks
+import com.claudecode.countdown.domain.matches
 import com.claudecode.countdown.domain.nextOccurrence
+import com.claudecode.countdown.domain.parseQuickAdd
+import com.claudecode.countdown.domain.timedDue
+import com.claudecode.countdown.domain.today
 import androidx.room.withTransaction
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 
 /**
  * Single write path for tasks and their satellites. [onChanged] refreshes widgets and alarms
@@ -50,6 +61,50 @@ class TaskRepository(
         }
         onChanged()
         return created
+    }
+
+    /**
+     * Quick add with natural-language parsing. Values picked with buttons win over the text;
+     * otherwise tasks inherit list, tag or date from the view they are added in.
+     */
+    suspend fun quickAdd(text: String, filter: TaskFilter, pickedDue: Due?, pickedPriority: Int): Task {
+        val parsed = parseQuickAdd(text)
+        val listId = parsed.listName?.let { name -> lists.all().firstOrNull { it.name.equals(name, ignoreCase = true) }?.id }
+            ?: (filter as? TaskFilter.ListFilter)?.listId
+            ?: TaskList.INBOX_ID
+        val parsedDue = parsed.date?.let { d -> parsed.time?.let { timedDue(d, it) } ?: allDayDue(d) }
+        val due = pickedDue ?: parsedDue ?: when (filter) {
+            TaskFilter.Today, TaskFilter.Next7Days -> allDayDue(today())
+            TaskFilter.Tomorrow -> allDayDue(today().plusDays(1))
+            else -> null
+        }
+        val filterTag = (filter as? TaskFilter.TagFilter)?.let { tags.get(it.tagId)?.name }
+        val created = create(
+            Task(
+                title = parsed.title.ifBlank { text.trim() },
+                listId = listId,
+                priority = if (pickedPriority != Priority.NONE) pickedPriority else parsed.priority ?: Priority.NONE,
+                dueAt = due?.at,
+                isAllDay = due?.isAllDay ?: false,
+                timeZone = due?.timeZone,
+                repeatRule = parsed.repeat?.toRRule(),
+            ),
+            (parsed.tags + listOfNotNull(filterTag)).distinct(),
+        )
+        if (due != null && !due.isAllDay) addReminder(created.id, 0)
+        return created
+    }
+
+    /** Open top-level tasks for today plus overdue ones, in list order. */
+    suspend fun todayTasks(): List<Task> = todayOf(tasks.topLevel(), lists.all())
+
+    fun observeTodayTasks(): Flow<List<Task>> = combine(tasks.observeTopLevel(), lists.observeAll(), ::todayOf)
+
+    private fun todayOf(all: List<Task>, allLists: List<TaskList>): List<Task> {
+        val listIds = allLists.mapTo(HashSet()) { it.id }
+        val today = today()
+        val open = all.filter { it.listId in listIds && !it.isDone && matches(TaskFilter.Today, it, emptySet(), today) }
+        return groupTasks(TaskFilter.Today, open, now(), today).flatMap { it.tasks }
     }
 
     suspend fun update(task: Task) {

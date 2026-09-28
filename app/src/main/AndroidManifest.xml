@@ -49,6 +49,7 @@
 
         <receiver
             android:name=".widget.CountdownWidgetProvider"
+            android:label="@string/widget_countdown_label"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -81,6 +82,38 @@
         <receiver
             android:name=".reminders.ReminderActionReceiver"
             android:exported="false" />
+
+        <activity
+            android:name=".QuickAddActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.CountdownWidget.Translucent" />
+
+        <receiver
+            android:name=".widget.TodayWidgetReceiver"
+            android:label="@string/widget_today_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.QuickAddWidgetReceiver"
+            android:label="@string/widget_quick_add_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quick_add_widget_info" />
+        </receiver>
 
     </application>
 </manifest>

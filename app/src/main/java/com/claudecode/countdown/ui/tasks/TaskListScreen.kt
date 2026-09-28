@@ -82,6 +82,7 @@ import com.claudecode.countdown.ui.PriorityCheckbox
 import com.claudecode.countdown.ui.PriorityMenu
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import com.claudecode.countdown.domain.parseQuickAdd
 import com.claudecode.countdown.domain.today
 import com.claudecode.countdown.ui.formatDay
 import com.claudecode.countdown.ui.priorityName
@@ -91,6 +92,7 @@ import com.claudecode.countdown.ui.formatCountdown
 import com.claudecode.countdown.ui.formatDue
 import com.claudecode.countdown.ui.groupTitle
 import com.claudecode.countdown.ui.priorityColor
+import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -403,7 +405,7 @@ private fun ParsedPreview(parsed: QuickAddResult, pickedDue: Due?, pickedPriorit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> Unit) {
+fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var text by remember { mutableStateOf("") }
     var due by remember { mutableStateOf<Due?>(null) }
@@ -411,7 +413,6 @@ private fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> U
     var pickDate by remember { mutableStateOf(false) }
     var priorityMenu by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
 
     fun submit() {
         if (text.isBlank()) return
@@ -426,7 +427,7 @@ private fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> U
             TextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("Например: завтра в 10 позвонить !высокий #работа") },
+                placeholder = { Text("завтра в 10 позвонить !высокий #работа", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
@@ -438,6 +439,11 @@ private fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> U
                     unfocusedIndicatorColor = Color.Transparent,
                 ),
             )
+            // The sheet lives in its own window: focus only after the field is attached there.
+            LaunchedEffect(Unit) {
+                awaitFrame()
+                runCatching { focus.requestFocus() }
+            }
             val parsed = remember(text) { if (text.isBlank()) null else parseQuickAdd(text) }
             if (parsed != null) ParsedPreview(parsed, due, priority)
             Row(verticalAlignment = Alignment.CenterVertically) {

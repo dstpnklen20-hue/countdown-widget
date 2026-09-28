@@ -20,7 +20,7 @@ object CountdownRepository {
     private fun Task.toCountdown() = Countdown(id, title, dueAt ?: 0L)
 
     fun getAll(context: Context): List<Countdown> = io {
-        context.container.database.taskDao().countdowns().map { it.toCountdown() }
+        context.container.database.taskDao().widgetCandidates().map { it.toCountdown() }
     }
 
     fun get(context: Context, id: String): Countdown? = io {

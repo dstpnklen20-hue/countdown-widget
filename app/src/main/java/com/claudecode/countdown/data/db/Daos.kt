@@ -42,8 +42,12 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE deleted = 0 AND displayMode = 'COUNTDOWN' AND dueAt IS NOT NULL ORDER BY dueAt")
     suspend fun countdowns(): List<Task>
 
-    @Query("SELECT * FROM tasks WHERE deleted = 0 AND status = 'OPEN' AND dueAt IS NOT NULL")
-    suspend fun openWithDueDate(): List<Task>
+    /** Tasks a countdown widget can show: countdowns first, then other open dated tasks. */
+    @Query(
+        "SELECT * FROM tasks WHERE deleted = 0 AND status = 'OPEN' AND dueAt IS NOT NULL " +
+            "ORDER BY displayMode = 'COUNTDOWN' DESC, dueAt"
+    )
+    suspend fun widgetCandidates(): List<Task>
 
     @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM tasks")
     suspend fun maxSortOrder(): Long
@@ -119,6 +123,9 @@ interface TagDao {
 
     @Query("SELECT * FROM tags WHERE deleted = 0 ORDER BY sortOrder, name")
     fun observeAll(): Flow<List<Tag>>
+
+    @Query("SELECT * FROM tags WHERE id = :id AND deleted = 0")
+    suspend fun get(id: String): Tag?
 
     @Query("SELECT * FROM tags WHERE deleted = 0 AND name = :name COLLATE NOCASE LIMIT 1")
     suspend fun findByName(name: String): Tag?
