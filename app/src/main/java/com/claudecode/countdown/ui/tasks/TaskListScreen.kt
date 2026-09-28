@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -70,6 +71,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.claudecode.countdown.data.db.DisplayMode
+import com.claudecode.countdown.data.db.ListViewMode
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.ViewKanban
 import com.claudecode.countdown.data.db.Priority
 import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.data.db.TaskList
@@ -108,6 +112,7 @@ fun TaskListScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showQuickAdd by remember { mutableStateOf(false) }
+    val list = (filter as? TaskFilter.ListFilter)?.let { snapshot.listsById[it.listId] }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -128,11 +133,22 @@ fun TaskListScreen(
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Filled.Menu, "Меню") }
                     },
+                    actions = {
+                        if (list != null) {
+                            val kanban = list.viewMode == ListViewMode.KANBAN
+                            IconButton(onClick = { vm.setViewMode(list, if (kanban) ListViewMode.LIST else ListViewMode.KANBAN) }) {
+                                Icon(
+                                    if (kanban) Icons.AutoMirrored.Filled.ViewList else Icons.Filled.ViewKanban,
+                                    if (kanban) "Показать списком" else "Показать канбаном",
+                                )
+                            }
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 )
             },
             floatingActionButton = {
-                if (filter != TaskFilter.Completed) {
+                if (filter != TaskFilter.Completed && list?.viewMode != ListViewMode.KANBAN) {
                     FloatingActionButton(
                         onClick = { showQuickAdd = true },
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -141,13 +157,17 @@ fun TaskListScreen(
                 }
             },
         ) { padding ->
-            TaskGroupsList(
-                vm = vm,
-                snapshot = snapshot,
-                filter = filter,
-                onOpenTask = onOpenTask,
-                contentPadding = padding,
-            )
+            if (list != null && list.viewMode == ListViewMode.KANBAN) {
+                KanbanBoard(vm, snapshot, list, onOpenTask, padding)
+            } else {
+                TaskGroupsList(
+                    vm = vm,
+                    snapshot = snapshot,
+                    filter = filter,
+                    onOpenTask = onOpenTask,
+                    contentPadding = padding,
+                )
+            }
         }
     }
 
@@ -301,14 +321,23 @@ private fun SwipeableTaskRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TaskRow(task: Task, snapshot: Snapshot, showList: Boolean, onToggle: () -> Unit, onClick: () -> Unit) {
+fun TaskRow(
+    task: Task,
+    snapshot: Snapshot,
+    showList: Boolean,
+    onToggle: () -> Unit,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    compact: Boolean = false,
+) {
     val scheme = MaterialTheme.colorScheme
     Row(
         Modifier
             .fillMaxWidth()
             .background(scheme.background)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 4.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -322,7 +351,7 @@ fun TaskRow(task: Task, snapshot: Snapshot, showList: Boolean, onToggle: () -> U
                 color = if (task.isDone) scheme.onSurfaceVariant else scheme.onSurface,
                 textDecoration = if (task.isDone) TextDecoration.LineThrough else null,
             )
-            val meta = rowMeta(task, snapshot, showList)
+            val meta = rowMeta(task, snapshot, showList).let { if (compact) it.take(1) else it }
             if (meta.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 2.dp)) {
                     for ((text, color) in meta) {
@@ -336,7 +365,7 @@ fun TaskRow(task: Task, snapshot: Snapshot, showList: Boolean, onToggle: () -> U
                 }
             }
         }
-        if (task.displayMode == DisplayMode.COUNTDOWN && task.dueAt != null && !task.isDone) {
+        if (!compact && task.displayMode == DisplayMode.COUNTDOWN && task.dueAt != null && !task.isDone) {
             Text(
                 formatCountdown(task.dueAt - snapshot.now),
                 style = MaterialTheme.typography.labelLarge,

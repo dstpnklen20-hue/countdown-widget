@@ -6,6 +6,8 @@ import com.claudecode.countdown.data.TaskRepository
 import com.claudecode.countdown.data.db.Folder
 import com.claudecode.countdown.data.db.Progress
 import com.claudecode.countdown.data.db.Tag
+import com.claudecode.countdown.data.db.Section
+import com.claudecode.countdown.data.db.ListViewMode
 import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.data.db.TaskList
 import com.claudecode.countdown.data.db.TaskTagName
@@ -33,6 +35,7 @@ data class Snapshot(
     val lists: List<TaskList> = emptyList(),
     val folders: List<Folder> = emptyList(),
     val tags: List<Tag> = emptyList(),
+    val sections: List<Section> = emptyList(),
     val now: Long = now(),
     val today: LocalDate = today(),
     val loaded: Boolean = false,
@@ -75,13 +78,16 @@ class TasksViewModel(private val repo: TaskRepository) : ViewModel() {
     private val progress = combine(repo.observeChecklistProgress(), repo.observeSubtaskProgress()) { c, s ->
         c.associateBy { it.taskId } to s.associateBy { it.taskId }
     }
-    private val structure = combine(repo.observeLists(), repo.observeFolders(), repo.observeTags()) { l, f, t ->
-        Triple(l, f, t)
+    private class Structure(val lists: List<TaskList>, val folders: List<Folder>, val tags: List<Tag>, val sections: List<Section>)
+
+    private val structure = combine(repo.observeLists(), repo.observeFolders(), repo.observeTags(), repo.observeSections()) { l, f, t, s ->
+        Structure(l, f, t, s)
     }
 
     val snapshot: StateFlow<Snapshot> = combine(
         repo.observeTopLevel(), repo.observeTaskTags(), progress, structure, minuteClock,
-    ) { tasks, taskTags, (checklist, subtasks), (lists, folders, tags), clock ->
+    ) { tasks, taskTags, (checklist, subtasks), st, clock ->
+        val lists = st.lists
         val listIds = lists.mapTo(HashSet()) { it.id }
         Snapshot(
             tasks = tasks.filter { it.listId in listIds },
@@ -89,8 +95,9 @@ class TasksViewModel(private val repo: TaskRepository) : ViewModel() {
             checklist = checklist,
             subtasks = subtasks,
             lists = lists,
-            folders = folders,
-            tags = tags,
+            folders = st.folders,
+            tags = st.tags,
+            sections = st.sections,
             now = clock,
             today = today(),
             loaded = true,
@@ -115,4 +122,20 @@ class TasksViewModel(private val repo: TaskRepository) : ViewModel() {
     fun deleteFolder(folder: Folder) = viewModelScope.launch { repo.deleteFolder(folder) }
     fun updateTag(tag: Tag) = viewModelScope.launch { repo.updateTag(tag) }
     fun deleteTag(tag: Tag) = viewModelScope.launch { repo.deleteTag(tag) }
+
+    fun setViewMode(list: TaskList, mode: ListViewMode) = viewModelScope.launch { repo.updateList(list.copy(viewMode = mode)) }
+    fun createSection(listId: String, name: String) = viewModelScope.launch { repo.createSection(listId, name) }
+    fun renameSection(section: Section, name: String) = viewModelScope.launch { repo.updateSection(section.copy(name = name)) }
+    fun deleteSection(section: Section) = viewModelScope.launch { repo.deleteSection(section) }
+    fun moveToSection(task: Task, sectionId: String?) = viewModelScope.launch { repo.update(task.copy(sectionId = sectionId)) }
+    fun setPriority(task: Task, priority: Int) = viewModelScope.launch { repo.update(task.copy(priority = priority)) }
+
+    fun addTask(title: String, listId: String, sectionId: String? = null, due: Due? = null) = viewModelScope.launch {
+        repo.create(
+            Task(
+                title = title, listId = listId, sectionId = sectionId,
+                dueAt = due?.at, isAllDay = due?.isAllDay ?: false, timeZone = due?.timeZone,
+            )
+        )
+    }
 }

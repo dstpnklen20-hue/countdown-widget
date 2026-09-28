@@ -9,6 +9,7 @@ import com.claudecode.countdown.data.db.TaskList
 import com.claudecode.countdown.data.db.TaskStatus
 import com.claudecode.countdown.data.db.DisplayMode
 import com.claudecode.countdown.data.db.Reminder
+import com.claudecode.countdown.data.db.Section
 import com.claudecode.countdown.data.db.newId
 import com.claudecode.countdown.data.db.now
 import com.claudecode.countdown.data.db.Priority
@@ -39,6 +40,7 @@ class TaskRepository(
     private val lists = db.taskListDao()
     private val folders = db.folderDao()
     private val reminders = db.reminderDao()
+    private val sections = db.sectionDao()
 
     fun observeTopLevel() = tasks.observeTopLevel()
     fun observeTask(id: String) = tasks.observe(id)
@@ -219,6 +221,21 @@ class TaskRepository(
         db.withTransaction {
             tasks.softDeleteInList(list.id)
             lists.upsert(list.copy(deleted = true, updatedAt = now()))
+        }
+        onChanged()
+    }
+
+    fun observeSections() = sections.observeAll()
+
+    suspend fun createSection(listId: String, name: String): Section =
+        Section(listId = listId, name = name, sortOrder = sections.maxSortOrder(listId) + 1).also { sections.upsert(it) }
+
+    suspend fun updateSection(section: Section) = sections.upsert(section.copy(updatedAt = now()))
+
+    suspend fun deleteSection(section: Section) {
+        db.withTransaction {
+            sections.detachTasks(section.id)
+            sections.softDelete(section.id)
         }
         onChanged()
     }

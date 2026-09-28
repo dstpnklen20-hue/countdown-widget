@@ -17,6 +17,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun taskListDao(): TaskListDao
     abstract fun folderDao(): FolderDao
+    abstract fun sectionDao(): SectionDao
     abstract fun tagDao(): TagDao
     abstract fun checklistDao(): ChecklistDao
     abstract fun reminderDao(): ReminderDao

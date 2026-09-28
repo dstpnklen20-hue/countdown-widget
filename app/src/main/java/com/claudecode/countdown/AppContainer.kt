@@ -28,11 +28,13 @@ class AppContainer(private val context: Context) {
 
     /** After a theme change every widget has to be redrawn with the new colors. */
     fun refreshAllWidgets() {
+        appScope.launch { redrawWidgets() }
+    }
+
+    suspend fun redrawWidgets() {
         CountdownWidgetProvider.updateAllWidgets(context)
-        appScope.launch {
-            TodayWidget.refresh(context)
-            QuickAddWidget.refresh(context)
-        }
+        TodayWidget.refresh(context)
+        QuickAddWidget.refresh(context)
     }
 }
 

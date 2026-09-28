@@ -5,7 +5,21 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.claudecode.countdown.ui.matrix.MatrixScreen
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -22,6 +36,11 @@ import com.claudecode.countdown.ui.detail.TaskDetailScreen
 import com.claudecode.countdown.ui.detail.TaskDetailViewModel
 import com.claudecode.countdown.ui.tasks.TaskListScreen
 import com.claudecode.countdown.ui.tasks.TasksViewModel
+
+enum class HomeTab(val label: String, val icon: ImageVector) {
+    TASKS("Задачи", Icons.Outlined.CheckCircle),
+    MATRIX("Матрица", Icons.Outlined.GridView),
+}
 
 // Keeps its historical name: launchers pin shortcuts to this class.
 class MainActivity : AppCompatActivity() {
@@ -77,17 +96,39 @@ class MainActivity : AppCompatActivity() {
     private fun AppNavHost(nav: NavHostController, tasksVm: TasksViewModel) {
         val snapshot by tasksVm.snapshot.collectAsStateWithLifecycle()
         var filterKey by rememberSaveable { mutableStateOf(TaskFilter.Inbox.key) }
+        var tab by rememberSaveable { mutableStateOf(HomeTab.TASKS) }
+        val openTask: (String) -> Unit = { nav.navigate("task/$it") }
 
         NavHost(nav, startDestination = "home") {
             composable("home") {
-                TaskListScreen(
-                    vm = tasksVm,
-                    snapshot = snapshot,
-                    filter = TaskFilter.parse(filterKey),
-                    onFilterChange = { filterKey = it.key },
-                    onOpenTask = { nav.navigate("task/$it") },
-                    onOpenSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
-                )
+                Scaffold(
+                    bottomBar = {
+                        NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                            for (t in HomeTab.entries) {
+                                NavigationBarItem(
+                                    selected = tab == t,
+                                    onClick = { tab = t },
+                                    icon = { Icon(t.icon, null) },
+                                    label = { Text(t.label, maxLines = 1) },
+                                )
+                            }
+                        }
+                    },
+                ) { padding ->
+                    Box(Modifier.padding(padding)) {
+                        when (tab) {
+                            HomeTab.TASKS -> TaskListScreen(
+                                vm = tasksVm,
+                                snapshot = snapshot,
+                                filter = TaskFilter.parse(filterKey),
+                                onFilterChange = { filterKey = it.key },
+                                onOpenTask = openTask,
+                                onOpenSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
+                            )
+                            HomeTab.MATRIX -> MatrixScreen(tasksVm, snapshot, openTask)
+                        }
+                    }
+                }
             }
             composable("task/{id}") { entry ->
                 val id = entry.arguments?.getString("id").orEmpty()

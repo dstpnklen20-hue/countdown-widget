@@ -102,6 +102,24 @@ interface TaskListDao {
 }
 
 @Dao
+interface SectionDao {
+    @Upsert
+    suspend fun upsert(section: Section)
+
+    @Query("SELECT * FROM sections WHERE deleted = 0 ORDER BY sortOrder, createdAt")
+    fun observeAll(): Flow<List<Section>>
+
+    @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM sections WHERE listId = :listId")
+    suspend fun maxSortOrder(listId: String): Long
+
+    @Query("UPDATE tasks SET sectionId = NULL, updatedAt = :at WHERE sectionId = :id")
+    suspend fun detachTasks(id: String, at: Long = now())
+
+    @Query("UPDATE sections SET deleted = 1, updatedAt = :at WHERE id = :id")
+    suspend fun softDelete(id: String, at: Long = now())
+}
+
+@Dao
 interface FolderDao {
     @Upsert
     suspend fun upsert(folder: Folder)
