@@ -74,6 +74,9 @@ interface ChecklistDao {
 
     @Query("UPDATE checklist_items SET deleted = 1, updatedAt = :at WHERE id = :id")
     suspend fun softDelete(id: String, at: Long = now())
+
+    @Query("UPDATE checklist_items SET checked = 0, updatedAt = :at WHERE taskId = :taskId AND checked = 1")
+    suspend fun uncheckAll(taskId: String, at: Long = now())
 }
 
 @Dao

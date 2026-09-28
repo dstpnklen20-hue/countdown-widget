@@ -9,7 +9,10 @@ import com.claudecode.countdown.data.TaskRepository
 import com.claudecode.countdown.data.db.ChecklistItem
 import com.claudecode.countdown.data.db.DisplayMode
 import com.claudecode.countdown.data.db.Task
+import com.claudecode.countdown.data.db.RepeatFrom
 import com.claudecode.countdown.domain.Due
+import com.claudecode.countdown.domain.allDayDue
+import com.claudecode.countdown.domain.today
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -92,6 +95,14 @@ class TaskDetailViewModel(
 
     fun setDue(due: Due?) = mutate {
         it.copy(dueAt = due?.at, isAllDay = due?.isAllDay ?: false, timeZone = due?.timeZone)
+    }
+
+    fun setRepeat(rule: String?, from: RepeatFrom) = mutate {
+        val withDate = if (rule != null && it.dueAt == null) {
+            val due = allDayDue(today())
+            it.copy(dueAt = due.at, isAllDay = true, timeZone = due.timeZone)
+        } else it
+        withDate.copy(repeatRule = rule, repeatFrom = from)
     }
 
     fun setPriority(priority: Int) = mutate { it.copy(priority = priority) }

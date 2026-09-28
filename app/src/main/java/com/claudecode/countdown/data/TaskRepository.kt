@@ -7,7 +7,10 @@ import com.claudecode.countdown.data.db.Tag
 import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.data.db.TaskList
 import com.claudecode.countdown.data.db.TaskStatus
+import com.claudecode.countdown.data.db.DisplayMode
+import com.claudecode.countdown.data.db.newId
 import com.claudecode.countdown.data.db.now
+import com.claudecode.countdown.domain.nextOccurrence
 import androidx.room.withTransaction
 
 /**
@@ -52,12 +55,37 @@ class TaskRepository(
         onChanged()
     }
 
+    /**
+     * Completing a repeating task keeps it open and moves it to the next occurrence; a completed
+     * copy is stored for history. The original id is kept so widgets and reminders follow the series.
+     */
     suspend fun setDone(task: Task, done: Boolean) {
         val at = now()
-        update(
-            if (done) task.copy(status = TaskStatus.DONE, completedAt = at)
-            else task.copy(status = TaskStatus.OPEN, completedAt = null)
-        )
+        if (!done) {
+            update(task.copy(status = TaskStatus.OPEN, completedAt = null))
+            return
+        }
+        val next = task.nextOccurrence(at)
+        if (next == null) {
+            update(task.copy(status = TaskStatus.DONE, completedAt = at))
+            return
+        }
+        db.withTransaction {
+            tasks.upsert(
+                task.copy(
+                    id = newId(),
+                    status = TaskStatus.DONE,
+                    completedAt = at,
+                    repeatRule = null,
+                    displayMode = DisplayMode.NORMAL,
+                    createdAt = at,
+                    updatedAt = at,
+                )
+            )
+            tasks.upsert(next.copy(updatedAt = at))
+            checklist.uncheckAll(task.id, at)
+        }
+        onChanged()
     }
 
     suspend fun delete(id: String) {

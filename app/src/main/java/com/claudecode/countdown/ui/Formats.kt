@@ -59,7 +59,7 @@ fun formatCountdown(remainingMs: Long, withSeconds: Boolean = false): String {
     val minutes = TimeUnit.MILLISECONDS.toMinutes(remainingMs) % 60
     val seconds = TimeUnit.MILLISECONDS.toSeconds(remainingMs) % 60
     return when {
-        days > 0 -> "$days ${pluralRu(days, "день", "дня", "дней")} $hours ч"
+        days > 0 -> "$days ${pluralRu(days, "день", "дня", "дней")} " + if (withSeconds) "%02d:%02d:%02d".format(hours, minutes, seconds) else "$hours ч"
         hours > 0 -> if (withSeconds) "%d:%02d:%02d".format(hours, minutes, seconds) else "$hours ч $minutes мин"
         else -> if (withSeconds) "%02d:%02d".format(minutes, seconds) else "$minutes мин"
     }

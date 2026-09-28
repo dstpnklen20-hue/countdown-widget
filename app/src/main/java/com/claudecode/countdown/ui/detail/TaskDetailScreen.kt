@@ -27,6 +27,9 @@ import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Repeat
+import com.claudecode.countdown.data.db.RepeatFrom
+import com.claudecode.countdown.domain.repeatDescription
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material3.AssistChip
@@ -99,6 +102,7 @@ fun TaskDetailScreen(
     var listMenu by remember { mutableStateOf(false) }
     var overflow by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var pickRepeat by remember { mutableStateOf(false) }
 
     val t = task
     if (t == null || t.deleted) {
@@ -188,6 +192,25 @@ fun TaskDetailScreen(
                 }
             }
 
+            Row(
+                Modifier
+                    .padding(start = 56.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { pickRepeat = true }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val repeat = t.repeatDescription()
+                val color = if (repeat != null) scheme.primary else scheme.onSurfaceVariant
+                Icon(Icons.Filled.Repeat, null, tint = color, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    repeat?.let { if (t.repeatFrom == RepeatFrom.COMPLETION) "$it (от выполнения)" else it } ?: "Не повторять",
+                    color = color,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
             PlainField(
                 value = vm.title,
                 onValueChange = vm::onTitleChange,
@@ -260,6 +283,15 @@ fun TaskDetailScreen(
             initialAllDay = t.isAllDay,
             onConfirm = { vm.setDue(it); pickDate = false },
             onDismiss = { pickDate = false },
+        )
+    }
+    if (pickRepeat) {
+        RepeatDialog(
+            anchor = t.dueDay() ?: today,
+            currentRule = t.repeatRule,
+            currentFrom = t.repeatFrom,
+            onConfirm = { rule, from -> vm.setRepeat(rule, from); pickRepeat = false },
+            onDismiss = { pickRepeat = false },
         )
     }
     if (confirmDelete) {
