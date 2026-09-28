@@ -8,7 +8,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
+import com.claudecode.countdown.ui.calendar.CalendarScreen
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +41,7 @@ import com.claudecode.countdown.ui.tasks.TasksViewModel
 
 enum class HomeTab(val label: String, val icon: ImageVector) {
     TASKS("Задачи", Icons.Outlined.CheckCircle),
+    CALENDAR("Календарь", Icons.Outlined.CalendarMonth),
     MATRIX("Матрица", Icons.Outlined.GridView),
 }
 
@@ -125,6 +128,7 @@ class MainActivity : AppCompatActivity() {
                                 onOpenTask = openTask,
                                 onOpenSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
                             )
+                            HomeTab.CALENDAR -> CalendarScreen(tasksVm, snapshot, openTask)
                             HomeTab.MATRIX -> MatrixScreen(tasksVm, snapshot, openTask)
                         }
                     }
