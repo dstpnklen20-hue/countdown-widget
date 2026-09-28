@@ -26,6 +26,17 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Flag
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import com.claudecode.countdown.domain.ALL_DAY_REMINDER_PRESETS
+import com.claudecode.countdown.domain.TIMED_REMINDER_PRESETS
+import com.claudecode.countdown.domain.reminderLabel
+import com.claudecode.countdown.reminders.ReminderNotifier
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Repeat
 import com.claudecode.countdown.data.db.RepeatFrom
@@ -103,6 +114,21 @@ fun TaskDetailScreen(
     var overflow by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var pickRepeat by remember { mutableStateOf(false) }
+    var reminderMenu by remember { mutableStateOf(false) }
+    val reminders by vm.reminders.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+    var notificationsAllowed by remember { mutableStateOf(ReminderNotifier.canNotify(context)) }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        notificationsAllowed = it
+    }
+    fun requestNotifications() {
+        if (!notificationsAllowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    // Setting a time adds a default reminder, so ask for the permission right then.
+    LaunchedEffect(reminders.isNotEmpty()) { if (reminders.isNotEmpty()) requestNotifications() }
 
     val t = task
     if (t == null || t.deleted) {
@@ -231,6 +257,50 @@ fun TaskDetailScreen(
             )
 
             if (t.displayMode == DisplayMode.COUNTDOWN && t.dueAt != null) CountdownCard(t)
+
+            SectionTitle("Напоминания")
+            if (t.dueAt == null) {
+                Text(
+                    "Задайте дату, чтобы добавить напоминание",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                )
+            } else {
+                FlowRow(
+                    Modifier.padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    for (r in reminders) {
+                        InputChip(
+                            selected = false,
+                            onClick = { vm.deleteReminder(r) },
+                            label = { Text(reminderLabel(r.offsetMinutes ?: 0, t.isAllDay)) },
+                            leadingIcon = { Icon(Icons.Outlined.Notifications, null, Modifier.size(16.dp)) },
+                            trailingIcon = { Icon(Icons.Filled.Close, "Убрать", Modifier.size(16.dp)) },
+                        )
+                    }
+                    Box {
+                        AssistChip(onClick = { reminderMenu = true }, label = { Text("+ Напоминание") })
+                        DropdownMenu(reminderMenu, { reminderMenu = false }) {
+                            val presets = if (t.isAllDay) ALL_DAY_REMINDER_PRESETS else TIMED_REMINDER_PRESETS
+                            for (p in presets) {
+                                DropdownMenuItem(text = { Text(p.label) }, onClick = {
+                                    reminderMenu = false
+                                    vm.addReminder(p.offsetMinutes)
+                                    requestNotifications()
+                                })
+                            }
+                        }
+                    }
+                }
+                if (reminders.isNotEmpty() && !notificationsAllowed) {
+                    TextButton(onClick = { requestNotifications() }, modifier = Modifier.padding(horizontal = 12.dp)) {
+                        Text("Уведомления выключены — разрешить", color = scheme.error)
+                    }
+                }
+            }
 
             SectionTitle("Чек-лист")
             for (item in checklist) ChecklistRow(item, vm)

@@ -10,6 +10,7 @@ import com.claudecode.countdown.data.db.ChecklistItem
 import com.claudecode.countdown.data.db.DisplayMode
 import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.data.db.RepeatFrom
+import com.claudecode.countdown.data.db.Reminder
 import com.claudecode.countdown.domain.Due
 import com.claudecode.countdown.domain.allDayDue
 import com.claudecode.countdown.domain.today
@@ -93,9 +94,16 @@ class TaskDetailViewModel(
         repo.get(taskId)?.let { repo.setDone(it, !it.isDone) }
     }
 
-    fun setDue(due: Due?) = mutate {
-        it.copy(dueAt = due?.at, isAllDay = due?.isAllDay ?: false, timeZone = due?.timeZone)
+    fun setDue(due: Due?) = viewModelScope.launch {
+        mutateNow { it.copy(dueAt = due?.at, isAllDay = due?.isAllDay ?: false, timeZone = due?.timeZone) }
+        // Like TickTick: giving a task a time switches on an "at time" reminder by default.
+        if (due != null && !due.isAllDay && reminders.value.isEmpty()) repo.addReminder(taskId, 0)
     }
+
+    val reminders = repo.observeReminders(taskId).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun addReminder(offsetMinutes: Int) = viewModelScope.launch { repo.addReminder(taskId, offsetMinutes) }
+    fun deleteReminder(reminder: Reminder) = viewModelScope.launch { repo.deleteReminder(reminder) }
 
     fun setRepeat(rule: String?, from: RepeatFrom) = mutate {
         val withDate = if (rule != null && it.dueAt == null) {

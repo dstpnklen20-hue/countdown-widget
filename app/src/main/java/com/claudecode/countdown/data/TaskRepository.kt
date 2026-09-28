@@ -8,6 +8,7 @@ import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.data.db.TaskList
 import com.claudecode.countdown.data.db.TaskStatus
 import com.claudecode.countdown.data.db.DisplayMode
+import com.claudecode.countdown.data.db.Reminder
 import com.claudecode.countdown.data.db.newId
 import com.claudecode.countdown.data.db.now
 import com.claudecode.countdown.domain.nextOccurrence
@@ -26,6 +27,7 @@ class TaskRepository(
     private val tags = db.tagDao()
     private val lists = db.taskListDao()
     private val folders = db.folderDao()
+    private val reminders = db.reminderDao()
 
     fun observeTopLevel() = tasks.observeTopLevel()
     fun observeTask(id: String) = tasks.observe(id)
@@ -107,6 +109,26 @@ class TaskRepository(
     suspend fun deleteChecklistItem(item: ChecklistItem) {
         checklist.softDelete(item.id)
         touch(item.taskId)
+    }
+
+    fun observeReminders(taskId: String) = reminders.observeForTask(taskId)
+
+    suspend fun addReminder(taskId: String, offsetMinutes: Int) {
+        if (reminders.forTask(taskId).any { it.offsetMinutes == offsetMinutes && it.absoluteAt == null }) return
+        reminders.upsert(Reminder(taskId = taskId, offsetMinutes = offsetMinutes))
+        touch(taskId)
+    }
+
+    suspend fun deleteReminder(reminder: Reminder) {
+        reminders.softDelete(reminder.id)
+        touch(reminder.taskId)
+    }
+
+    /** Pushes every reminder of the task to fire again in [minutes]. */
+    suspend fun snooze(taskId: String, minutes: Int) {
+        val until = now() + minutes * 60_000L
+        for (r in reminders.forTask(taskId)) reminders.upsert(r.copy(snoozedUntil = until, updatedAt = now()))
+        onChanged()
     }
 
     suspend fun setTags(taskId: String, names: Collection<String>) {

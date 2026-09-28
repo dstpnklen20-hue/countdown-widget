@@ -149,6 +149,33 @@ interface TagDao {
 }
 
 @Dao
+interface ReminderDao {
+    @Upsert
+    suspend fun upsert(reminder: Reminder)
+
+    @Query("SELECT * FROM reminders WHERE deleted = 0 AND taskId = :taskId ORDER BY offsetMinutes")
+    fun observeForTask(taskId: String): Flow<List<Reminder>>
+
+    @Query("SELECT * FROM reminders WHERE deleted = 0 AND taskId = :taskId")
+    suspend fun forTask(taskId: String): List<Reminder>
+
+    @Query(
+        "SELECT r.* FROM reminders r JOIN tasks t ON t.id = r.taskId " +
+            "WHERE r.deleted = 0 AND t.deleted = 0 AND t.status = 'OPEN'"
+    )
+    suspend fun activeReminders(): List<Reminder>
+
+    @Query(
+        "SELECT * FROM tasks WHERE deleted = 0 AND status = 'OPEN' " +
+            "AND id IN (SELECT taskId FROM reminders WHERE deleted = 0)"
+    )
+    suspend fun tasksWithReminders(): List<Task>
+
+    @Query("UPDATE reminders SET deleted = 1, updatedAt = :at WHERE id = :id")
+    suspend fun softDelete(id: String, at: Long = now())
+}
+
+@Dao
 interface WidgetBindingDao {
     @Upsert
     suspend fun upsert(binding: WidgetBinding)
