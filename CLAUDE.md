@@ -1,0 +1,100 @@
+# Tik Tak — инструкция для Claude (прочитай первой)
+
+Android-приложение «Tik Tak» — клон TickTick, выросший из «Обратного отсчёта».
+Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContainer`), Glance-виджеты.
+Статус на 2026-09-28: план (этапы 0–8) выполнен и выпущен релизом `build-10` (версия 2.0.10).
+Дальше — доработки из раздела «Бэклог».
+
+## Как работать с пользователем
+
+- Пишет и читает по-русски; не Android-разработчик.
+- Хочет автономной работы: не спрашивать по каждому решению, делать правильно самому.
+  Цикл на каждый шаг: сделать → собрать → тесты → проверить на эмуляторе (скриншоты) →
+  коммит → push в `tasks` → дождаться зелёного CI → коротко отчитаться, что изменено и как проверить.
+- Спрашивать только про то, что уходит на телефоны пользователей (релиз из `main`).
+
+## Git и релизы
+
+- Работа идёт в ветке `tasks`. Push в `tasks` безопасен: CI собирает только APK-артефакт.
+- Push в `main` = релиз: CI публикует `build-N`, и приложения сами предлагают обновиться.
+  Claude не может пушить в `main` (auto-mode классификатор блокирует это как production deploy).
+  Когда этап готов к релизу — дать пользователю команды:
+  `git checkout main`, `git merge --no-ff tasks -m "…"`, `git push origin main`
+  (сообщение коммита становится описанием релиза), затем проверить CI и релиз через GitHub API
+  (`/repos/dstpnklen20-hue/countdown-widget/actions/runs?branch=main`, `/releases/latest`).
+  После релиза вернуться на `tasks` и сделать `git merge --ff-only main`.
+- `versionCode` = номер запуска CI (`github.run_number`), локальные сборки имеют код 1
+  (автообновление для них отключено).
+- `job_log.txt` в корне — файл пользователя, не коммитить и не удалять.
+
+## Нельзя менять (иначе обновление не встанет или пропадут данные/виджеты)
+
+- `applicationId = com.claudecode.countdown` и `namespace`; ключ подписи (в GitHub Secrets).
+- Имена классов `MainActivity` и `widget.CountdownWidgetProvider`.
+- Имя репозитория GitHub `countdown-widget` (на него смотрит `Updater`).
+- Никогда `fallbackToDestructiveMigration`; старые SharedPreferences (`countdowns_data`,
+  `countdowns_widget_map`) не удалять — это резервная копия данных версии 1.x.
+
+## Локальная среда (Windows)
+
+- JDK 17 и Android SDK установлены в `F:\AndroidDev` (`jdk-17*`, `sdk`, AVD `tiktak` в `F:\AndroidDev\avd`).
+  `local.properties`: `sdk.dir=F:/AndroidDev/sdk` (прямые слэши!). Системный JDK 26 для Gradle 8.7 не подходит.
+- Сборка/тесты: задать `JAVA_HOME` на `F:\AndroidDev\jdk-17*`, затем
+  `gradlew :core:test :app:testDebugUnitTest assembleDebug` (иногда полезно `lintDebug`).
+  Если Bash-инструмент отказывает (сбой классификатора), то же самое работает через PowerShell.
+- Эмулятор: `ANDROID_SDK_ROOT=F:/AndroidDev/sdk ANDROID_AVD_HOME=F:/AndroidDev/avd
+  F:/AndroidDev/sdk/emulator/emulator.exe -avd tiktak -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect`
+  (WHPX работает). В Git Bash для adb ставить `MSYS_NO_PATHCONV=1`, иначе пути `/data/...` портятся.
+  `adb root` даёт `sqlite3` к `/data/data/com.claudecode.countdown/databases/tiktak.db`.
+  Нажатия по тексту: `uiautomator dump` + поиск `text=`/`content-desc=` → `input tap` по центру bounds.
+  `adb input text` не умеет кириллицу — проверять английскими фразами.
+- Проверка обновления со старой версии: собрать коммит `375de6b` в отдельном worktree, установить,
+  положить prefs старого формата, затем поставить новую сборку поверх.
+
+## Архитектура (где что лежит)
+
+- `core/` (чистый Kotlin, быстрые тесты): `RepeatRule` (RRULE: FREQ/INTERVAL/BYDAY/BYMONTHDAY/COUNT/UNTIL),
+  `RepeatText` (описания по-русски), `QuickAddParser` (RU/EN: даты, время, повторы, `!приоритет`, `#тег`, `~список`).
+- `app/.../data/db/`: `Entities.kt` (у синхронизируемых сущностей id UUID, createdAt, updatedAt, deleted),
+  `Daos.kt`, `AppDatabase.kt` (версия 2), `Migrations.kt`, `DatabaseSeeder.kt` (Inbox + импорт отсчётов 1.x).
+- `app/.../data/`: `TaskRepository` (единая точка записи задач; `onChanged` → виджеты и будильник),
+  `HabitRepository`/`FocusRepository`, `CountdownRepository` (мост для старых View-экранов).
+- `app/.../domain/`: умные списки и группировка, повторы задач, напоминания, проекция календаря, статистика привычек.
+- `app/.../ui/`: Compose-экраны (tasks, detail, calendar, matrix, focus, habits), `Theme.kt` (мост к `ThemeManager`).
+- `reminders/` (один точный будильник + «водяной знак» доставленного), `pomodoro/` (состояние в prefs + будильник),
+  `widget/` (RemoteViews-отсчёт, Glance «Сегодня» и «Быстро добавить»), `BootReceiver` (перезагрузка/время/обновление).
+- Всё ещё на старом View: `SettingsActivity`, `EditCountdownActivity`, `widget/WidgetConfigureActivity`.
+
+## Изменение схемы БД
+
+Поднять `version`, собрать (`kspDebugKotlin`) → появится `app/schemas/.../N.json`; скопировать оттуда
+`createSql` в новый `Migration` в `Migrations.kt`, добавить в `ALL_MIGRATIONS`; дополнить `MigrationTest`
+(он строит настоящую базу старой версии из json-схемы и открывает её Room — проверено, что ловит ошибки).
+Проверить на эмуляторе обновление поверх установленной версии.
+
+## Грабли, на которые уже наступали
+
+- Glance: данные наблюдать через Flow ВНУТРИ `provideContent`, иначе `update()` не обновит живую сессию.
+- После обновления APK Glance-виджеты висят на загрузке — `BootReceiver` на `MY_PACKAGE_REPLACED` вызывает `redrawWidgets()`.
+- `FocusRequester.requestFocus()` в `ModalBottomSheet`/диалоге — только после `awaitFrame()` и в `runCatching`.
+- `LazyRow` держит позицию по ключу видимого элемента: вставка слева уходит за экран.
+- Robolectric не видит assets из `test` — поэтому свой `MigrationTest` вместо `MigrationTestHelper`.
+- Debug-сборка (её и публикует CI) ужимается R8 с `-dontobfuscate`; при рефлексии добавить keep-правила.
+- Зависимости закреплены под compileSdk 34 (AGP 8.5.2); обновление библиотек потребует compileSdk 35.
+- `SharedPreferences.commit()` в сидере и планировщике намеренный (флаги должны записаться синхронно).
+
+## Бэклог (по приоритету)
+
+1. Сохранность данных: «Отменить» после удаления (Snackbar) и экран «Корзина» (задачи уже soft-delete);
+   список архивных привычек с возвратом; снимать уведомление задачи при выполнении в приложении.
+2. Своё время напоминания (произвольный offset или абсолютное время), больше вариантов «отложить»;
+   подсказка, если на Android 12 отозвано право на точные будильники.
+3. Поиск по задачам; экспорт/импорт всех данных в JSON-файл (резервная копия до появления синхронизации).
+4. Экран настройки виджета отсчёта на Compose (выбор задачи/создание отсчёта), превью виджетов (`previewLayout`).
+5. Перетаскивание: порядок задач в списке (`sortOrder` уже есть), колонки Канбана, перенос в календаре.
+6. Кнопка «Фокус» на экране задачи и суммарное время фокуса по задаче.
+7. Двухпанельный режим для планшетов; английская локализация интерфейса (строки пока в Kotlin).
+8. Настройки на Compose; обновить устаревшие GitHub Actions (`actions/setup-java@v5` и др.).
+9. На потом: синхронизация (у `task_tags` нет полей синхронизации — добавить миграцией), бэкенд.
+
+Не проверено вручную на устройстве: уведомление-напоминание привычки, тёмная тема новых экранов, планшет.
