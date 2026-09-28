@@ -80,6 +80,13 @@ import com.claudecode.countdown.domain.isOverdue
 import com.claudecode.countdown.ui.DueDateDialog
 import com.claudecode.countdown.ui.PriorityCheckbox
 import com.claudecode.countdown.ui.PriorityMenu
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import com.claudecode.countdown.domain.today
+import com.claudecode.countdown.ui.formatDay
+import com.claudecode.countdown.ui.priorityName
+import com.claudecode.tiktak.core.QuickAddResult
+import com.claudecode.tiktak.core.describe
 import com.claudecode.countdown.ui.formatCountdown
 import com.claudecode.countdown.ui.formatDue
 import com.claudecode.countdown.ui.groupTitle
@@ -360,6 +367,40 @@ private fun rowMeta(task: Task, snapshot: Snapshot, showList: Boolean): List<Pai
     return out
 }
 
+/** Shows what the parser understood; values picked with buttons take precedence. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ParsedPreview(parsed: QuickAddResult, pickedDue: Due?, pickedPriority: Int) {
+    val today = today()
+    val chips = buildList {
+        val date = parsed.date
+        if (pickedDue == null && date != null) {
+            add("📅 " + formatDay(date, today) + (parsed.time?.let { ", %02d:%02d".format(it.hour, it.minute) } ?: ""))
+        }
+        parsed.repeat?.let { add("⟳ " + it.describe()) }
+        if (pickedPriority == Priority.NONE) parsed.priority?.let { add("⚑ " + priorityName(it)) }
+        parsed.tags.forEach { add("#$it") }
+        parsed.listName?.let { add("~$it") }
+    }
+    if (chips.isEmpty()) return
+    FlowRow(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        for (chip in chips) {
+            Text(
+                chip,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primaryContainer, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> Unit) {
@@ -385,7 +426,7 @@ private fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> U
             TextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("Что нужно сделать?") },
+                placeholder = { Text("Например: завтра в 10 позвонить !высокий #работа") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
@@ -397,6 +438,8 @@ private fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> U
                     unfocusedIndicatorColor = Color.Transparent,
                 ),
             )
+            val parsed = remember(text) { if (text.isBlank()) null else parseQuickAdd(text) }
+            if (parsed != null) ParsedPreview(parsed, due, priority)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { pickDate = true }) {
                     Icon(

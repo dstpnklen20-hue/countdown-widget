@@ -10,7 +10,13 @@ import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.data.db.TaskList
 import com.claudecode.countdown.data.db.TaskTagName
 import com.claudecode.countdown.data.db.now
+import com.claudecode.countdown.data.db.Priority
+import com.claudecode.countdown.domain.Due
 import com.claudecode.countdown.domain.TaskFilter
+import com.claudecode.countdown.domain.timedDue
+import com.claudecode.tiktak.core.QuickAddParser
+import com.claudecode.tiktak.core.QuickAddResult
+import java.time.LocalTime
 import com.claudecode.countdown.domain.TaskGroup
 import com.claudecode.countdown.domain.allDayDue
 import com.claudecode.countdown.domain.groupTasks
@@ -69,6 +75,8 @@ private val minuteClock = flow {
     }
 }
 
+fun parseQuickAdd(text: String): QuickAddResult = QuickAddParser(today(), LocalTime.now()).parse(text)
+
 class TasksViewModel(private val repo: TaskRepository) : ViewModel() {
 
     private val progress = combine(repo.observeChecklistProgress(), repo.observeSubtaskProgress()) { c, s ->
@@ -100,30 +108,39 @@ class TasksViewModel(private val repo: TaskRepository) : ViewModel() {
 
     fun delete(task: Task) = viewModelScope.launch { repo.delete(task.id) }
 
-    /** Plain-title quick add; tasks inherit list, tag or date from the view they are added in. */
-    fun quickAdd(title: String, filter: TaskFilter, due: com.claudecode.countdown.domain.Due?, priority: Int) =
-        viewModelScope.launch {
-            val listId = (filter as? TaskFilter.ListFilter)?.listId ?: TaskList.INBOX_ID
-            val defaultDue = due ?: when (filter) {
-                TaskFilter.Today, TaskFilter.Next7Days -> allDayDue(today())
-                TaskFilter.Tomorrow -> allDayDue(today().plusDays(1))
-                else -> null
-            }
-            val tagNames = (filter as? TaskFilter.TagFilter)?.let { f ->
-                snapshot.value.tags.firstOrNull { it.id == f.tagId }?.name
-            }?.let { listOf(it) }.orEmpty()
-            repo.create(
-                Task(
-                    title = title,
-                    listId = listId,
-                    priority = priority,
-                    dueAt = defaultDue?.at,
-                    isAllDay = defaultDue?.isAllDay ?: false,
-                    timeZone = defaultDue?.timeZone,
-                ),
-                tagNames,
-            )
+    /**
+     * Quick add with natural-language parsing. Values picked with the sheet's buttons win over the
+     * text; otherwise tasks inherit list, tag or date from the view they are added in.
+     */
+    fun quickAdd(text: String, filter: TaskFilter, pickedDue: Due?, pickedPriority: Int) = viewModelScope.launch {
+        val parsed = parseQuickAdd(text)
+        val lists = snapshot.value.lists
+        val listId = parsed.listName?.let { name -> lists.firstOrNull { it.name.equals(name, ignoreCase = true) }?.id }
+            ?: (filter as? TaskFilter.ListFilter)?.listId
+            ?: TaskList.INBOX_ID
+        val parsedDue = parsed.date?.let { d -> parsed.time?.let { timedDue(d, it) } ?: allDayDue(d) }
+        val due = pickedDue ?: parsedDue ?: when (filter) {
+            TaskFilter.Today, TaskFilter.Next7Days -> allDayDue(today())
+            TaskFilter.Tomorrow -> allDayDue(today().plusDays(1))
+            else -> null
         }
+        val tagNames = parsed.tags + (filter as? TaskFilter.TagFilter)?.let { f ->
+            snapshot.value.tags.firstOrNull { it.id == f.tagId }?.name
+        }.let { listOfNotNull(it) }
+        val created = repo.create(
+            Task(
+                title = parsed.title.ifBlank { text.trim() },
+                listId = listId,
+                priority = if (pickedPriority != Priority.NONE) pickedPriority else parsed.priority ?: Priority.NONE,
+                dueAt = due?.at,
+                isAllDay = due?.isAllDay ?: false,
+                timeZone = due?.timeZone,
+                repeatRule = parsed.repeat?.toRRule(),
+            ),
+            tagNames.distinct(),
+        )
+        if (due != null && !due.isAllDay) repo.addReminder(created.id, 0)
+    }
 
     fun createList(name: String, color: Int?, folderId: String?, onCreated: (TaskList) -> Unit) = viewModelScope.launch {
         onCreated(repo.createList(name, color, folderId))
