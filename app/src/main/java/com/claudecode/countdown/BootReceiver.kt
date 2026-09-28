@@ -21,6 +21,7 @@ class BootReceiver : BroadcastReceiver() {
             // After an update Glance widgets keep their loading layout until redrawn.
             context.container.redrawWidgets()
             context.container.reminders.deliverDueAndReschedule()
+            context.container.pomodoro.restoreAfterBoot()
         }
     }
 }

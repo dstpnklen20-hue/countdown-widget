@@ -83,6 +83,10 @@
             android:name=".reminders.ReminderActionReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".pomodoro.PomodoroReceiver"
+            android:exported="false" />
+
         <activity
             android:name=".QuickAddActivity"
             android:exported="false"

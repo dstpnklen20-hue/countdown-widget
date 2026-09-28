@@ -11,6 +11,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
 import com.claudecode.countdown.ui.calendar.CalendarScreen
+import com.claudecode.countdown.ui.focus.FocusScreen
+import com.claudecode.countdown.ui.habits.HabitsScreen
+import androidx.compose.material.icons.outlined.Loop
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +47,8 @@ enum class HomeTab(val label: String, val icon: ImageVector) {
     TASKS("Задачи", Icons.Outlined.CheckCircle),
     CALENDAR("Календарь", Icons.Outlined.CalendarMonth),
     MATRIX("Матрица", Icons.Outlined.GridView),
+    FOCUS("Фокус", Icons.Outlined.Timer),
+    HABITS("Привычки", Icons.Outlined.Loop),
 }
 
 // Keeps its historical name: launchers pin shortcuts to this class.
@@ -130,6 +136,8 @@ class MainActivity : AppCompatActivity() {
                             )
                             HomeTab.CALENDAR -> CalendarScreen(tasksVm, snapshot, openTask)
                             HomeTab.MATRIX -> MatrixScreen(tasksVm, snapshot, openTask)
+                            HomeTab.FOCUS -> FocusScreen(snapshot)
+                            HomeTab.HABITS -> HabitsScreen(snapshot.today)
                         }
                     }
                 }

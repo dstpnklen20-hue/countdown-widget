@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import com.claudecode.countdown.MainActivity
 import com.claudecode.countdown.R
 import com.claudecode.countdown.ThemeManager
+import com.claudecode.countdown.data.db.Habit
 import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.domain.today
 import com.claudecode.countdown.ui.formatDue
@@ -66,6 +67,43 @@ object ReminderNotifier {
         } catch (_: SecurityException) {
             // Permission revoked between the check and the call.
         }
+    }
+
+    fun showHabit(context: Context, habit: Habit) {
+        if (!canNotify(context)) return
+        ensureChannel(context)
+        val id = ("habit:" + habit.id).hashCode()
+        val open = PendingIntent.getActivity(
+            context, id,
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val done = PendingIntent.getBroadcast(
+            context, id,
+            Intent(context, ReminderActionReceiver::class.java)
+                .setAction(ReminderActionReceiver.ACTION_HABIT_DONE)
+                .putExtra(ReminderActionReceiver.EXTRA_HABIT_ID, habit.id),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ThemeManager.palette(context).accent)
+            .setContentTitle("${habit.emoji} ${habit.name}")
+            .setContentText(if (habit.goal > 1) "Цель на сегодня: ${habit.goal}" else "Время для привычки")
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .addAction(0, "Выполнено", done)
+            .build()
+        try {
+            NotificationManagerCompat.from(context).notify(id, notification)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    fun cancelHabit(context: Context, habitId: String) {
+        NotificationManagerCompat.from(context).cancel(("habit:$habitId").hashCode())
     }
 
     fun cancel(context: Context, taskId: String) {

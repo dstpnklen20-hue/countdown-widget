@@ -146,3 +146,50 @@ data class WidgetBinding(
     val taskId: String? = null,
     val listId: String? = null,
 )
+
+enum class FocusKind { FOCUS, SHORT_BREAK, LONG_BREAK }
+
+@Entity(tableName = "focus_sessions", indices = [Index("taskId"), Index("startedAt")])
+data class FocusSession(
+    @PrimaryKey val id: String = newId(),
+    val taskId: String? = null,
+    val kind: FocusKind = FocusKind.FOCUS,
+    val startedAt: Long,
+    val endedAt: Long,
+    val durationMs: Long,
+    val createdAt: Long = now(),
+    val updatedAt: Long = createdAt,
+    val deleted: Boolean = false,
+)
+
+/**
+ * [days] lists RRULE weekday codes ("MO,WE,FR"); empty means every day.
+ * [reminderMinute] is the minute of the day for a daily reminder, null for none.
+ */
+@Entity(tableName = "habits")
+data class Habit(
+    @PrimaryKey val id: String = newId(),
+    val name: String,
+    val emoji: String = "✅",
+    val color: Int? = null,
+    val days: String = "",
+    val goal: Int = 1,
+    val reminderMinute: Int? = null,
+    val archived: Boolean = false,
+    val sortOrder: Long = 0,
+    val createdAt: Long = now(),
+    val updatedAt: Long = createdAt,
+    val deleted: Boolean = false,
+)
+
+/** Progress of a habit on one day ([day] is LocalDate.toEpochDay()). */
+@Entity(tableName = "habit_checkins", indices = [Index(value = ["habitId", "day"], unique = true)])
+data class HabitCheckIn(
+    @PrimaryKey val id: String = newId(),
+    val habitId: String,
+    val day: Long,
+    val count: Int,
+    val createdAt: Long = now(),
+    val updatedAt: Long = createdAt,
+    val deleted: Boolean = false,
+)

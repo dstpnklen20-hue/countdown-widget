@@ -9,6 +9,11 @@ import com.claudecode.countdown.data.db.AppDatabase
 import com.claudecode.countdown.data.db.now
 import com.claudecode.countdown.domain.dueReminders
 import com.claudecode.countdown.domain.nextTrigger
+import com.claudecode.countdown.data.db.Habit
+import com.claudecode.countdown.domain.isScheduled
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -47,16 +52,40 @@ class ReminderScheduler(
         for ((task, _) in dueReminders(tasks, reminders, from, at).distinctBy { it.first.id }) {
             ReminderNotifier.show(context, task)
         }
+        val habitDao = db.habitDao()
+        for ((habit, trigger) in habitTriggers(from, at)) {
+            val day = Instant.ofEpochMilli(trigger).atZone(ZoneId.systemDefault()).toLocalDate()
+            val done = habitDao.checkIn(habit.id, day.toEpochDay())?.takeIf { !it.deleted }?.count ?: 0
+            if (done < habit.goal) ReminderNotifier.showHabit(context, habit)
+        }
         prefs.edit().putLong(KEY_CHECKED_UNTIL, at).apply()
-        arm(nextTrigger(tasks, reminders, at))
+        arm(earliest(nextTrigger(tasks, reminders, at), nextHabitTrigger(at)))
     }
 
     /** Re-arms after data changes without delivering anything. */
     suspend fun reschedule() = mutex.withLock {
         val dao = db.reminderDao()
         val tasks = dao.tasksWithReminders().associateBy { it.id }
-        arm(nextTrigger(tasks, dao.activeReminders(), maxOf(checkedUntil(), now())))
+        val after = maxOf(checkedUntil(), now())
+        arm(earliest(nextTrigger(tasks, dao.activeReminders(), after), nextHabitTrigger(after)))
     }
+
+    private fun earliest(a: Long?, b: Long?): Long? = listOfNotNull(a, b).minOrNull()
+
+    /** Daily habit reminders on scheduled days, from yesterday to a week ahead. */
+    private suspend fun habitCandidates(): List<Pair<Habit, Long>> {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        return db.habitDao().active().filter { it.reminderMinute != null }.flatMap { habit ->
+            (-1L..7L).map { today.plusDays(it) }.filter { habit.isScheduled(it) }.map { day ->
+                habit to day.atStartOfDay(zone).toInstant().toEpochMilli() + habit.reminderMinute!! * 60_000L
+            }
+        }
+    }
+
+    private suspend fun habitTriggers(from: Long, to: Long) = habitCandidates().filter { it.second in (from + 1)..to }
+
+    private suspend fun nextHabitTrigger(after: Long): Long? = habitCandidates().map { it.second }.filter { it > after }.minOrNull()
 
     private fun pendingIntent(): PendingIntent = PendingIntent.getBroadcast(
         context, 0,

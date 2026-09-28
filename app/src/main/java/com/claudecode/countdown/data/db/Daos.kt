@@ -211,3 +211,42 @@ interface WidgetBindingDao {
     @Query("DELETE FROM widget_bindings WHERE appWidgetId = :appWidgetId")
     suspend fun delete(appWidgetId: Int)
 }
+
+@Dao
+interface FocusDao {
+    @Upsert
+    suspend fun upsert(session: FocusSession)
+
+    @Query("SELECT * FROM focus_sessions WHERE deleted = 0 AND kind = 'FOCUS' AND startedAt >= :since ORDER BY startedAt DESC")
+    fun observeFocusSince(since: Long): Flow<List<FocusSession>>
+
+    @Query("SELECT COALESCE(SUM(durationMs), 0) FROM focus_sessions WHERE deleted = 0 AND kind = 'FOCUS'")
+    fun observeTotalFocusMs(): Flow<Long>
+}
+
+@Dao
+interface HabitDao {
+    @Upsert
+    suspend fun upsert(habit: Habit)
+
+    @Query("SELECT * FROM habits WHERE deleted = 0 AND archived = 0 ORDER BY sortOrder, createdAt")
+    fun observeActive(): Flow<List<Habit>>
+
+    @Query("SELECT * FROM habits WHERE deleted = 0 AND archived = 0")
+    suspend fun active(): List<Habit>
+
+    @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM habits")
+    suspend fun maxSortOrder(): Long
+
+    @Query("SELECT * FROM habit_checkins WHERE deleted = 0 AND count > 0")
+    fun observeCheckIns(): Flow<List<HabitCheckIn>>
+
+    @Query("SELECT * FROM habit_checkins WHERE habitId = :habitId AND day = :day")
+    suspend fun checkIn(habitId: String, day: Long): HabitCheckIn?
+
+    @Upsert
+    suspend fun upsertCheckIn(checkIn: HabitCheckIn)
+
+    @Query("UPDATE habits SET deleted = 1, updatedAt = :at WHERE id = :id")
+    suspend fun softDelete(id: String, at: Long = now())
+}
