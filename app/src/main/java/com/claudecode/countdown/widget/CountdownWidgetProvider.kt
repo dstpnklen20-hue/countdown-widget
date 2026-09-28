@@ -17,8 +17,11 @@ import android.widget.RemoteViews
 import com.claudecode.countdown.EditCountdownActivity
 import com.claudecode.countdown.R
 import com.claudecode.countdown.ThemeManager
+import com.claudecode.countdown.container
+import com.claudecode.countdown.launchAsync
 import com.claudecode.countdown.data.CountdownRepository
 import com.claudecode.countdown.pluralRu
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 class CountdownWidgetProvider : AppWidgetProvider() {
@@ -28,9 +31,9 @@ class CountdownWidgetProvider : AppWidgetProvider() {
         private const val SUBTITLE_MIN_HEIGHT_DP = 110
         private const val COMPACT_MAX_WIDTH_DP = 100
 
-        fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
-            val countdownId = CountdownRepository.getWidgetCountdownId(context, appWidgetId)
-            val countdown = countdownId?.let { CountdownRepository.get(context, it) }
+        private suspend fun renderWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
+            val countdown = CountdownRepository.getWidgetCountdown(context, appWidgetId)
+            val countdownId = countdown?.id
             val views = RemoteViews(context.packageName, R.layout.widget_countdown)
             val palette = ThemeManager.palette(context)
 
@@ -115,15 +118,27 @@ class CountdownWidgetProvider : AppWidgetProvider() {
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
 
-        fun updateAllWidgets(context: Context) {
+        private suspend fun renderAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val ids = manager.getAppWidgetIds(ComponentName(context, CountdownWidgetProvider::class.java))
-            for (id in ids) updateWidget(context, manager, id)
+            for (id in ids) renderWidget(context, manager, id)
+        }
+
+        fun updateWidget(context: Context, appWidgetId: Int) {
+            context.container.appScope.launch {
+                renderWidget(context, AppWidgetManager.getInstance(context), appWidgetId)
+            }
+        }
+
+        fun updateAllWidgets(context: Context) {
+            context.container.appScope.launch { renderAll(context) }
         }
     }
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
+        launchAsync(context) {
+            for (id in appWidgetIds) renderWidget(context, appWidgetManager, id)
+        }
         WidgetUpdateScheduler.schedule(context)
     }
 
@@ -133,18 +148,20 @@ class CountdownWidgetProvider : AppWidgetProvider() {
         appWidgetId: Int,
         newOptions: Bundle
     ) {
-        updateWidget(context, appWidgetManager, appWidgetId)
+        launchAsync(context) { renderWidget(context, appWidgetManager, appWidgetId) }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == ACTION_REFRESH) {
-            updateAllWidgets(context)
+            launchAsync(context) { renderAll(context) }
         }
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
-        for (id in appWidgetIds) CountdownRepository.removeWidgetMapping(context, id)
+        launchAsync(context) {
+            for (id in appWidgetIds) CountdownRepository.removeWidgetBinding(context, id)
+        }
     }
 
     override fun onDisabled(context: Context) {

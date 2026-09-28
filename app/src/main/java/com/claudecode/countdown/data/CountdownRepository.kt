@@ -1,68 +1,62 @@
 package com.claudecode.countdown.data
 
 import android.content.Context
+import com.claudecode.countdown.container
+import com.claudecode.countdown.data.db.DisplayMode
+import com.claudecode.countdown.data.db.Task
+import com.claudecode.countdown.data.db.WidgetBinding
+import com.claudecode.countdown.data.db.WidgetKind
+import com.claudecode.countdown.data.db.now
 import com.claudecode.countdown.model.Countdown
-import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import java.util.TimeZone
 
+/** Blocking bridge for the legacy View screens; the Compose UI talks to the DAOs directly. */
 object CountdownRepository {
 
-    private const val PREFS_DATA = "countdowns_data"
-    private const val PREFS_WIDGETS = "countdowns_widget_map"
-    private const val KEY_IDS = "ids"
+    private fun <T> io(block: suspend () -> T): T = runBlocking(Dispatchers.IO) { block() }
 
-    private fun dataPrefs(context: Context) =
-        context.applicationContext.getSharedPreferences(PREFS_DATA, Context.MODE_PRIVATE)
+    private fun Task.toCountdown() = Countdown(id, title, dueAt ?: 0L)
 
-    private fun widgetPrefs(context: Context) =
-        context.applicationContext.getSharedPreferences(PREFS_WIDGETS, Context.MODE_PRIVATE)
-
-    fun getAll(context: Context): List<Countdown> {
-        val prefs = dataPrefs(context)
-        val ids = prefs.getStringSet(KEY_IDS, emptySet()) ?: emptySet()
-        return ids.mapNotNull { get(context, it) }.sortedBy { it.targetMillis }
+    fun getAll(context: Context): List<Countdown> = io {
+        context.container.database.taskDao().countdowns().map { it.toCountdown() }
     }
 
-    fun get(context: Context, id: String): Countdown? {
-        val prefs = dataPrefs(context)
-        val title = prefs.getString("title_$id", null) ?: return null
-        val target = prefs.getLong("target_$id", -1L)
-        if (target < 0) return null
-        return Countdown(id, title, target)
+    fun get(context: Context, id: String): Countdown? = io {
+        context.container.database.taskDao().get(id)?.takeIf { !it.deleted && it.dueAt != null }?.toCountdown()
     }
 
-    fun save(context: Context, id: String?, title: String, targetMillis: Long): String {
-        val prefs = dataPrefs(context)
-        val actualId = id ?: UUID.randomUUID().toString()
-        val ids = (prefs.getStringSet(KEY_IDS, emptySet()) ?: emptySet()).toMutableSet()
-        ids.add(actualId)
-        prefs.edit()
-            .putStringSet(KEY_IDS, ids)
-            .putString("title_$actualId", title)
-            .putLong("target_$actualId", targetMillis)
-            .apply()
-        return actualId
+    fun save(context: Context, id: String?, title: String, targetMillis: Long): String = io {
+        val dao = context.container.database.taskDao()
+        val existing = id?.let { dao.get(it) }
+        val task = existing?.copy(title = title, dueAt = targetMillis, updatedAt = now())
+            ?: Task(
+                title = title,
+                dueAt = targetMillis,
+                timeZone = TimeZone.getDefault().id,
+                displayMode = DisplayMode.COUNTDOWN,
+            )
+        dao.upsert(task)
+        task.id
     }
 
-    fun delete(context: Context, id: String) {
-        val prefs = dataPrefs(context)
-        val ids = (prefs.getStringSet(KEY_IDS, emptySet()) ?: emptySet()).toMutableSet()
-        ids.remove(id)
-        prefs.edit()
-            .putStringSet(KEY_IDS, ids)
-            .remove("title_$id")
-            .remove("target_$id")
-            .apply()
+    fun delete(context: Context, id: String) = io {
+        context.container.database.taskDao().softDelete(id)
     }
 
-    fun setWidgetCountdown(context: Context, appWidgetId: Int, countdownId: String) {
-        widgetPrefs(context).edit().putString("widget_$appWidgetId", countdownId).apply()
+    fun setWidgetCountdown(context: Context, appWidgetId: Int, countdownId: String) = io {
+        context.container.database.widgetBindingDao()
+            .upsert(WidgetBinding(appWidgetId, WidgetKind.COUNTDOWN, taskId = countdownId))
     }
 
-    fun getWidgetCountdownId(context: Context, appWidgetId: Int): String? {
-        return widgetPrefs(context).getString("widget_$appWidgetId", null)
+    suspend fun getWidgetCountdown(context: Context, appWidgetId: Int): Countdown? {
+        val db = context.container.database
+        val taskId = db.widgetBindingDao().get(appWidgetId)?.taskId ?: return null
+        return db.taskDao().get(taskId)?.takeIf { !it.deleted && it.dueAt != null }?.toCountdown()
     }
 
-    fun removeWidgetMapping(context: Context, appWidgetId: Int) {
-        widgetPrefs(context).edit().remove("widget_$appWidgetId").apply()
+    suspend fun removeWidgetBinding(context: Context, appWidgetId: Int) {
+        context.container.database.widgetBindingDao().delete(appWidgetId)
     }
 }
