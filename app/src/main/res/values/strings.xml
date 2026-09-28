@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Обратный отсчёт</string>
+    <string name="app_name">Tik Tak</string>
     <string name="add_countdown">Добавить отсчёт</string>
     <string name="empty_list">Пока нет ни одного отсчёта.\nНажмите «+», чтобы добавить.</string>
     <string name="hint_title">Название события</string>
