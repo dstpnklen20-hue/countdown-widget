@@ -14,7 +14,7 @@ import android.text.style.RelativeSizeSpan
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
-import com.claudecode.countdown.EditCountdownActivity
+import com.claudecode.countdown.MainActivity
 import com.claudecode.countdown.R
 import com.claudecode.countdown.ThemeManager
 import com.claudecode.countdown.container
@@ -105,9 +105,10 @@ class CountdownWidgetProvider : AppWidgetProvider() {
             views.setTextColor(R.id.widget_subtitle, palette.textSecondary)
             views.setViewVisibility(R.id.widget_subtitle, if (showSubtitle) View.VISIBLE else View.GONE)
 
-            val clickIntent = Intent(context, EditCountdownActivity::class.java).apply {
-                countdownId?.let { putExtra(EditCountdownActivity.EXTRA_COUNTDOWN_ID, it) }
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            val clickIntent = if (countdownId != null) {
+                MainActivity.openTaskIntent(context, countdownId)
+            } else {
+                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             val pendingIntent = PendingIntent.getActivity(
                 context, appWidgetId, clickIntent,

@@ -16,6 +16,9 @@ import androidx.room.RoomDatabase
 abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun taskListDao(): TaskListDao
+    abstract fun folderDao(): FolderDao
+    abstract fun tagDao(): TagDao
+    abstract fun checklistDao(): ChecklistDao
     abstract fun widgetBindingDao(): WidgetBindingDao
 
     companion object {

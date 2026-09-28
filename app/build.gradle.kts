@@ -36,6 +36,14 @@ android {
     }
 
     buildTypes {
+        // CI publishes the debug build, so it is shrunk too (icons library is large).
+        debug {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
