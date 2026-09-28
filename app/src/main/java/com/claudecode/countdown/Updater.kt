@@ -104,8 +104,10 @@ object Updater {
      */
     fun checkForUpdates(activity: AppCompatActivity, manual: Boolean, onStatus: (String) -> Unit = {}) {
         if (busy) return
-        busy = true
         val app = activity.applicationContext
+        // Local builds have versionCode 1; auto-updating them would replace them with the CI build.
+        if (!manual && currentVersionCode(app) <= 1L) return
+        busy = true
         onStatus(activity.getString(R.string.update_checking))
 
         executor.execute {

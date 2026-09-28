@@ -76,8 +76,7 @@ class WidgetConfigureActivity : AppCompatActivity() {
 
     private fun finishConfiguring(countdownId: String) {
         CountdownRepository.setWidgetCountdown(this, appWidgetId, countdownId)
-        val manager = AppWidgetManager.getInstance(this)
-        CountdownWidgetProvider.updateWidget(this, manager, appWidgetId)
+        CountdownWidgetProvider.updateWidget(this, appWidgetId)
         WidgetUpdateScheduler.schedule(this)
 
         val resultValue = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)

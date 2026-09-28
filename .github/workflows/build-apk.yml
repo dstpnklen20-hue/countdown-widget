@@ -20,8 +20,23 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Gradle (with dependency cache)
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
+      - name: Run unit tests
+        run: ./gradlew :core:test :app:testDebugUnitTest --no-daemon
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            core/build/reports/tests
+            app/build/reports/tests
 
       - name: Prepare signing key
         id: signing
@@ -47,7 +62,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: countdown-widget-debug-apk
+          name: tik-tak-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publish release (the app checks this for updates)
@@ -56,8 +71,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk countdown-widget.apk
-          gh release create "build-${{ github.run_number }}" countdown-widget.apk \
+          cp app/build/outputs/apk/debug/app-debug.apk tik-tak.apk
+          gh release create "build-${{ github.run_number }}" tik-tak.apk \
             --title "Сборка ${{ github.run_number }}" \
             --notes "${COMMIT_MSG:-Автоматическая сборка}" \
             --latest

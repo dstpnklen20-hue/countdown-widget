@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "CountdownWidget"
 include(":app")
+include(":core")

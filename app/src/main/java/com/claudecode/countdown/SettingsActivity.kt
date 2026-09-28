@@ -1,6 +1,11 @@
 package com.claudecode.countdown
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.graphics.drawable.GradientDrawable
+import com.claudecode.countdown.widget.CountdownWidgetProvider
+import com.claudecode.countdown.widget.QuickAddWidgetReceiver
+import com.claudecode.countdown.widget.TodayWidgetReceiver
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -9,7 +14,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.claudecode.countdown.ThemeManager.Palette
-import com.claudecode.countdown.widget.CountdownWidgetProvider
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -30,7 +34,21 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_check_update).setOnClickListener {
             Updater.checkForUpdates(this, manual = true) { textStatus.text = it }
         }
+        bindWidgetButton(R.id.btn_widget_today, TodayWidgetReceiver::class.java)
+        bindWidgetButton(R.id.btn_widget_quick_add, QuickAddWidgetReceiver::class.java)
+        bindWidgetButton(R.id.btn_widget_countdown, CountdownWidgetProvider::class.java)
         render()
+    }
+
+    /** Asks the launcher to pin a widget; hidden where the launcher can't do that. */
+    private fun bindWidgetButton(buttonId: Int, provider: Class<*>) {
+        val manager = AppWidgetManager.getInstance(this)
+        val button = findViewById<View>(buttonId)
+        if (!manager.isRequestPinAppWidgetSupported) {
+            button.visibility = View.GONE
+            return
+        }
+        button.setOnClickListener { manager.requestPinAppWidget(ComponentName(this, provider), null, null) }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -38,7 +56,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun onChanged() {
         // May recreate this activity when the effective day/night mode changes.
         ThemeManager.applyNightMode(this)
-        CountdownWidgetProvider.updateAllWidgets(this)
+        container.refreshAllWidgets()
         render()
     }
 

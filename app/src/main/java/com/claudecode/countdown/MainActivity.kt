@@ -1,141 +1,156 @@
 package com.claudecode.countdown
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.ArrayAdapter
-import android.widget.ListView
-import android.widget.TextView
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
-import com.claudecode.countdown.data.CountdownRepository
-import com.claudecode.countdown.model.Countdown
-import com.claudecode.countdown.widget.CountdownWidgetProvider
-import com.google.android.material.floatingactionbutton.FloatingActionButton
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.concurrent.TimeUnit
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.CheckCircle
+import com.claudecode.countdown.ui.calendar.CalendarScreen
+import com.claudecode.countdown.ui.focus.FocusScreen
+import com.claudecode.countdown.ui.habits.HabitsScreen
+import androidx.compose.material.icons.outlined.Loop
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.claudecode.countdown.ui.matrix.MatrixScreen
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.claudecode.countdown.domain.TaskFilter
+import com.claudecode.countdown.ui.TikTakTheme
+import com.claudecode.countdown.ui.detail.TaskDetailScreen
+import com.claudecode.countdown.ui.detail.TaskDetailViewModel
+import com.claudecode.countdown.ui.tasks.TaskListScreen
+import com.claudecode.countdown.ui.tasks.TasksViewModel
 
+enum class HomeTab(val label: String, val icon: ImageVector) {
+    TASKS("Задачи", Icons.Outlined.CheckCircle),
+    CALENDAR("Календарь", Icons.Outlined.CalendarMonth),
+    MATRIX("Матрица", Icons.Outlined.GridView),
+    FOCUS("Фокус", Icons.Outlined.Timer),
+    HABITS("Привычки", Icons.Outlined.Loop),
+}
+
+// Keeps its historical name: launchers pin shortcuts to this class.
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var listView: ListView
-    private lateinit var emptyView: TextView
-    private lateinit var adapter: CountdownAdapter
-    private val handler = Handler(Looper.getMainLooper())
-    private lateinit var tickRunnable: Runnable
+    companion object {
+        const val EXTRA_TASK_ID = "task_id"
 
-    private val editLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        refreshList()
+        fun openTaskIntent(context: Context, taskId: String): Intent =
+            Intent(context, MainActivity::class.java)
+                .putExtra(EXTRA_TASK_ID, taskId)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
+
+    private var palette by mutableStateOf<ThemeManager.Palette?>(null)
+    private var pendingTaskId by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        palette = ThemeManager.palette(this)
+        if (savedInstanceState == null) pendingTaskId = intent.getStringExtra(EXTRA_TASK_ID)
 
-        listView = findViewById(R.id.list_countdowns)
-        emptyView = findViewById(R.id.text_empty)
-        val fab = findViewById<FloatingActionButton>(R.id.fab_add)
-        val fabSettings = findViewById<FloatingActionButton>(R.id.fab_settings)
-
-        adapter = CountdownAdapter(this, mutableListOf())
-        listView.adapter = adapter
-
-        listView.setOnItemClickListener { _, _, position, _ ->
-            val countdown = adapter.getItem(position) ?: return@setOnItemClickListener
-            val intent = Intent(this, EditCountdownActivity::class.java)
-            intent.putExtra(EditCountdownActivity.EXTRA_COUNTDOWN_ID, countdown.id)
-            editLauncher.launch(intent)
-        }
-
-        fab.setOnClickListener {
-            editLauncher.launch(Intent(this, EditCountdownActivity::class.java))
-        }
-
-        fabSettings.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }
-
-        if (savedInstanceState == null) {
-            Updater.checkForUpdates(this, manual = false)
-        }
-
-        tickRunnable = object : Runnable {
-            override fun run() {
-                adapter.notifyDataSetChanged()
-                handler.postDelayed(this, 1000L)
+        setContent {
+            val p = palette ?: return@setContent
+            TikTakTheme(p) {
+                val tasksVm: TasksViewModel = viewModel { TasksViewModel(container.tasks) }
+                val nav = rememberNavController()
+                LaunchedEffect(pendingTaskId) {
+                    pendingTaskId?.let { id ->
+                        nav.navigate("task/$id")
+                        pendingTaskId = null
+                    }
+                }
+                AppNavHost(nav, tasksVm)
             }
         }
+
+        if (savedInstanceState == null) Updater.checkForUpdates(this, manual = false)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(EXTRA_TASK_ID)?.let { pendingTaskId = it }
     }
 
     override fun onResume() {
         super.onResume()
         // Theme may have changed in SettingsActivity.
         ThemeManager.apply(this)
-        adapter.palette = ThemeManager.palette(this)
-        refreshList()
-        handler.post(tickRunnable)
+        palette = ThemeManager.palette(this)
     }
 
-    override fun onPause() {
-        super.onPause()
-        handler.removeCallbacks(tickRunnable)
-    }
+    @androidx.compose.runtime.Composable
+    private fun AppNavHost(nav: NavHostController, tasksVm: TasksViewModel) {
+        val snapshot by tasksVm.snapshot.collectAsStateWithLifecycle()
+        var filterKey by rememberSaveable { mutableStateOf(TaskFilter.Inbox.key) }
+        var tab by rememberSaveable { mutableStateOf(HomeTab.TASKS) }
+        val openTask: (String) -> Unit = { nav.navigate("task/$it") }
 
-    private fun refreshList() {
-        val data = CountdownRepository.getAll(this)
-        adapter.replace(data)
-        emptyView.visibility = if (data.isEmpty()) View.VISIBLE else View.GONE
-        CountdownWidgetProvider.updateAllWidgets(this)
-    }
-}
-
-private class CountdownAdapter(
-    private val context: MainActivity,
-    private var items: MutableList<Countdown>
-) : ArrayAdapter<Countdown>(context, 0, items) {
-
-    var palette: ThemeManager.Palette = ThemeManager.palette(context)
-
-    fun replace(newItems: List<Countdown>) {
-        items = newItems.toMutableList()
-        clear()
-        addAll(items)
-        notifyDataSetChanged()
-    }
-
-    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-        val view = convertView ?: LayoutInflater.from(context).inflate(R.layout.item_countdown, parent, false)
-        val countdown = getItem(position) ?: return view
-
-        val titleView = view.findViewById<TextView>(R.id.item_title)
-        val remainingView = view.findViewById<TextView>(R.id.item_remaining)
-        val dateView = view.findViewById<TextView>(R.id.item_date)
-
-        titleView.text = countdown.title
-        dateView.text = SimpleDateFormat("d MMMM yyyy, HH:mm", Locale("ru")).format(countdown.targetMillis)
-        remainingView.text = formatRemaining(countdown.targetMillis)
-        ThemeManager.paint(view, palette)
-
-        return view
-    }
-
-    private fun formatRemaining(targetMillis: Long): String {
-        val remaining = targetMillis - System.currentTimeMillis()
-        if (remaining <= 0) return context.getString(R.string.arrived)
-
-        val days = TimeUnit.MILLISECONDS.toDays(remaining)
-        val hours = TimeUnit.MILLISECONDS.toHours(remaining) % 24
-        val minutes = TimeUnit.MILLISECONDS.toMinutes(remaining) % 60
-        val seconds = TimeUnit.MILLISECONDS.toSeconds(remaining) % 60
-
-        return if (days > 0) {
-            "$days ${pluralRu(days, "день", "дня", "дней")} $hours ч $minutes мин"
-        } else {
-            String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
+        NavHost(nav, startDestination = "home") {
+            composable("home") {
+                Scaffold(
+                    bottomBar = {
+                        NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                            for (t in HomeTab.entries) {
+                                NavigationBarItem(
+                                    selected = tab == t,
+                                    onClick = { tab = t },
+                                    icon = { Icon(t.icon, null) },
+                                    label = { Text(t.label, maxLines = 1) },
+                                )
+                            }
+                        }
+                    },
+                ) { padding ->
+                    Box(Modifier.padding(padding)) {
+                        when (tab) {
+                            HomeTab.TASKS -> TaskListScreen(
+                                vm = tasksVm,
+                                snapshot = snapshot,
+                                filter = TaskFilter.parse(filterKey),
+                                onFilterChange = { filterKey = it.key },
+                                onOpenTask = openTask,
+                                onOpenSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
+                            )
+                            HomeTab.CALENDAR -> CalendarScreen(tasksVm, snapshot, openTask)
+                            HomeTab.MATRIX -> MatrixScreen(tasksVm, snapshot, openTask)
+                            HomeTab.FOCUS -> FocusScreen(snapshot)
+                            HomeTab.HABITS -> HabitsScreen(snapshot.today)
+                        }
+                    }
+                }
+            }
+            composable("task/{id}") { entry ->
+                val id = entry.arguments?.getString("id").orEmpty()
+                val vm: TaskDetailViewModel = viewModel { TaskDetailViewModel(id, container.tasks, container.appScope) }
+                TaskDetailScreen(
+                    vm = vm,
+                    onBack = { if (!nav.popBackStack()) finish() },
+                    onOpenTask = { nav.navigate("task/$it") },
+                )
+            }
         }
     }
 }
