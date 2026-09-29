@@ -1,6 +1,8 @@
 package com.claudecode.countdown.ui.matrix
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,8 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,8 +37,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.claudecode.countdown.data.db.Priority
-import com.claudecode.countdown.domain.GroupKind
+import com.claudecode.countdown.domain.MatrixPeriod
 import com.claudecode.countdown.domain.TaskFilter
+import com.claudecode.countdown.domain.matrixTasks
 import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.ui.Dot
 import com.claudecode.countdown.ui.priorityColor
@@ -54,7 +60,10 @@ private val QUADRANTS = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MatrixScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) -> Unit) {
-    val open = snapshot.groups(TaskFilter.All).filter { it.kind != GroupKind.DONE }.flatMap { it.tasks }
+    var period by rememberSaveable { mutableStateOf(MatrixPeriod.ALL) }
+    val open = remember(snapshot, period) {
+        matrixTasks(snapshot.groups(TaskFilter.All).flatMap { it.tasks }, period, snapshot.today)
+    }
     Scaffold(
         snackbarHost = { AppSnackbarHost() },
         topBar = {
@@ -64,7 +73,15 @@ fun MatrixScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) ->
             )
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(8.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 8.dp).padding(bottom = 8.dp)) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                for (p in MatrixPeriod.entries) {
+                    FilterChip(selected = period == p, onClick = { period = p }, label = { Text(p.label) })
+                }
+            }
             for (row in QUADRANTS.chunked(2)) {
                 Row(Modifier.fillMaxWidth().weight(1f)) {
                     for (q in row) {
@@ -95,12 +112,12 @@ private fun QuadrantCard(
     val scheme = MaterialTheme.colorScheme
     val color = priorityColor(quadrant.priority, Color(0xFF9E9E9E))
     Column(modifier.clip(RoundedCornerShape(16.dp)).background(scheme.surfaceContainerLow)) {
-        Row(Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Dot(color, 10)
-            Spacer(Modifier.size(8.dp))
+        Row(Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Dot(color, 8)
+            Spacer(Modifier.size(6.dp))
             Column(Modifier.weight(1f)) {
-                Text(quadrant.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = color)
-                Text(quadrant.subtitle, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                Text(quadrant.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
+                Text(quadrant.subtitle, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, maxLines = 1)
             }
             Text("${tasks.size}", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
         }

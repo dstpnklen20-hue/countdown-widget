@@ -1,6 +1,12 @@
 package com.claudecode.countdown.ui.tasks
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -337,23 +343,50 @@ fun TaskRow(
     compact: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
+    // Ticking the box first draws a line through the title, then completes the task. Keyed on the
+    // task so the line is gone once the stored task changes (e.g. a repeating task moved on).
+    val strike = remember(task) { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val completing = !task.isDone && strike.value > 0f
+    val toggle: () -> Unit = {
+        when {
+            task.isDone -> onToggle()
+            !strike.isRunning -> scope.launch {
+                // finally: the tick still counts if the row scrolls away mid-animation.
+                try {
+                    strike.animateTo(1f, tween(STRIKE_MS))
+                } finally {
+                    onToggle()
+                }
+            }
+        }
+    }
+    var titleLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val strikeColor = scheme.onSurfaceVariant
     Row(
         Modifier
             .fillMaxWidth()
-            .background(scheme.background)
+            // Full rows cover the swipe background; compact ones sit on their card's colour.
+            .background(if (compact) Color.Transparent else scheme.background)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(start = 4.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
+            .padding(start = 4.dp, end = if (compact) 8.dp else 16.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PriorityCheckbox(task.isDone, task.priority, onToggle)
-        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+        PriorityCheckbox(task.isDone || completing, task.priority, toggle, small = compact)
+        Column(Modifier.weight(1f).padding(vertical = if (compact) 3.dp else 6.dp)) {
             Text(
                 task.title,
-                style = MaterialTheme.typography.bodyLarge,
+                style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = if (task.isDone) scheme.onSurfaceVariant else scheme.onSurface,
+                color = if (task.isDone || completing) scheme.onSurfaceVariant else scheme.onSurface,
                 textDecoration = if (task.isDone) TextDecoration.LineThrough else null,
+                onTextLayout = { titleLayout = it },
+                modifier = Modifier.drawWithContent {
+                    drawContent()
+                    val layout = titleLayout
+                    if (completing && layout != null) drawStrike(layout, strike.value, strikeColor, 1.5.dp.toPx())
+                },
             )
             val meta = rowMeta(task, snapshot, showList).let { if (compact) it.take(1) else it }
             if (meta.isNotEmpty()) {
@@ -361,7 +394,7 @@ fun TaskRow(
                     for ((text, color) in meta) {
                         Text(
                             text,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
                             color = color ?: scheme.onSurfaceVariant,
                             maxLines = 1,
                         )
@@ -378,6 +411,22 @@ fun TaskRow(
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
+    }
+}
+
+private const val STRIKE_MS = 350
+
+/** Draws [progress] of a line through the text, line after line, as if crossed out by hand. */
+private fun DrawScope.drawStrike(layout: TextLayoutResult, progress: Float, color: Color, width: Float) {
+    val lines = (0 until layout.lineCount).map { layout.getLineLeft(it) to layout.getLineRight(it) }
+    var remaining = lines.sumOf { (l, r) -> (r - l).toDouble() }.toFloat() * progress
+    for ((i, line) in lines.withIndex()) {
+        if (remaining <= 0f) break
+        val (left, right) = line
+        val length = minOf(right - left, remaining)
+        val y = (layout.getLineTop(i) + layout.getLineBottom(i)) / 2
+        drawLine(color, Offset(left, y), Offset(left + length, y), strokeWidth = width)
+        remaining -= length
     }
 }
 
