@@ -52,11 +52,59 @@ interface TaskDao {
     @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM tasks")
     suspend fun maxSortOrder(): Long
 
-    @Query("UPDATE tasks SET deleted = 1, updatedAt = :at WHERE id = :id OR parentId = :id")
+    // Already deleted rows keep their stamp, so undo does not bring back what was deleted earlier.
+    @Query("UPDATE tasks SET deleted = 1, updatedAt = :at WHERE (id = :id OR parentId = :id) AND deleted = 0")
     suspend fun softDelete(id: String, at: Long = now())
 
-    @Query("UPDATE tasks SET deleted = 1, updatedAt = :at WHERE listId = :listId")
+    @Query("UPDATE tasks SET deleted = 1, updatedAt = :at WHERE listId = :listId AND deleted = 0")
     suspend fun softDeleteInList(listId: String, at: Long = now())
+
+    /** Undoes one deletion: the task plus subtasks deleted with it (ones deleted earlier are stamped before [deletedAt]). */
+    @Query(
+        "UPDATE tasks SET deleted = 0, updatedAt = :at " +
+            "WHERE deleted = 1 AND (id = :id OR (parentId = :id AND updatedAt >= :deletedAt))"
+    )
+    suspend fun restore(id: String, deletedAt: Long, at: Long = now())
+
+    @Query("UPDATE tasks SET deleted = 0, updatedAt = :at WHERE deleted = 1 AND listId = :listId AND updatedAt >= :deletedAt")
+    suspend fun restoreInList(listId: String, deletedAt: Long, at: Long = now())
+
+    /** Deleted tasks, newest first; subtasks only while their parent is alive (otherwise they return with it). */
+    @Query(
+        "SELECT * FROM tasks WHERE deleted = 1 AND " +
+            "(parentId IS NULL OR parentId IN (SELECT id FROM tasks WHERE deleted = 0)) ORDER BY updatedAt DESC"
+    )
+    fun observeTrash(): Flow<List<Task>>
+
+    @Query("SELECT id FROM tasks WHERE id = :id OR parentId = :id")
+    suspend fun idsWithSubtasks(id: String): List<String>
+
+    @Query("SELECT id FROM tasks WHERE deleted = 1")
+    suspend fun deletedIds(): List<String>
+
+    @Query("DELETE FROM tasks WHERE id IN (:ids)")
+    suspend fun purgeTasks(ids: List<String>)
+
+    @Query("DELETE FROM checklist_items WHERE taskId IN (:ids)")
+    suspend fun purgeChecklist(ids: List<String>)
+
+    @Query("DELETE FROM reminders WHERE taskId IN (:ids)")
+    suspend fun purgeReminders(ids: List<String>)
+
+    @Query("DELETE FROM task_tags WHERE taskId IN (:ids)")
+    suspend fun purgeTaskTags(ids: List<String>)
+
+    /** Removes tasks for good together with everything attached to them. */
+    @Transaction
+    suspend fun purge(ids: List<String>) {
+        // SQLite caps the number of bound parameters per statement.
+        for (chunk in ids.chunked(500)) {
+            purgeChecklist(chunk)
+            purgeReminders(chunk)
+            purgeTaskTags(chunk)
+            purgeTasks(chunk)
+        }
+    }
 }
 
 @Dao
@@ -234,6 +282,9 @@ interface HabitDao {
 
     @Query("SELECT * FROM habits WHERE deleted = 0 AND archived = 0")
     suspend fun active(): List<Habit>
+
+    @Query("SELECT * FROM habits WHERE deleted = 0 AND archived = 1 ORDER BY updatedAt DESC")
+    fun observeArchived(): Flow<List<Habit>>
 
     @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM habits")
     suspend fun maxSortOrder(): Long

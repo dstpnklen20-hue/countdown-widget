@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.claudecode.countdown.data.db.Priority
 import com.claudecode.countdown.domain.GroupKind
 import com.claudecode.countdown.domain.TaskFilter
+import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.ui.Dot
 import com.claudecode.countdown.ui.priorityColor
 import com.claudecode.countdown.ui.tasks.Snapshot
@@ -55,6 +56,7 @@ private val QUADRANTS = listOf(
 fun MatrixScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) -> Unit) {
     val open = snapshot.groups(TaskFilter.All).filter { it.kind != GroupKind.DONE }.flatMap { it.tasks }
     Scaffold(
+        snackbarHost = { AppSnackbarHost() },
         topBar = {
             TopAppBar(
                 title = { Text("Матрица Эйзенхауэра") },

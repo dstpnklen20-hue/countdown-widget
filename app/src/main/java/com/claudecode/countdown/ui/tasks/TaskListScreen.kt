@@ -81,6 +81,7 @@ import com.claudecode.countdown.domain.Due
 import com.claudecode.countdown.domain.GroupKind
 import com.claudecode.countdown.domain.TaskFilter
 import com.claudecode.countdown.domain.isOverdue
+import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.ui.DueDateDialog
 import com.claudecode.countdown.ui.PriorityCheckbox
 import com.claudecode.countdown.ui.PriorityMenu
@@ -107,6 +108,7 @@ fun TaskListScreen(
     filter: TaskFilter,
     onFilterChange: (TaskFilter) -> Unit,
     onOpenTask: (String) -> Unit,
+    onOpenTrash: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -122,6 +124,7 @@ fun TaskListScreen(
                 snapshot = snapshot,
                 selected = filter,
                 onSelect = { onFilterChange(it); scope.launch { drawerState.close() } },
+                onOpenTrash = { scope.launch { drawerState.close() }; onOpenTrash() },
                 onOpenSettings = { scope.launch { drawerState.close() }; onOpenSettings() },
             )
         },
@@ -147,6 +150,7 @@ fun TaskListScreen(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 )
             },
+            snackbarHost = { AppSnackbarHost() },
             floatingActionButton = {
                 if (filter != TaskFilter.Completed && list?.viewMode != ListViewMode.KANBAN) {
                     FloatingActionButton(

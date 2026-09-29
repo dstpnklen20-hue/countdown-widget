@@ -18,6 +18,7 @@ import com.claudecode.countdown.domain.TaskGroup
 import com.claudecode.countdown.domain.groupTasks
 import com.claudecode.countdown.domain.matches
 import com.claudecode.countdown.domain.today
+import com.claudecode.countdown.ui.UndoBus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -73,7 +74,7 @@ private val minuteClock = flow {
 }
 
 
-class TasksViewModel(private val repo: TaskRepository) : ViewModel() {
+class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus) : ViewModel() {
 
     private val progress = combine(repo.observeChecklistProgress(), repo.observeSubtaskProgress()) { c, s ->
         c.associateBy { it.taskId } to s.associateBy { it.taskId }
@@ -106,7 +107,17 @@ class TasksViewModel(private val repo: TaskRepository) : ViewModel() {
 
     fun toggleDone(task: Task) = viewModelScope.launch { repo.setDone(task, !task.isDone) }
 
-    fun delete(task: Task) = viewModelScope.launch { repo.delete(task.id) }
+    fun delete(task: Task) = viewModelScope.launch {
+        val at = repo.delete(task.id)
+        undo.offer("Задача удалена") { repo.restore(task.id, at) }
+    }
+
+    /** Deleted tasks; null until loaded. */
+    val trash: StateFlow<List<Task>?> = repo.observeTrash().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun restoreFromTrash(task: Task) = viewModelScope.launch { repo.restoreFromTrash(task) }
+    fun purge(task: Task) = viewModelScope.launch { repo.purge(task) }
+    fun emptyTrash() = viewModelScope.launch { repo.emptyTrash() }
 
     fun quickAdd(text: String, filter: TaskFilter, pickedDue: Due?, pickedPriority: Int) =
         viewModelScope.launch { repo.quickAdd(text, filter, pickedDue, pickedPriority) }
@@ -116,7 +127,10 @@ class TasksViewModel(private val repo: TaskRepository) : ViewModel() {
     }
 
     fun updateList(list: TaskList) = viewModelScope.launch { repo.updateList(list) }
-    fun deleteList(list: TaskList) = viewModelScope.launch { repo.deleteList(list) }
+    fun deleteList(list: TaskList) = viewModelScope.launch {
+        val at = repo.deleteList(list) ?: return@launch
+        undo.offer("Список «${list.name}» удалён") { repo.restoreList(list, at) }
+    }
     fun createFolder(name: String) = viewModelScope.launch { repo.createFolder(name) }
     fun updateFolder(folder: Folder) = viewModelScope.launch { repo.updateFolder(folder) }
     fun deleteFolder(folder: Folder) = viewModelScope.launch { repo.deleteFolder(folder) }

@@ -64,6 +64,7 @@ import com.claudecode.countdown.pomodoro.PomodoroPhase
 import com.claudecode.countdown.pomodoro.PomodoroSettings
 import com.claudecode.countdown.pomodoro.PomodoroStatus
 import com.claudecode.countdown.reminders.ReminderNotifier
+import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.ui.rememberNow
 import com.claudecode.countdown.ui.tasks.Snapshot
 import kotlinx.coroutines.launch
@@ -101,6 +102,7 @@ fun FocusScreen(snapshot: Snapshot) {
     }
 
     Scaffold(
+        snackbarHost = { AppSnackbarHost() },
         topBar = {
             TopAppBar(
                 title = { Text("Фокус") },

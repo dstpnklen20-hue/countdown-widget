@@ -18,5 +18,8 @@ fun today(zone: ZoneId = ZoneId.systemDefault()): LocalDate = LocalDate.now(zone
 fun localTimeOf(millis: Long, zone: ZoneId = ZoneId.systemDefault()): LocalTime =
     Instant.ofEpochMilli(millis).atZone(zone).toLocalTime()
 
+fun localDateOf(millis: Long, zone: ZoneId = ZoneId.systemDefault()): LocalDate =
+    Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
+
 fun parseQuickAdd(text: String): com.claudecode.tiktak.core.QuickAddResult =
     com.claudecode.tiktak.core.QuickAddParser(today(), LocalTime.now()).parse(text)

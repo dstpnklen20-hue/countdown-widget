@@ -22,7 +22,12 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.material3.SnackbarHostState
+import com.claudecode.countdown.ui.LocalSnackbarHost
+import com.claudecode.countdown.ui.tasks.TrashScreen
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.claudecode.countdown.ui.matrix.MatrixScreen
@@ -74,7 +79,7 @@ class MainActivity : AppCompatActivity() {
         setContent {
             val p = palette ?: return@setContent
             TikTakTheme(p) {
-                val tasksVm: TasksViewModel = viewModel { TasksViewModel(container.tasks) }
+                val tasksVm: TasksViewModel = viewModel { TasksViewModel(container.tasks, container.undo) }
                 val nav = rememberNavController()
                 LaunchedEffect(pendingTaskId) {
                     pendingTaskId?.let { id ->
@@ -82,7 +87,11 @@ class MainActivity : AppCompatActivity() {
                         pendingTaskId = null
                     }
                 }
-                AppNavHost(nav, tasksVm)
+                val snackbar = remember { SnackbarHostState() }
+                LaunchedEffect(Unit) { container.undo.showIn(snackbar) }
+                CompositionLocalProvider(LocalSnackbarHost provides snackbar) {
+                    AppNavHost(nav, tasksVm)
+                }
             }
         }
 
@@ -132,6 +141,7 @@ class MainActivity : AppCompatActivity() {
                                 filter = TaskFilter.parse(filterKey),
                                 onFilterChange = { filterKey = it.key },
                                 onOpenTask = openTask,
+                                onOpenTrash = { nav.navigate("trash") },
                                 onOpenSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
                             )
                             HomeTab.CALENDAR -> CalendarScreen(tasksVm, snapshot, openTask)
@@ -144,12 +154,17 @@ class MainActivity : AppCompatActivity() {
             }
             composable("task/{id}") { entry ->
                 val id = entry.arguments?.getString("id").orEmpty()
-                val vm: TaskDetailViewModel = viewModel { TaskDetailViewModel(id, container.tasks, container.appScope) }
+                val vm: TaskDetailViewModel = viewModel {
+                    TaskDetailViewModel(id, container.tasks, container.appScope, container.undo)
+                }
                 TaskDetailScreen(
                     vm = vm,
                     onBack = { if (!nav.popBackStack()) finish() },
                     onOpenTask = { nav.navigate("task/$it") },
                 )
+            }
+            composable("trash") {
+                TrashScreen(tasksVm, snapshot, onBack = { nav.popBackStack() })
             }
         }
     }

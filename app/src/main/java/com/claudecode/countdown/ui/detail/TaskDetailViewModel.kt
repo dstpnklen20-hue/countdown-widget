@@ -14,6 +14,7 @@ import com.claudecode.countdown.data.db.Reminder
 import com.claudecode.countdown.domain.Due
 import com.claudecode.countdown.domain.allDayDue
 import com.claudecode.countdown.domain.today
+import com.claudecode.countdown.ui.UndoBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -27,6 +28,7 @@ class TaskDetailViewModel(
     private val taskId: String,
     private val repo: TaskRepository,
     private val appScope: CoroutineScope,
+    private val undo: UndoBus,
 ) : ViewModel() {
 
     val task: StateFlow<Task?> = repo.observeTask(taskId).stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -142,8 +144,10 @@ class TaskDetailViewModel(
 
     fun delete(onDone: () -> Unit) = viewModelScope.launch {
         saveJob?.cancel()
-        textDirty = false
-        repo.delete(taskId)
+        // Keep what was typed so that undo brings the task back exactly as it was.
+        mutateNow { it }
+        val at = repo.delete(taskId)
+        undo.offer("Задача удалена") { repo.restore(taskId, at) }
         onDone()
     }
 

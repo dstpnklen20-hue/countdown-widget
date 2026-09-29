@@ -63,6 +63,7 @@ import com.claudecode.countdown.domain.CalendarEntry
 import com.claudecode.countdown.domain.allDayDue
 import com.claudecode.countdown.domain.calendarEntries
 import com.claudecode.countdown.domain.localTimeOf
+import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.ui.PriorityCheckbox
 import com.claudecode.countdown.ui.TextInputDialog
 import com.claudecode.countdown.ui.formatFullDate
@@ -119,6 +120,7 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) 
     }
 
     Scaffold(
+        snackbarHost = { AppSnackbarHost() },
         topBar = {
             TopAppBar(
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },

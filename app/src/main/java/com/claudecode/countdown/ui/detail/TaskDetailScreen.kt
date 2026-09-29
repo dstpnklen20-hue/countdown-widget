@@ -82,6 +82,7 @@ import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.domain.dueDay
 import com.claudecode.countdown.domain.isOverdue
 import com.claudecode.countdown.domain.today
+import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.ui.ConfirmDialog
 import com.claudecode.countdown.ui.DueDateDialog
 import com.claudecode.countdown.ui.PriorityCheckbox
@@ -146,6 +147,7 @@ fun TaskDetailScreen(
     val today = today()
 
     Scaffold(
+        snackbarHost = { AppSnackbarHost() },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = scheme.background),

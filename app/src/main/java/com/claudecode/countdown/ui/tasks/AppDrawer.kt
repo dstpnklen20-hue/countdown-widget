@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.HourglassBottom
 import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.WbSunny
@@ -84,6 +85,7 @@ fun AppDrawer(
     snapshot: Snapshot,
     selected: TaskFilter,
     onSelect: (TaskFilter) -> Unit,
+    onOpenTrash: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     var dialog by remember { mutableStateOf<DrawerDialog?>(null) }
@@ -175,6 +177,7 @@ fun AppDrawer(
             }
         }
         HorizontalDivider()
+        DrawerItem(icon = Icons.Outlined.Delete, label = "Корзина", count = 0, selected = false, onClick = onOpenTrash)
         DrawerItem(icon = Icons.Outlined.Settings, label = "Настройки", count = 0, selected = false, onClick = onOpenSettings)
     }
 
