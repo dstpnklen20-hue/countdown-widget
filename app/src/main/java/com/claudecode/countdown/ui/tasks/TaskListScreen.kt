@@ -572,11 +572,11 @@ private fun ParsedPreview(parsed: QuickAddResult, pickedDue: Due?, pickedPriorit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> Unit) {
+fun QuickAddSheet(onDismiss: () -> Unit, initialPriority: Int = Priority.NONE, onAdd: (String, Due?, Int) -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var text by remember { mutableStateOf("") }
     var due by remember { mutableStateOf<Due?>(null) }
-    var priority by remember { mutableStateOf(Priority.NONE) }
+    var priority by remember { mutableStateOf(initialPriority) }
     var pickDate by remember { mutableStateOf(false) }
     var priorityMenu by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
@@ -586,7 +586,7 @@ fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> Unit) {
         onAdd(text.trim(), due, priority)
         text = ""
         due = null
-        priority = Priority.NONE
+        priority = initialPriority
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, dragHandle = null) {

@@ -1,7 +1,20 @@
 package com.claudecode.countdown.ui.matrix
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.text.style.TextAlign
+import com.claudecode.countdown.data.db.Task
+import com.claudecode.countdown.ui.tasks.QuickAddSheet
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +77,21 @@ fun MatrixScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) ->
     val open = remember(snapshot, period) {
         matrixTasks(snapshot.groups(TaskFilter.All).flatMap { it.tasks }, period, snapshot.today)
     }
+    var expandedPriority by rememberSaveable { mutableStateOf<Int?>(null) }
+    val expanded = QUADRANTS.firstOrNull { it.priority == expandedPriority }
+    if (expanded != null) {
+        BackHandler { expandedPriority = null }
+        ExpandedQuadrant(
+            quadrant = expanded,
+            period = period,
+            tasks = open.filter { it.priority == expanded.priority },
+            snapshot = snapshot,
+            vm = vm,
+            onOpenTask = onOpenTask,
+            onBack = { expandedPriority = null },
+        )
+        return
+    }
     Scaffold(
         snackbarHost = { AppSnackbarHost() },
         topBar = {
@@ -91,6 +119,7 @@ fun MatrixScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) ->
                             tasks = open.filter { it.priority == q.priority },
                             vm = vm,
                             onOpenTask = onOpenTask,
+                            onExpand = { expandedPriority = q.priority },
                             modifier = Modifier.weight(1f).fillMaxSize().padding(4.dp),
                         )
                     }
@@ -104,15 +133,20 @@ fun MatrixScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) ->
 private fun QuadrantCard(
     quadrant: Quadrant,
     snapshot: Snapshot,
-    tasks: List<com.claudecode.countdown.data.db.Task>,
+    tasks: List<Task>,
     vm: TasksViewModel,
     onOpenTask: (String) -> Unit,
+    onExpand: () -> Unit,
     modifier: Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val color = priorityColor(quadrant.priority, Color(0xFF9E9E9E))
+    val color = quadrantColor(quadrant)
     Column(modifier.clip(RoundedCornerShape(16.dp)).background(scheme.surfaceContainerLow)) {
-        Row(Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Tapping the header (or the empty space) opens the quadrant on the whole screen.
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onExpand).padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Dot(color, 8)
             Spacer(Modifier.size(6.dp))
             Column(Modifier.weight(1f)) {
@@ -120,41 +154,106 @@ private fun QuadrantCard(
                 Text(quadrant.subtitle, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, maxLines = 1)
             }
             Text("${tasks.size}", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Открыть квадрант", tint = scheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
         }
         if (tasks.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().clickable(onClick = onExpand), contentAlignment = Alignment.Center) {
                 Text("Нет задач", color = scheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize().padding(top = 4.dp)) {
-                items(tasks, key = { it.id }) { task ->
-                    var menu by remember { mutableStateOf(false) }
-                    Box {
-                        TaskRow(
-                            task, snapshot, showList = false,
-                            onToggle = { vm.toggleDone(task) },
-                            onClick = { onOpenTask(task.id) },
-                            onLongClick = { menu = true },
-                            compact = true,
-                        )
-                        DropdownMenu(menu, { menu = false }) {
-                            Text(
-                                "Переместить в",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = scheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            )
-                            for (q in QUADRANTS.filter { it.priority != task.priority }) {
-                                DropdownMenuItem(
-                                    text = { Text(q.title) },
-                                    leadingIcon = { Dot(priorityColor(q.priority, Color(0xFF9E9E9E))) },
-                                    onClick = { menu = false; vm.setPriority(task, q.priority) },
-                                )
-                            }
-                        }
-                    }
-                }
+            LazyColumn(Modifier.fillMaxSize().padding(top = 2.dp)) {
+                items(tasks, key = { it.id }) { task -> MatrixTaskRow(task, snapshot, vm, onOpenTask, compact = true) }
             }
         }
     }
 }
+
+/** One quadrant on the whole screen, with its own "+" that adds tasks straight into it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExpandedQuadrant(
+    quadrant: Quadrant,
+    period: MatrixPeriod,
+    tasks: List<Task>,
+    snapshot: Snapshot,
+    vm: TasksViewModel,
+    onOpenTask: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    var adding by remember { mutableStateOf(false) }
+    Scaffold(
+        snackbarHost = { AppSnackbarHost() },
+        topBar = {
+            TopAppBar(
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") } },
+                title = {
+                    Column {
+                        Text(quadrant.title, color = quadrantColor(quadrant), fontWeight = FontWeight.SemiBold)
+                        Text(
+                            quadrant.subtitle + if (period != MatrixPeriod.ALL) " · ${period.label.lowercase()}" else "",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = scheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = scheme.background),
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { adding = true },
+                containerColor = scheme.primary,
+                contentColor = scheme.onPrimary,
+            ) { Icon(Icons.Filled.Add, "Добавить задачу в этот квадрант") }
+        },
+    ) { padding ->
+        if (tasks.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("Задач нет.\nНажмите «+», чтобы добавить.", color = scheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            }
+        } else {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = 88.dp)) {
+                items(tasks, key = { it.id }) { task -> MatrixTaskRow(task, snapshot, vm, onOpenTask, compact = false) }
+            }
+        }
+    }
+    if (adding) {
+        QuickAddSheet(onDismiss = { adding = false }, initialPriority = quadrant.priority) { title, due, priority ->
+            // With a period chosen, a task without a date would vanish from view: it gets today instead.
+            vm.quickAdd(title, if (period == MatrixPeriod.ALL) TaskFilter.All else TaskFilter.Today, due, priority)
+        }
+    }
+}
+
+/** A task in the matrix; long press moves it to another quadrant. */
+@Composable
+private fun MatrixTaskRow(task: Task, snapshot: Snapshot, vm: TasksViewModel, onOpenTask: (String) -> Unit, compact: Boolean) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        TaskRow(
+            task, snapshot, showList = !compact,
+            onToggle = { vm.toggleDone(task) },
+            onClick = { onOpenTask(task.id) },
+            onLongClick = { menu = true },
+            compact = compact,
+        )
+        DropdownMenu(menu, { menu = false }) {
+            Text(
+                "Переместить в",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+            for (q in QUADRANTS.filter { it.priority != task.priority }) {
+                DropdownMenuItem(
+                    text = { Text(q.title) },
+                    leadingIcon = { Dot(quadrantColor(q)) },
+                    onClick = { menu = false; vm.setPriority(task, q.priority) },
+                )
+            }
+        }
+    }
+}
+
+private fun quadrantColor(q: Quadrant): Color = priorityColor(q.priority, Color(0xFF9E9E9E))
