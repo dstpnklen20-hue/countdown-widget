@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -52,7 +53,7 @@ class MigrationTest {
     }
 
     @Test
-    fun migrate1To2KeepsDataAndMatchesEntities() = runBlocking {
+    fun migrateFromV1ToLatestKeepsDataAndMatchesEntities() = runBlocking {
         val file = context.getDatabasePath("migration-test.db").apply { parentFile?.mkdirs(); delete() }
         createV1(file)
 
@@ -65,10 +66,14 @@ class MigrationTest {
             assertEquals("Отпуск", task!!.title)
             assertEquals(DisplayMode.COUNTDOWN, task.displayMode)
 
-            // New tables are usable.
+            // v2: new tables are usable.
             db.habitDao().upsert(Habit(name = "Вода", goal = 8))
             assertEquals(1, db.habitDao().active().size)
-            assertEquals(2, db.openHelper.readableDatabase.version)
+            // v3: old tasks get no colour of their own, and one can be stored.
+            assertNull(task.color)
+            db.taskDao().upsert(task.copy(color = 0xFF43A047.toInt()))
+            assertEquals(0xFF43A047.toInt(), db.taskDao().get("t1")!!.color)
+            assertEquals(3, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }

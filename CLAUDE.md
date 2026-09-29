@@ -58,7 +58,7 @@ Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContaine
 - `core/` (чистый Kotlin, быстрые тесты): `RepeatRule` (RRULE: FREQ/INTERVAL/BYDAY/BYMONTHDAY/COUNT/UNTIL),
   `RepeatText` (описания по-русски), `QuickAddParser` (RU/EN: даты, время, повторы, `!приоритет`, `#тег`, `~список`).
 - `app/.../data/db/`: `Entities.kt` (у синхронизируемых сущностей id UUID, createdAt, updatedAt, deleted),
-  `Daos.kt`, `AppDatabase.kt` (версия 2), `Migrations.kt`, `DatabaseSeeder.kt` (Inbox + импорт отсчётов 1.x).
+  `Daos.kt`, `AppDatabase.kt` (версия 3), `Migrations.kt`, `DatabaseSeeder.kt` (Inbox + импорт отсчётов 1.x).
 - `app/.../data/`: `TaskRepository` (единая точка записи задач; `onChanged` → виджеты и будильник),
   `HabitRepository`/`FocusRepository`, `CountdownRepository` (мост для старых View-экранов).
 - `app/.../domain/`: умные списки и группировка, повторы задач, напоминания, проекция календаря, статистика привычек.

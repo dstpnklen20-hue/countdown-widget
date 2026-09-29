@@ -84,6 +84,7 @@ import com.claudecode.countdown.domain.dueDay
 import com.claudecode.countdown.domain.isOverdue
 import com.claudecode.countdown.domain.today
 import com.claudecode.countdown.ui.AppSnackbarHost
+import com.claudecode.countdown.ui.ColorPicker
 import com.claudecode.countdown.ui.ConfirmDialog
 import com.claudecode.countdown.ui.DueDateDialog
 import com.claudecode.countdown.ui.PriorityCheckbox
@@ -332,6 +333,18 @@ fun TaskDetailScreen(
                 }
             }
             AddRow("Новый тег") { vm.addTag(it) }
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Text("Цвет", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Метка в списке и в календаре; без цвета берётся цвет списка",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.size(8.dp))
+                ColorPicker(t.color) { vm.setColor(it) }
+            }
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Row(

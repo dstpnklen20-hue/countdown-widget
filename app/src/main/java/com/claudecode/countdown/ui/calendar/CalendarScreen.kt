@@ -19,6 +19,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import com.claudecode.countdown.data.db.Task
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -117,6 +122,14 @@ private data class CalendarPage(val mode: CalendarMode, val start: LocalDate, va
     }
 }
 
+/** Resolves a task's colour (own, else its list's); provided by [CalendarScreen] from the snapshot. */
+private val LocalColorOf = staticCompositionLocalOf<(Task) -> Int?> { { it.color } }
+
+/** Calendar marks use the task/list colour, falling back to the priority colour. */
+@Composable
+private fun entryColor(task: Task): Color =
+    LocalColorOf.current(task)?.let { Color(it) } ?: priorityColor(task.priority, MaterialTheme.colorScheme.primary)
+
 private val ru = Locale("ru")
 private val WEEK_DAYS = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 
@@ -160,107 +173,109 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) 
             .replaceFirstChar { it.uppercase() }
     }
 
-    Scaffold(
-        snackbarHost = { AppSnackbarHost() },
-        topBar = {
-            TopAppBar(
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
-                actions = {
-                    // Only shown away from today, so it reads as "go back" rather than a mode.
-                    if (selected != today) {
-                        FilledTonalButton(
-                            onClick = { goTo(today) },
-                            contentPadding = PaddingValues(horizontal = 12.dp),
-                            modifier = Modifier.height(36.dp),
-                        ) {
-                            Icon(Icons.Outlined.Today, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("К сегодня", style = MaterialTheme.typography.labelLarge)
-                        }
-                    }
-                    IconButton(onClick = { shift(-1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Назад") }
-                    IconButton(onClick = { shift(1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Вперёд") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { adding = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) { Icon(Icons.Filled.Add, "Добавить задачу на выбранный день") }
-        },
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-                CalendarMode.entries.forEachIndexed { i, m ->
-                    SegmentedButton(
-                        selected = mode == m,
-                        onClick = { direction = 0; mode = m },
-                        shape = SegmentedButtonDefaults.itemShape(i, CalendarMode.entries.size),
-                        icon = {},
-                    ) { Text(m.label, maxLines = 1, style = MaterialTheme.typography.labelMedium) }
-                }
-            }
-            val swipeThreshold = with(LocalDensity.current) { 72.dp.toPx() }
-            val currentShift by rememberUpdatedState(::shift)
-            AnimatedContent(
-                targetState = page,
-                transitionSpec = {
-                    when {
-                        direction > 0 -> slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
-                        direction < 0 -> slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
-                        else -> fadeIn() togetherWith fadeOut()
-                    }
-                },
-                label = "calendar",
-                modifier = Modifier
-                    .fillMaxSize()
-                    // Swipe left/right moves to the next/previous day, week, month or year.
-                    .pointerInput(Unit) {
-                        var dragged = 0f
-                        detectHorizontalDragGestures(
-                            onDragStart = { dragged = 0f },
-                            onDragEnd = { if (abs(dragged) > swipeThreshold) currentShift(if (dragged < 0) 1L else -1L) },
-                        ) { _, dx -> dragged += dx }
-                    },
-            ) { shown ->
-                // The page sliding out keeps drawing its own period, not the one sliding in.
-                val entries = remember(snapshot, shown) { calendarEntries(snapshot.tasks, shown.start, shown.end) }
-                val rangeStart = shown.start
-                val selected = if (selected in shown.start..shown.end) selected else shown.start
-                Column(Modifier.fillMaxSize()) {
-                    when (shown.mode) {
-                        CalendarMode.YEAR -> YearGrid(shown.start.year, today, entries) { month ->
-                            direction = 0
-                            selectedEpoch = (if (YearMonth.from(today) == month) today else month.atDay(1)).toEpochDay()
-                            mode = CalendarMode.MONTH
-                        }
-                        CalendarMode.MONTH -> {
-                            MonthGrid(rangeStart, selected, today, entries) { selectedEpoch = it.toEpochDay() }
-                            HorizontalDivider(Modifier.padding(top = 4.dp))
-                            DayAgenda(selected, today, entries[selected].orEmpty(), vm, onOpenTask, header = true)
-                        }
-                        CalendarMode.WEEK -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
-                            for (i in 0L..6L) {
-                                val day = rangeStart.plusDays(i)
-                                item(key = "h$i") { DayHeader(day, today, selected == day) { selectedEpoch = day.toEpochDay() } }
-                                val list = entries[day].orEmpty()
-                                if (list.isEmpty()) {
-                                    item(key = "e$i") {
-                                        Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 56.dp, bottom = 4.dp))
-                                    }
-                                }
-                                items(list, key = { "t$i:${it.task.id}:${it.projected}" }) { EntryRow(it, vm, onOpenTask) }
+    CompositionLocalProvider(LocalColorOf provides snapshot::colorOf) {
+        Scaffold(
+            snackbarHost = { AppSnackbarHost() },
+            topBar = {
+                TopAppBar(
+                    title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
+                    actions = {
+                        // Only shown away from today, so it reads as "go back" rather than a mode.
+                        if (selected != today) {
+                            FilledTonalButton(
+                                onClick = { goTo(today) },
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier.height(36.dp),
+                            ) {
+                                Icon(Icons.Outlined.Today, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("К сегодня", style = MaterialTheme.typography.labelLarge)
                             }
                         }
-                        CalendarMode.THREE_DAYS -> ThreeDays(rangeStart, today, entries, vm, onOpenTask) { day ->
-                            direction = 0
-                            selectedEpoch = day.toEpochDay()
-                            mode = CalendarMode.DAY
+                        IconButton(onClick = { shift(-1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Назад") }
+                        IconButton(onClick = { shift(1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Вперёд") }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                )
+            },
+            floatingActionButton = {
+                FloatingActionButton(
+                    onClick = { adding = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) { Icon(Icons.Filled.Add, "Добавить задачу на выбранный день") }
+            },
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                    CalendarMode.entries.forEachIndexed { i, m ->
+                        SegmentedButton(
+                            selected = mode == m,
+                            onClick = { direction = 0; mode = m },
+                            shape = SegmentedButtonDefaults.itemShape(i, CalendarMode.entries.size),
+                            icon = {},
+                        ) { Text(m.label, maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+                    }
+                }
+                val swipeThreshold = with(LocalDensity.current) { 72.dp.toPx() }
+                val currentShift by rememberUpdatedState(::shift)
+                AnimatedContent(
+                    targetState = page,
+                    transitionSpec = {
+                        when {
+                            direction > 0 -> slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
+                            direction < 0 -> slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
+                            else -> fadeIn() togetherWith fadeOut()
                         }
-                        CalendarMode.DAY -> DayTimeline(selected, entries[selected].orEmpty(), vm, onOpenTask)
+                    },
+                    label = "calendar",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // Swipe left/right moves to the next/previous day, week, month or year.
+                        .pointerInput(Unit) {
+                            var dragged = 0f
+                            detectHorizontalDragGestures(
+                                onDragStart = { dragged = 0f },
+                                onDragEnd = { if (abs(dragged) > swipeThreshold) currentShift(if (dragged < 0) 1L else -1L) },
+                            ) { _, dx -> dragged += dx }
+                        },
+                ) { shown ->
+                    // The page sliding out keeps drawing its own period, not the one sliding in.
+                    val entries = remember(snapshot, shown) { calendarEntries(snapshot.tasks, shown.start, shown.end) }
+                    val rangeStart = shown.start
+                    val selected = if (selected in shown.start..shown.end) selected else shown.start
+                    Column(Modifier.fillMaxSize()) {
+                        when (shown.mode) {
+                            CalendarMode.YEAR -> YearGrid(shown.start.year, today, entries) { month ->
+                                direction = 0
+                                selectedEpoch = (if (YearMonth.from(today) == month) today else month.atDay(1)).toEpochDay()
+                                mode = CalendarMode.MONTH
+                            }
+                            CalendarMode.MONTH -> {
+                                MonthGrid(rangeStart, selected, today, entries) { selectedEpoch = it.toEpochDay() }
+                                HorizontalDivider(Modifier.padding(top = 4.dp))
+                                DayAgenda(selected, today, entries[selected].orEmpty(), vm, onOpenTask, header = true)
+                            }
+                            CalendarMode.WEEK -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
+                                for (i in 0L..6L) {
+                                    val day = rangeStart.plusDays(i)
+                                    item(key = "h$i") { DayHeader(day, today, selected == day) { selectedEpoch = day.toEpochDay() } }
+                                    val list = entries[day].orEmpty()
+                                    if (list.isEmpty()) {
+                                        item(key = "e$i") {
+                                            Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 56.dp, bottom = 4.dp))
+                                        }
+                                    }
+                                    items(list, key = { "t$i:${it.task.id}:${it.projected}" }) { EntryRow(it, vm, onOpenTask) }
+                                }
+                            }
+                            CalendarMode.THREE_DAYS -> ThreeDays(rangeStart, today, entries, vm, onOpenTask) { day ->
+                                direction = 0
+                                selectedEpoch = day.toEpochDay()
+                                mode = CalendarMode.DAY
+                            }
+                            CalendarMode.DAY -> DayTimeline(selected, entries[selected].orEmpty(), vm, onOpenTask)
+                        }
                     }
                 }
             }
@@ -335,7 +350,7 @@ private fun MonthGrid(
                             for (e in dayEntries.take(3)) {
                                 Box(
                                     Modifier.size(5.dp).clip(CircleShape).background(
-                                        priorityColor(e.task.priority, scheme.primary).copy(alpha = if (e.projected) 0.45f else 1f)
+                                        entryColor(e.task).copy(alpha = if (e.projected) 0.45f else 1f)
                                     )
                                 )
                             }
@@ -522,14 +537,17 @@ private val HOUR_LABEL_WIDTH = 44.dp
 private fun EntryChip(entry: CalendarEntry, onOpenTask: (String) -> Unit, showTime: Boolean = false) {
     val task = entry.task
     val scheme = MaterialTheme.colorScheme
-    val color = priorityColor(task.priority, scheme.primary)
+    val color = entryColor(task)
     val faded = entry.projected || task.isDone
     Text(
         (if (showTime && task.dueAt != null) formatTime(task.dueAt) + " " else "") + task.title,
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
-            .background(color.copy(alpha = if (faded) 0.10f else 0.20f))
+            .background(color.copy(alpha = if (faded) 0.10f else 0.22f))
+            // Solid edge keeps the colour readable on dark themes, where the tint is faint.
+            .drawBehind { drawRect(color.copy(alpha = if (faded) 0.5f else 1f), size = Size(3.dp.toPx(), size.height)) }
+            .padding(start = 3.dp)
             .clickable { onOpenTask(task.id) }
             .padding(horizontal = 4.dp, vertical = 2.dp),
         style = MaterialTheme.typography.labelSmall,
@@ -615,6 +633,9 @@ private fun EntryRow(entry: CalendarEntry, vm: TasksViewModel, onOpenTask: (Stri
             }
         } else {
             PriorityCheckbox(task.isDone, task.priority, { vm.toggleDone(task) })
+        }
+        LocalColorOf.current(task)?.let { c ->
+            Box(Modifier.padding(end = 8.dp).size(8.dp).clip(CircleShape).background(Color(c)))
         }
         Text(
             task.title,

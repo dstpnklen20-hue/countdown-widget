@@ -15,8 +15,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.claudecode.countdown.container
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -453,6 +456,18 @@ fun TaskRow(
             .fillMaxWidth()
             // Full rows cover the swipe background; compact ones sit on their card's colour.
             .background(if (compact) Color.Transparent else scheme.background)
+            // A task's own colour shows as a bar at the left edge, without shifting the row.
+            .then(
+                if (task.color == null) Modifier else Modifier.drawBehind {
+                    val bar = 4.dp.toPx()
+                    drawRoundRect(
+                        Color(task.color),
+                        topLeft = Offset(0f, size.height * 0.2f),
+                        size = Size(bar, size.height * 0.6f),
+                        cornerRadius = CornerRadius(bar / 2),
+                    )
+                }
+            )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 4.dp, end = if (compact) 8.dp else 16.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,

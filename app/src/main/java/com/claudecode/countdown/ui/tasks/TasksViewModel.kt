@@ -43,6 +43,9 @@ data class Snapshot(
 ) {
     val listsById: Map<String, TaskList> by lazy { lists.associateBy { it.id } }
 
+    /** The task's own colour, else its list's; null when neither is set. */
+    fun colorOf(task: Task): Int? = task.color ?: listsById[task.listId]?.color
+
     fun filtered(filter: TaskFilter): List<Task> = tasks.filter {
         matches(filter, it, tagsByTask[it.id].orEmpty().mapTo(HashSet()) { t -> t.tagId }, today)
     }

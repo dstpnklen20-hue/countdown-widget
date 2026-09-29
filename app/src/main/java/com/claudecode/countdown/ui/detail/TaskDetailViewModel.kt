@@ -117,6 +117,8 @@ class TaskDetailViewModel(
 
     fun setPriority(priority: Int) = mutate { it.copy(priority = priority) }
 
+    fun setColor(color: Int?) = mutate { it.copy(color = color) }
+
     fun setList(listId: String) = mutate { it.copy(listId = listId, sectionId = null) }
 
     fun setCountdown(enabled: Boolean) = mutate {
