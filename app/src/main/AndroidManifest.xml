@@ -34,11 +34,6 @@
             android:theme="@style/Theme.CountdownWidget" />
 
         <activity
-            android:name=".SettingsActivity"
-            android:exported="false"
-            android:theme="@style/Theme.CountdownWidget" />
-
-        <activity
             android:name=".widget.WidgetConfigureActivity"
             android:exported="true"
             android:theme="@style/Theme.CountdownWidget">

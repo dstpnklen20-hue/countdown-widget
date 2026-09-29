@@ -2,6 +2,7 @@ package com.claudecode.countdown
 
 import android.content.BroadcastReceiver
 import android.content.Context
+import com.claudecode.countdown.data.AppSettings
 import com.claudecode.countdown.data.FocusRepository
 import com.claudecode.countdown.data.HabitRepository
 import com.claudecode.countdown.data.TaskRepository
@@ -21,7 +22,8 @@ import kotlinx.coroutines.launch
 class AppContainer(private val context: Context) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val database: AppDatabase by lazy { AppDatabase.build(context) }
-    val reminders: ReminderScheduler by lazy { ReminderScheduler(context, database) }
+    val settings: AppSettings by lazy { AppSettings(context) }
+    val reminders: ReminderScheduler by lazy { ReminderScheduler(context, database, settings) }
     val tasks: TaskRepository by lazy {
         TaskRepository(database, onClosed = { ReminderNotifier.cancel(context, it) }) { onDataChanged() }
     }

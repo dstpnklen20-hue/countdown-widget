@@ -3,38 +3,27 @@ package com.claudecode.countdown
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.CheckCircle
-import com.claudecode.countdown.ui.calendar.CalendarScreen
-import com.claudecode.countdown.ui.focus.FocusScreen
-import com.claudecode.countdown.ui.habits.HabitsScreen
-import androidx.compose.material.icons.outlined.Loop
-import androidx.compose.material.icons.outlined.Timer
-import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.material3.SnackbarHostState
-import com.claudecode.countdown.ui.LocalSnackbarHost
-import com.claudecode.countdown.ui.tasks.TrashScreen
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import com.claudecode.countdown.ui.matrix.MatrixScreen
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -42,19 +31,24 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.claudecode.countdown.domain.TaskFilter
+import com.claudecode.countdown.ui.AppBottomBar
+import com.claudecode.countdown.ui.AppRail
+import com.claudecode.countdown.ui.HomeTab
+import com.claudecode.countdown.ui.LocalSnackbarHost
 import com.claudecode.countdown.ui.TikTakTheme
+import com.claudecode.countdown.ui.barTabs
+import com.claudecode.countdown.ui.calendar.CalendarScreen
 import com.claudecode.countdown.ui.detail.TaskDetailScreen
 import com.claudecode.countdown.ui.detail.TaskDetailViewModel
+import com.claudecode.countdown.ui.focus.FocusScreen
+import com.claudecode.countdown.ui.habits.HabitsScreen
+import com.claudecode.countdown.ui.matrix.MatrixScreen
+import com.claudecode.countdown.ui.settings.SettingsScreen
+import com.claudecode.countdown.ui.tasks.DrawerSection
+import com.claudecode.countdown.ui.tasks.SearchScreen
 import com.claudecode.countdown.ui.tasks.TaskListScreen
 import com.claudecode.countdown.ui.tasks.TasksViewModel
-
-enum class HomeTab(val label: String, val icon: ImageVector) {
-    TASKS("Задачи", Icons.Outlined.CheckCircle),
-    CALENDAR("Календарь", Icons.Outlined.CalendarMonth),
-    MATRIX("Матрица", Icons.Outlined.GridView),
-    FOCUS("Фокус", Icons.Outlined.Timer),
-    HABITS("Привычки", Icons.Outlined.Loop),
-}
+import com.claudecode.countdown.ui.tasks.TrashScreen
 
 // Keeps its historical name: launchers pin shortcuts to this class.
 class MainActivity : AppCompatActivity() {
@@ -105,50 +99,75 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Theme may have changed in SettingsActivity.
+        // The system dark mode may have changed while the app was in the background.
+        onThemeChanged()
+    }
+
+    private fun onThemeChanged() {
+        // May recreate the activity when the effective day/night mode changes; screen state survives that.
+        ThemeManager.applyNightMode(this)
         ThemeManager.apply(this)
         palette = ThemeManager.palette(this)
     }
 
-    @androidx.compose.runtime.Composable
+    @Composable
     private fun AppNavHost(nav: NavHostController, tasksVm: TasksViewModel) {
         val snapshot by tasksVm.snapshot.collectAsStateWithLifecycle()
-        var filterKey by rememberSaveable { mutableStateOf(TaskFilter.Inbox.key) }
+        val settings by container.settings.state.collectAsStateWithLifecycle()
+        var filterKey by rememberSaveable { mutableStateOf(container.settings.current.startFilterKey) }
         var tab by rememberSaveable { mutableStateOf(HomeTab.TASKS) }
         val openTask: (String) -> Unit = { nav.navigate("task/$it") }
+        val openTrash = { nav.navigate("trash") }
+
+        // Phones get a bottom bar; wider screens a side rail, and from ~720dp the lists panel stays open.
+        val width = LocalConfiguration.current.screenWidthDp
+        val wide = width >= 600
+        val tabs = barTabs(settings.tabs, withSearch = wide)
+        // A section opened from the ☰ menu (not in the bar) returns to the tasks with Back.
+        BackHandler(enabled = tab !in tabs) { tab = HomeTab.TASKS }
+        val sections = listOf(HomeTab.MATRIX, HomeTab.FOCUS, HomeTab.HABITS).map { t ->
+            DrawerSection(t.label, t.icon!!) { tab = t }
+        }
 
         NavHost(nav, startDestination = "home") {
             composable("home") {
-                Scaffold(
-                    bottomBar = {
-                        NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            for (t in HomeTab.entries) {
-                                NavigationBarItem(
-                                    selected = tab == t,
-                                    onClick = { tab = t },
-                                    icon = { Icon(t.icon, null) },
-                                    label = { Text(t.label, maxLines = 1) },
-                                )
-                            }
-                        }
-                    },
-                ) { padding ->
-                    Box(Modifier.padding(padding)) {
-                        when (tab) {
-                            HomeTab.TASKS -> TaskListScreen(
-                                vm = tasksVm,
-                                snapshot = snapshot,
-                                filter = TaskFilter.parse(filterKey),
-                                onFilterChange = { filterKey = it.key },
-                                onOpenTask = openTask,
-                                onOpenTrash = { nav.navigate("trash") },
-                                onOpenSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
-                            )
-                            HomeTab.CALENDAR -> CalendarScreen(tasksVm, snapshot, openTask)
-                            HomeTab.MATRIX -> MatrixScreen(tasksVm, snapshot, openTask)
-                            HomeTab.FOCUS -> FocusScreen(snapshot)
-                            HomeTab.HABITS -> HabitsScreen(snapshot.today)
-                        }
+                val body = @Composable {
+                    when (tab) {
+                        HomeTab.TASKS -> TaskListScreen(
+                            vm = tasksVm,
+                            snapshot = snapshot,
+                            filter = TaskFilter.parse(filterKey),
+                            onFilterChange = {
+                                filterKey = it.key
+                                container.settings.rememberFilter(it.key)
+                            },
+                            onOpenTask = openTask,
+                            onOpenTrash = openTrash,
+                            sections = sections,
+                            permanentDrawer = width >= 720,
+                            onOpenSearch = if (wide) null else ({ tab = HomeTab.SEARCH }),
+                        )
+                        HomeTab.CALENDAR -> CalendarScreen(tasksVm, snapshot, openTask)
+                        HomeTab.MATRIX -> MatrixScreen(tasksVm, snapshot, openTask)
+                        HomeTab.FOCUS -> FocusScreen(snapshot)
+                        HomeTab.HABITS -> HabitsScreen(snapshot.today)
+                        HomeTab.SEARCH -> SearchScreen(tasksVm, snapshot, openTask, onBack = if (wide) null else ({ tab = HomeTab.TASKS }))
+                        HomeTab.SETTINGS -> SettingsScreen(onBack = null, onOpenTrash = openTrash, onThemeChanged = ::onThemeChanged)
+                    }
+                }
+                if (wide) {
+                    Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                        AppRail(tabs, tab, snapshot.today.dayOfMonth) { tab = it }
+                        Box(Modifier.weight(1f)) { body() }
+                    }
+                } else {
+                    Scaffold(
+                        bottomBar = {
+                            // Search opens full screen, like TickTick, without the bar.
+                            if (tab != HomeTab.SEARCH) AppBottomBar(tabs, tab, snapshot.today.dayOfMonth) { tab = it }
+                        },
+                    ) { padding ->
+                        Box(Modifier.padding(padding)) { body() }
                     }
                 }
             }

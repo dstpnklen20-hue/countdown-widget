@@ -1,6 +1,18 @@
 package com.claudecode.countdown.ui.tasks
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.EventAvailable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.claudecode.countdown.container
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.drawWithContent
@@ -115,34 +127,40 @@ fun TaskListScreen(
     onFilterChange: (TaskFilter) -> Unit,
     onOpenTask: (String) -> Unit,
     onOpenTrash: () -> Unit,
-    onOpenSettings: () -> Unit,
+    sections: List<DrawerSection>,
+    /** Tablets keep the lists panel open next to the tasks instead of a sliding menu. */
+    permanentDrawer: Boolean = false,
+    /** Phones search from the top bar; tablets have Search in the side rail and pass null. */
+    onOpenSearch: (() -> Unit)? = null,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showQuickAdd by remember { mutableStateOf(false) }
     val list = (filter as? TaskFilter.ListFilter)?.let { snapshot.listsById[it.listId] }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            AppDrawer(
-                vm = vm,
-                snapshot = snapshot,
-                selected = filter,
-                onSelect = { onFilterChange(it); scope.launch { drawerState.close() } },
-                onOpenTrash = { scope.launch { drawerState.close() }; onOpenTrash() },
-                onOpenSettings = { scope.launch { drawerState.close() }; onOpenSettings() },
-            )
-        },
-    ) {
+    val drawer = @Composable {
+        AppDrawer(
+            vm = vm,
+            snapshot = snapshot,
+            selected = filter,
+            onSelect = { onFilterChange(it); scope.launch { drawerState.close() } },
+            onOpenTrash = { scope.launch { drawerState.close() }; onOpenTrash() },
+            sections = sections.map { s -> DrawerSection(s.label, s.icon) { scope.launch { drawerState.close() }; s.onClick() } },
+            permanent = permanentDrawer,
+        )
+    }
+    val content = @Composable {
         Scaffold(
             topBar = {
                 TopAppBar(
                     title = { Text(snapshot.title(filter), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Filled.Menu, "Меню") }
+                        if (!permanentDrawer) {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Filled.Menu, "Меню") }
+                        }
                     },
                     actions = {
+                        if (onOpenSearch != null) IconButton(onClick = onOpenSearch) { Icon(Icons.Filled.Search, "Поиск") }
                         if (list != null) {
                             val kanban = list.viewMode == ListViewMode.KANBAN
                             IconButton(onClick = { vm.setViewMode(list, if (kanban) ListViewMode.LIST else ListViewMode.KANBAN) }) {
@@ -181,6 +199,15 @@ fun TaskListScreen(
         }
     }
 
+    if (permanentDrawer) {
+        Row(Modifier.fillMaxSize()) {
+            drawer()
+            Box(Modifier.weight(1f)) { content() }
+        }
+    } else {
+        ModalNavigationDrawer(drawerState = drawerState, drawerContent = drawer) { content() }
+    }
+
     if (showQuickAdd) {
         QuickAddSheet(
             onDismiss = { showQuickAdd = false },
@@ -198,18 +225,19 @@ private fun TaskGroupsList(
     onOpenTask: (String) -> Unit,
     contentPadding: PaddingValues,
 ) {
-    val groups = remember(snapshot, filter) { snapshot.groups(filter) }
+    val appSettings = LocalContext.current.container.settings
+    val settings by appSettings.state.collectAsStateWithLifecycle()
+    val groups = remember(snapshot, filter, settings.showCompleted) {
+        snapshot.groups(filter).filter { settings.showCompleted || filter == TaskFilter.Completed || it.kind != GroupKind.DONE }
+    }
     val collapsed = remember(filter) { mutableStateMapOf<String, Boolean>() }
     val showList = filter !is TaskFilter.ListFilter
+    val hint = smartListHint(filter)?.takeIf { filter.key !in settings.dismissedHints }
 
     if (snapshot.loaded && groups.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(contentPadding), contentAlignment = Alignment.Center) {
-            Text(
-                if (filter == TaskFilter.Completed) "Пока ничего не выполнено" else "Задач нет.\nНажмите «+», чтобы добавить.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
+        Column(Modifier.fillMaxSize().padding(contentPadding)) {
+            if (hint != null) HintBanner(hint) { appSettings.dismissHint(filter.key) }
+            EmptyState(filter)
         }
         return
     }
@@ -221,6 +249,7 @@ private fun TaskGroupsList(
             bottom = contentPadding.calculateBottomPadding() + 88.dp,
         ),
     ) {
+        if (hint != null) item(key = "hint") { HintBanner(hint, Modifier.animateItem()) { appSettings.dismissHint(filter.key) } }
         for (group in groups) {
             val key = "${group.kind}:${group.date}"
             val isCollapsed = collapsed[key] ?: (group.kind == GroupKind.DONE && filter != TaskFilter.Completed)
@@ -250,6 +279,62 @@ private fun TaskGroupsList(
                 }
             }
         }
+    }
+}
+
+/** What a smart list collects, shown once at its top until the user closes it. */
+private fun smartListHint(filter: TaskFilter): String? = when (filter) {
+    TaskFilter.Inbox -> "Сюда попадают новые задачи, для которых не выбран список."
+    TaskFilter.Today -> "Задачи на сегодня и просроченные будут показаны здесь."
+    TaskFilter.Tomorrow -> "Задачи с датой «завтра» будут показаны здесь."
+    TaskFilter.Next7Days -> "Задачи на ближайшую неделю, по дням."
+    TaskFilter.All -> "Все задачи из всех списков."
+    TaskFilter.Countdowns -> "Задачи с обратным отсчётом до даты. Включается на экране задачи."
+    else -> null
+}
+
+@Composable
+private fun HintBanner(text: String, modifier: Modifier = Modifier, onClose: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(scheme.primary)
+            .padding(start = 16.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.EventAvailable, null, tint = scheme.onPrimary)
+        Spacer(Modifier.width(12.dp))
+        Text(text, color = scheme.onPrimary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Закрыть подсказку", tint = scheme.onPrimary) }
+    }
+}
+
+@Composable
+private fun EmptyState(filter: TaskFilter) {
+    val scheme = MaterialTheme.colorScheme
+    val (emoji, title, subtitle) = when (filter) {
+        TaskFilter.Today -> Triple("☕", "Сегодня нет задач", "Отдохните с чашечкой чая")
+        TaskFilter.Tomorrow -> Triple("🌤", "На завтра задач нет", "Можно запланировать что-нибудь приятное")
+        TaskFilter.Completed -> Triple("🏁", "Пока ничего не выполнено", "Выполненные задачи появятся здесь")
+        TaskFilter.Countdowns -> Triple("⏳", "Отсчётов нет", "Включите отсчёт на экране задачи")
+        else -> Triple("📝", "Задач нет", "Нажмите «+», чтобы добавить")
+    }
+    Column(
+        Modifier.fillMaxSize().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            Modifier.size(140.dp).clip(CircleShape).background(scheme.surfaceContainerHigh),
+            contentAlignment = Alignment.Center,
+        ) { Text(emoji, fontSize = 64.sp) }
+        Spacer(Modifier.height(24.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }
 

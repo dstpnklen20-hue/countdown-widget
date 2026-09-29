@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.claudecode.countdown.data.AppSettings
 import com.claudecode.countdown.data.db.AppDatabase
 import com.claudecode.countdown.data.db.now
 import com.claudecode.countdown.domain.dueReminders
@@ -25,6 +26,7 @@ import kotlinx.coroutines.sync.withLock
 class ReminderScheduler(
     private val context: Context,
     private val db: AppDatabase,
+    private val settings: AppSettings,
 ) {
     companion object {
         const val ACTION_FIRE = "com.claudecode.countdown.ACTION_FIRE_REMINDERS"
@@ -36,6 +38,8 @@ class ReminderScheduler(
     private val mutex = Mutex()
     private val prefs by lazy { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     private val alarmManager by lazy { context.getSystemService(Context.ALARM_SERVICE) as AlarmManager }
+
+    private fun allDayMinutes() = settings.current.allDayReminderMinutes
 
     private fun checkedUntil(): Long {
         if (!prefs.contains(KEY_CHECKED_UNTIL)) prefs.edit().putLong(KEY_CHECKED_UNTIL, now()).commit()
@@ -49,7 +53,7 @@ class ReminderScheduler(
         val reminders = dao.activeReminders()
         val at = now()
         val from = maxOf(checkedUntil(), at - MISSED_WINDOW_MS)
-        for ((task, _) in dueReminders(tasks, reminders, from, at).distinctBy { it.first.id }) {
+        for ((task, _) in dueReminders(tasks, reminders, from, at, allDayMinutes()).distinctBy { it.first.id }) {
             ReminderNotifier.show(context, task)
         }
         val habitDao = db.habitDao()
@@ -59,7 +63,7 @@ class ReminderScheduler(
             if (done < habit.goal) ReminderNotifier.showHabit(context, habit)
         }
         prefs.edit().putLong(KEY_CHECKED_UNTIL, at).apply()
-        arm(earliest(nextTrigger(tasks, reminders, at), nextHabitTrigger(at)))
+        arm(earliest(nextTrigger(tasks, reminders, at, allDayMinutes()), nextHabitTrigger(at)))
     }
 
     /** Re-arms after data changes without delivering anything. */
@@ -67,7 +71,7 @@ class ReminderScheduler(
         val dao = db.reminderDao()
         val tasks = dao.tasksWithReminders().associateBy { it.id }
         val after = maxOf(checkedUntil(), now())
-        arm(earliest(nextTrigger(tasks, dao.activeReminders(), after), nextHabitTrigger(after)))
+        arm(earliest(nextTrigger(tasks, dao.activeReminders(), after, allDayMinutes()), nextHabitTrigger(after)))
     }
 
     private fun earliest(a: Long?, b: Long?): Long? = listOfNotNull(a, b).minOrNull()

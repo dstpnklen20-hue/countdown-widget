@@ -27,7 +27,7 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.HourglassBottom
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.DropdownMenu
@@ -37,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,6 +61,9 @@ import com.claudecode.countdown.domain.TaskFilter
 import com.claudecode.countdown.ui.ColorPicker
 import com.claudecode.countdown.ui.ConfirmDialog
 import com.claudecode.countdown.ui.TextInputDialog
+
+/** A top-level section (Matrix, Focus…) reachable from the menu even when it is not in the bottom bar. */
+class DrawerSection(val label: String, val icon: ImageVector, val onClick: () -> Unit)
 
 private sealed interface DrawerDialog {
     data class EditList(val list: TaskList?) : DrawerDialog
@@ -86,14 +90,15 @@ fun AppDrawer(
     selected: TaskFilter,
     onSelect: (TaskFilter) -> Unit,
     onOpenTrash: () -> Unit,
-    onOpenSettings: () -> Unit,
+    sections: List<DrawerSection> = emptyList(),
+    permanent: Boolean = false,
 ) {
     var dialog by remember { mutableStateOf<DrawerDialog?>(null) }
     var addMenu by remember { mutableStateOf(false) }
     val expandedFolders = remember { mutableStateMapOf<String, Boolean>() }
     val userLists = snapshot.lists.filter { !it.isInbox }
 
-    ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.background) {
+    val body: @Composable ColumnScope.() -> Unit = {
         LazyColumn(Modifier.weight(1f)) {
             item {
                 Text(
@@ -175,10 +180,20 @@ fun AppDrawer(
                     )
                 }
             }
+            if (sections.isNotEmpty()) {
+                item { SectionHeader("Разделы") {} }
+                items(sections, key = { "s:${it.label}" }) { s ->
+                    DrawerItem(icon = s.icon, label = s.label, count = 0, selected = false, onClick = s.onClick)
+                }
+            }
         }
         HorizontalDivider()
         DrawerItem(icon = Icons.Outlined.Delete, label = "Корзина", count = 0, selected = false, onClick = onOpenTrash)
-        DrawerItem(icon = Icons.Outlined.Settings, label = "Настройки", count = 0, selected = false, onClick = onOpenSettings)
+    }
+    if (permanent) {
+        PermanentDrawerSheet(Modifier.width(300.dp), drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, content = body)
+    } else {
+        ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.background, content = body)
     }
 
     when (val d = dialog) {

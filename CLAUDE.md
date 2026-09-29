@@ -62,10 +62,13 @@ Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContaine
 - `app/.../data/`: `TaskRepository` (единая точка записи задач; `onChanged` → виджеты и будильник),
   `HabitRepository`/`FocusRepository`, `CountdownRepository` (мост для старых View-экранов).
 - `app/.../domain/`: умные списки и группировка, повторы задач, напоминания, проекция календаря, статистика привычек.
-- `app/.../ui/`: Compose-экраны (tasks, detail, calendar, matrix, focus, habits), `Theme.kt` (мост к `ThemeManager`).
+- `app/.../ui/`: Compose-экраны (tasks, detail, calendar, matrix, focus, habits, settings), `Theme.kt`
+  (мост к `ThemeManager`), `Navigation.kt` (вкладки: нижняя панель на телефоне, колонка на планшете),
+  `Undo.kt` (общий Snackbar «Отменить»).
+- `data/AppSettings.kt`: настройки приложения (StateFlow); тема по-прежнему в `ThemeManager` (её читают виджеты).
 - `reminders/` (один точный будильник + «водяной знак» доставленного), `pomodoro/` (состояние в prefs + будильник),
   `widget/` (RemoteViews-отсчёт, Glance «Сегодня» и «Быстро добавить»), `BootReceiver` (перезагрузка/время/обновление).
-- Всё ещё на старом View: `SettingsActivity`, `EditCountdownActivity`, `widget/WidgetConfigureActivity`.
+- Всё ещё на старом View: `EditCountdownActivity`, `widget/WidgetConfigureActivity` (`SettingsActivity` удалён).
 
 ## Изменение схемы БД
 
