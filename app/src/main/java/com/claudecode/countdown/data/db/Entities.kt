@@ -88,6 +88,8 @@ data class Task(
     val completedAt: Long? = null,
     val sortOrder: Long = 0,
     val displayMode: DisplayMode = DisplayMode.NORMAL,
+    /** ARGB colour the user picked for the task; null means the list colour is used. */
+    val color: Int? = null,
     val createdAt: Long = now(),
     val updatedAt: Long = createdAt,
     val deleted: Boolean = false,

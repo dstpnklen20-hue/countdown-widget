@@ -2,12 +2,15 @@ package com.claudecode.countdown
 
 import android.content.BroadcastReceiver
 import android.content.Context
+import com.claudecode.countdown.data.AppSettings
 import com.claudecode.countdown.data.FocusRepository
 import com.claudecode.countdown.data.HabitRepository
 import com.claudecode.countdown.data.TaskRepository
 import com.claudecode.countdown.pomodoro.PomodoroTimer
 import com.claudecode.countdown.data.db.AppDatabase
+import com.claudecode.countdown.reminders.ReminderNotifier
 import com.claudecode.countdown.reminders.ReminderScheduler
+import com.claudecode.countdown.ui.UndoBus
 import com.claudecode.countdown.widget.CountdownWidgetProvider
 import com.claudecode.countdown.widget.QuickAddWidget
 import com.claudecode.countdown.widget.TodayWidget
@@ -19,11 +22,17 @@ import kotlinx.coroutines.launch
 class AppContainer(private val context: Context) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val database: AppDatabase by lazy { AppDatabase.build(context) }
-    val reminders: ReminderScheduler by lazy { ReminderScheduler(context, database) }
-    val tasks: TaskRepository by lazy { TaskRepository(database) { onDataChanged() } }
-    val habits: HabitRepository by lazy { HabitRepository(database) { reminders.reschedule() } }
+    val settings: AppSettings by lazy { AppSettings(context) }
+    val reminders: ReminderScheduler by lazy { ReminderScheduler(context, database, settings) }
+    val tasks: TaskRepository by lazy {
+        TaskRepository(database, onClosed = { ReminderNotifier.cancel(context, it) }) { onDataChanged() }
+    }
+    val habits: HabitRepository by lazy {
+        HabitRepository(database, onClosed = { ReminderNotifier.cancelHabit(context, it) }) { reminders.reschedule() }
+    }
     val focus: FocusRepository by lazy { FocusRepository(database) }
     val pomodoro: PomodoroTimer by lazy { PomodoroTimer(context, focus) }
+    val undo = UndoBus(appScope)
 
     /** Everything that mirrors task data outside the app: widgets and the reminder alarm. */
     fun onDataChanged() {

@@ -32,6 +32,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -48,6 +50,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +73,7 @@ import com.claudecode.countdown.domain.habitDaysCode
 import com.claudecode.countdown.domain.habitStats
 import com.claudecode.countdown.domain.isScheduled
 import com.claudecode.countdown.reminders.ReminderNotifier
+import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.ui.ConfirmDialog
 import com.claudecode.tiktak.core.shortDayName
 import kotlinx.coroutines.launch
@@ -94,14 +98,33 @@ fun HabitsScreen(today: LocalDate) {
     var editing by remember { mutableStateOf<Habit?>(null) }
     var creating by remember { mutableStateOf(false) }
     var details by remember { mutableStateOf<Habit?>(null) }
+    val archived by remember { repo.observeArchived() }.collectAsState(initial = emptyList())
+    var showArchive by remember { mutableStateOf(false) }
+    val undo = remember { context.container.undo }
 
     fun setCount(habit: Habit, day: LocalDate, count: Int) = scope.launch { repo.setCount(habit.id, day, count) }
 
+    fun setArchived(habit: Habit, archive: Boolean) = scope.launch {
+        repo.setArchived(habit, archive)
+        undo.offer(if (archive) "«${habit.name}» в архиве" else "«${habit.name}» возвращена") { repo.setArchived(habit, !archive) }
+    }
+
+    fun delete(habit: Habit) = scope.launch {
+        repo.delete(habit)
+        undo.offer("Привычка удалена") { repo.restore(habit) }
+    }
+
     Scaffold(
+        snackbarHost = { AppSnackbarHost() },
         topBar = {
             TopAppBar(
                 title = { Text("Привычки") },
-                actions = { IconButton(onClick = { creating = true }) { Icon(Icons.Filled.Add, "Новая привычка") } },
+                actions = {
+                    if (archived.isNotEmpty()) {
+                        IconButton(onClick = { showArchive = true }) { Icon(Icons.Outlined.Archive, "Архив привычек") }
+                    }
+                    IconButton(onClick = { creating = true }) { Icon(Icons.Filled.Add, "Новая привычка") }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
@@ -114,6 +137,9 @@ fun HabitsScreen(today: LocalDate) {
             ) {
                 Text("Привычек пока нет", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { creating = true }) { Text("+ Создать привычку") }
+                if (archived.isNotEmpty()) {
+                    TextButton(onClick = { showArchive = true }) { Text("Архив (${archived.size})") }
+                }
             }
         } else {
             LazyColumn(
@@ -151,13 +177,58 @@ fun HabitsScreen(today: LocalDate) {
             counts = countsByHabit[habit.id].orEmpty(),
             today = today,
             onEdit = { details = null; editing = habit },
-            onArchive = { scope.launch { repo.archive(habit) }; details = null },
-            onDelete = { scope.launch { repo.delete(habit) }; details = null },
+            onArchive = { setArchived(habit, true); details = null },
+            onDelete = { delete(habit); details = null },
             onToggle = { day ->
                 val current = countsByHabit[habit.id]?.get(day.toEpochDay()) ?: 0
                 setCount(habit, day, if (current >= habit.goal) 0 else habit.goal)
             },
             onDismiss = { details = null },
+        )
+    }
+    if (showArchive) {
+        ArchiveDialog(
+            habits = archived,
+            onRestore = { setArchived(it, false) },
+            onDelete = { delete(it) },
+            onDismiss = { showArchive = false },
+        )
+    }
+}
+
+@Composable
+private fun ArchiveDialog(habits: List<Habit>, onRestore: (Habit) -> Unit, onDelete: (Habit) -> Unit, onDismiss: () -> Unit) {
+    // Closes by itself once the last habit leaves the archive.
+    if (habits.isEmpty()) {
+        LaunchedEffect(Unit) { onDismiss() }
+        return
+    }
+    var confirmDelete by remember { mutableStateOf<Habit?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Архив привычек") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                for (habit in habits) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${habit.emoji} ${habit.name}", Modifier.weight(1f), maxLines = 2)
+                        TextButton(onClick = { onRestore(habit) }) { Text("Вернуть") }
+                        IconButton(onClick = { confirmDelete = habit }) {
+                            Icon(Icons.Outlined.DeleteForever, "Удалить", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+    )
+    confirmDelete?.let { habit ->
+        ConfirmDialog(
+            title = "Удалить привычку?",
+            text = "История отметок «${habit.name}» будет удалена.",
+            confirmLabel = "Удалить",
+            onConfirm = { onDelete(habit) },
+            onDismiss = { confirmDelete = null },
         )
     }
 }

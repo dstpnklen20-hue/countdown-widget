@@ -28,10 +28,12 @@ import kotlinx.coroutines.flow.combine
 
 /**
  * Single write path for tasks and their satellites. [onChanged] refreshes widgets and alarms
- * after every write.
+ * after every write; [onClosed] takes down the reminder notification of a task that was
+ * completed or deleted.
  */
 class TaskRepository(
     private val db: AppDatabase,
+    private val onClosed: (taskId: String) -> Unit = {},
     private val onChanged: suspend () -> Unit,
 ) {
     private val tasks = db.taskDao()
@@ -90,6 +92,7 @@ class TaskRepository(
                 isAllDay = due?.isAllDay ?: false,
                 timeZone = due?.timeZone,
                 repeatRule = parsed.repeat?.toRRule(),
+                displayMode = if (filter == TaskFilter.Countdowns) DisplayMode.COUNTDOWN else DisplayMode.NORMAL,
             ),
             (parsed.tags + listOfNotNull(filterTag)).distinct(),
         )
@@ -124,6 +127,7 @@ class TaskRepository(
             update(task.copy(status = TaskStatus.OPEN, completedAt = null))
             return
         }
+        onClosed(task.id)
         val next = task.nextOccurrence(at)
         if (next == null) {
             update(task.copy(status = TaskStatus.DONE, completedAt = at))
@@ -147,8 +151,42 @@ class TaskRepository(
         onChanged()
     }
 
-    suspend fun delete(id: String) {
-        tasks.softDelete(id)
+    /** Moves the task and its subtasks to the trash; the returned stamp lets [restore] undo exactly this. */
+    suspend fun delete(id: String): Long {
+        val at = now()
+        tasks.softDelete(id, at)
+        onClosed(id)
+        onChanged()
+        return at
+    }
+
+    suspend fun restore(id: String, deletedAt: Long) {
+        tasks.restore(id, deletedAt)
+        onChanged()
+    }
+
+    fun observeTrash() = tasks.observeTrash()
+
+    /** Brings a task back from the trash; if its list is gone too, the task lands in Inbox. */
+    suspend fun restoreFromTrash(task: Task) {
+        db.withTransaction {
+            tasks.restore(task.id, task.updatedAt)
+            val list = lists.get(task.listId)
+            if (list == null || list.deleted) {
+                val moved = tasks.idsWithSubtasks(task.id).mapNotNull { tasks.get(it) }.filter { !it.deleted }
+                for (t in moved) tasks.upsert(t.copy(listId = TaskList.INBOX_ID, sectionId = null, updatedAt = now()))
+            }
+        }
+        onChanged()
+    }
+
+    suspend fun purge(task: Task) {
+        tasks.purge(tasks.idsWithSubtasks(task.id))
+        onChanged()
+    }
+
+    suspend fun emptyTrash() {
+        tasks.purge(tasks.deletedIds())
         onChanged()
     }
 
@@ -216,11 +254,22 @@ class TaskRepository(
 
     suspend fun updateList(list: TaskList) = lists.upsert(list.copy(updatedAt = now()))
 
-    suspend fun deleteList(list: TaskList) {
-        if (list.isInbox) return
+    /** Deletes the list with its tasks; returns the stamp for [restoreList], or null for Inbox. */
+    suspend fun deleteList(list: TaskList): Long? {
+        if (list.isInbox) return null
+        val at = now()
         db.withTransaction {
-            tasks.softDeleteInList(list.id)
-            lists.upsert(list.copy(deleted = true, updatedAt = now()))
+            tasks.softDeleteInList(list.id, at)
+            lists.upsert(list.copy(deleted = true, updatedAt = at))
+        }
+        onChanged()
+        return at
+    }
+
+    suspend fun restoreList(list: TaskList, deletedAt: Long) {
+        db.withTransaction {
+            lists.upsert(list.copy(deleted = false, updatedAt = now()))
+            tasks.restoreInList(list.id, deletedAt)
         }
         onChanged()
     }

@@ -1,6 +1,27 @@
 package com.claudecode.countdown.ui.tasks
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.EventAvailable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.claudecode.countdown.container
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -81,6 +102,7 @@ import com.claudecode.countdown.domain.Due
 import com.claudecode.countdown.domain.GroupKind
 import com.claudecode.countdown.domain.TaskFilter
 import com.claudecode.countdown.domain.isOverdue
+import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.ui.DueDateDialog
 import com.claudecode.countdown.ui.PriorityCheckbox
 import com.claudecode.countdown.ui.PriorityMenu
@@ -107,33 +129,41 @@ fun TaskListScreen(
     filter: TaskFilter,
     onFilterChange: (TaskFilter) -> Unit,
     onOpenTask: (String) -> Unit,
-    onOpenSettings: () -> Unit,
+    onOpenTrash: () -> Unit,
+    sections: List<DrawerSection>,
+    /** Tablets keep the lists panel open next to the tasks instead of a sliding menu. */
+    permanentDrawer: Boolean = false,
+    /** Phones search from the top bar; tablets have Search in the side rail and pass null. */
+    onOpenSearch: (() -> Unit)? = null,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showQuickAdd by remember { mutableStateOf(false) }
     val list = (filter as? TaskFilter.ListFilter)?.let { snapshot.listsById[it.listId] }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            AppDrawer(
-                vm = vm,
-                snapshot = snapshot,
-                selected = filter,
-                onSelect = { onFilterChange(it); scope.launch { drawerState.close() } },
-                onOpenSettings = { scope.launch { drawerState.close() }; onOpenSettings() },
-            )
-        },
-    ) {
+    val drawer = @Composable {
+        AppDrawer(
+            vm = vm,
+            snapshot = snapshot,
+            selected = filter,
+            onSelect = { onFilterChange(it); scope.launch { drawerState.close() } },
+            onOpenTrash = { scope.launch { drawerState.close() }; onOpenTrash() },
+            sections = sections.map { s -> DrawerSection(s.label, s.icon) { scope.launch { drawerState.close() }; s.onClick() } },
+            permanent = permanentDrawer,
+        )
+    }
+    val content = @Composable {
         Scaffold(
             topBar = {
                 TopAppBar(
                     title = { Text(snapshot.title(filter), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Filled.Menu, "Меню") }
+                        if (!permanentDrawer) {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Filled.Menu, "Меню") }
+                        }
                     },
                     actions = {
+                        if (onOpenSearch != null) IconButton(onClick = onOpenSearch) { Icon(Icons.Filled.Search, "Поиск") }
                         if (list != null) {
                             val kanban = list.viewMode == ListViewMode.KANBAN
                             IconButton(onClick = { vm.setViewMode(list, if (kanban) ListViewMode.LIST else ListViewMode.KANBAN) }) {
@@ -147,13 +177,14 @@ fun TaskListScreen(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 )
             },
+            snackbarHost = { AppSnackbarHost() },
             floatingActionButton = {
                 if (filter != TaskFilter.Completed && list?.viewMode != ListViewMode.KANBAN) {
                     FloatingActionButton(
                         onClick = { showQuickAdd = true },
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ) { Icon(Icons.Filled.Add, "Добавить задачу") }
+                    ) { Icon(Icons.Filled.Add, if (filter == TaskFilter.Countdowns) "Новое событие" else "Добавить задачу") }
                 }
             },
         ) { padding ->
@@ -171,9 +202,21 @@ fun TaskListScreen(
         }
     }
 
+    if (permanentDrawer) {
+        Row(Modifier.fillMaxSize()) {
+            drawer()
+            Box(Modifier.weight(1f)) { content() }
+        }
+    } else {
+        ModalNavigationDrawer(drawerState = drawerState, drawerContent = drawer) { content() }
+    }
+
     if (showQuickAdd) {
+        val event = filter == TaskFilter.Countdowns
         QuickAddSheet(
             onDismiss = { showQuickAdd = false },
+            placeholder = if (event) "Отпуск 7 ноября" else "завтра в 10 позвонить !высокий #работа",
+            requireDate = event,
             onAdd = { title, due, priority -> vm.quickAdd(title, filter, due, priority) },
         )
     }
@@ -188,18 +231,19 @@ private fun TaskGroupsList(
     onOpenTask: (String) -> Unit,
     contentPadding: PaddingValues,
 ) {
-    val groups = remember(snapshot, filter) { snapshot.groups(filter) }
+    val appSettings = LocalContext.current.container.settings
+    val settings by appSettings.state.collectAsStateWithLifecycle()
+    val groups = remember(snapshot, filter, settings.showCompleted) {
+        snapshot.groups(filter).filter { settings.showCompleted || filter == TaskFilter.Completed || it.kind != GroupKind.DONE }
+    }
     val collapsed = remember(filter) { mutableStateMapOf<String, Boolean>() }
     val showList = filter !is TaskFilter.ListFilter
+    val hint = smartListHint(filter)?.takeIf { filter.key !in settings.dismissedHints }
 
     if (snapshot.loaded && groups.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(contentPadding), contentAlignment = Alignment.Center) {
-            Text(
-                if (filter == TaskFilter.Completed) "Пока ничего не выполнено" else "Задач нет.\nНажмите «+», чтобы добавить.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
+        Column(Modifier.fillMaxSize().padding(contentPadding)) {
+            if (hint != null) HintBanner(hint) { appSettings.dismissHint(filter.key) }
+            EmptyState(filter)
         }
         return
     }
@@ -211,6 +255,7 @@ private fun TaskGroupsList(
             bottom = contentPadding.calculateBottomPadding() + 88.dp,
         ),
     ) {
+        if (hint != null) item(key = "hint") { HintBanner(hint, Modifier.animateItem()) { appSettings.dismissHint(filter.key) } }
         for (group in groups) {
             val key = "${group.kind}:${group.date}"
             val isCollapsed = collapsed[key] ?: (group.kind == GroupKind.DONE && filter != TaskFilter.Completed)
@@ -240,6 +285,62 @@ private fun TaskGroupsList(
                 }
             }
         }
+    }
+}
+
+/** What a smart list collects, shown once at its top until the user closes it. */
+private fun smartListHint(filter: TaskFilter): String? = when (filter) {
+    TaskFilter.Inbox -> "Сюда попадают новые задачи, для которых не выбран список."
+    TaskFilter.Today -> "Задачи на сегодня и просроченные будут показаны здесь."
+    TaskFilter.Tomorrow -> "Задачи с датой «завтра» будут показаны здесь."
+    TaskFilter.Next7Days -> "Задачи на ближайшую неделю, по дням."
+    TaskFilter.All -> "Все задачи из всех списков."
+    TaskFilter.Countdowns -> "События, до которых идёт обратный отсчёт: отпуск, день рождения. Они не смешиваются с задачами."
+    else -> null
+}
+
+@Composable
+private fun HintBanner(text: String, modifier: Modifier = Modifier, onClose: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(scheme.primary)
+            .padding(start = 16.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.EventAvailable, null, tint = scheme.onPrimary)
+        Spacer(Modifier.width(12.dp))
+        Text(text, color = scheme.onPrimary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Закрыть подсказку", tint = scheme.onPrimary) }
+    }
+}
+
+@Composable
+private fun EmptyState(filter: TaskFilter) {
+    val scheme = MaterialTheme.colorScheme
+    val (emoji, title, subtitle) = when (filter) {
+        TaskFilter.Today -> Triple("☕", "Сегодня нет задач", "Отдохните с чашечкой чая")
+        TaskFilter.Tomorrow -> Triple("🌤", "На завтра задач нет", "Можно запланировать что-нибудь приятное")
+        TaskFilter.Completed -> Triple("🏁", "Пока ничего не выполнено", "Выполненные задачи появятся здесь")
+        TaskFilter.Countdowns -> Triple("⏳", "Событий нет", "Нажмите «+», чтобы добавить событие с отсчётом")
+        else -> Triple("📝", "Задач нет", "Нажмите «+», чтобы добавить")
+    }
+    Column(
+        Modifier.fillMaxSize().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            Modifier.size(140.dp).clip(CircleShape).background(scheme.surfaceContainerHigh),
+            contentAlignment = Alignment.Center,
+        ) { Text(emoji, fontSize = 64.sp) }
+        Spacer(Modifier.height(24.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }
 
@@ -333,23 +434,62 @@ fun TaskRow(
     compact: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
+    // Ticking the box first draws a line through the title, then completes the task. Keyed on the
+    // task so the line is gone once the stored task changes (e.g. a repeating task moved on).
+    val strike = remember(task) { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val completing = !task.isDone && strike.value > 0f
+    val toggle: () -> Unit = {
+        when {
+            task.isDone -> onToggle()
+            !strike.isRunning -> scope.launch {
+                // finally: the tick still counts if the row scrolls away mid-animation.
+                try {
+                    strike.animateTo(1f, tween(STRIKE_MS))
+                } finally {
+                    onToggle()
+                }
+            }
+        }
+    }
+    var titleLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val strikeColor = scheme.onSurfaceVariant
     Row(
         Modifier
             .fillMaxWidth()
-            .background(scheme.background)
+            // Full rows cover the swipe background; compact ones sit on their card's colour.
+            .background(if (compact) Color.Transparent else scheme.background)
+            // A task's own colour shows as a bar at the left edge, without shifting the row.
+            .then(
+                if (task.color == null) Modifier else Modifier.drawBehind {
+                    val bar = 4.dp.toPx()
+                    drawRoundRect(
+                        Color(task.color),
+                        topLeft = Offset(0f, size.height * 0.2f),
+                        size = Size(bar, size.height * 0.6f),
+                        cornerRadius = CornerRadius(bar / 2),
+                    )
+                }
+            )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(start = 4.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
+            .padding(start = 4.dp, end = if (compact) 8.dp else 16.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PriorityCheckbox(task.isDone, task.priority, onToggle)
-        Column(Modifier.weight(1f).padding(vertical = 6.dp)) {
+        PriorityCheckbox(task.isDone || completing, task.priority, toggle, small = compact)
+        Column(Modifier.weight(1f).padding(vertical = if (compact) 3.dp else 6.dp)) {
             Text(
                 task.title,
-                style = MaterialTheme.typography.bodyLarge,
+                style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = if (task.isDone) scheme.onSurfaceVariant else scheme.onSurface,
+                color = if (task.isDone || completing) scheme.onSurfaceVariant else scheme.onSurface,
                 textDecoration = if (task.isDone) TextDecoration.LineThrough else null,
+                onTextLayout = { titleLayout = it },
+                modifier = Modifier.drawWithContent {
+                    drawContent()
+                    val layout = titleLayout
+                    if (completing && layout != null) drawStrike(layout, strike.value, strikeColor, 1.5.dp.toPx())
+                },
             )
             val meta = rowMeta(task, snapshot, showList).let { if (compact) it.take(1) else it }
             if (meta.isNotEmpty()) {
@@ -357,7 +497,7 @@ fun TaskRow(
                     for ((text, color) in meta) {
                         Text(
                             text,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
                             color = color ?: scheme.onSurfaceVariant,
                             maxLines = 1,
                         )
@@ -374,6 +514,22 @@ fun TaskRow(
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
+    }
+}
+
+private const val STRIKE_MS = 350
+
+/** Draws [progress] of a line through the text, line after line, as if crossed out by hand. */
+private fun DrawScope.drawStrike(layout: TextLayoutResult, progress: Float, color: Color, width: Float) {
+    val lines = (0 until layout.lineCount).map { layout.getLineLeft(it) to layout.getLineRight(it) }
+    var remaining = lines.sumOf { (l, r) -> (r - l).toDouble() }.toFloat() * progress
+    for ((i, line) in lines.withIndex()) {
+        if (remaining <= 0f) break
+        val (left, right) = line
+        val length = minOf(right - left, remaining)
+        val y = (layout.getLineTop(i) + layout.getLineBottom(i)) / 2
+        drawLine(color, Offset(left, y), Offset(left + length, y), strokeWidth = width)
+        remaining -= length
     }
 }
 
@@ -434,21 +590,34 @@ private fun ParsedPreview(parsed: QuickAddResult, pickedDue: Due?, pickedPriorit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> Unit) {
+fun QuickAddSheet(
+    onDismiss: () -> Unit,
+    initialPriority: Int = Priority.NONE,
+    placeholder: String = "завтра в 10 позвонить !высокий #работа",
+    requireDate: Boolean = false,
+    onAdd: (String, Due?, Int) -> Unit,
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var text by remember { mutableStateOf("") }
     var due by remember { mutableStateOf<Due?>(null) }
-    var priority by remember { mutableStateOf(Priority.NONE) }
+    var priority by remember { mutableStateOf(initialPriority) }
     var pickDate by remember { mutableStateOf(false) }
+    var submitAfterDate by remember { mutableStateOf(false) }
     var priorityMenu by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
 
     fun submit() {
         if (text.isBlank()) return
+        // Events need a date: ask for one unless the text already names it.
+        if (requireDate && due == null && parseQuickAdd(text).date == null) {
+            submitAfterDate = true
+            pickDate = true
+            return
+        }
         onAdd(text.trim(), due, priority)
         text = ""
         due = null
-        priority = Priority.NONE
+        priority = initialPriority
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, dragHandle = null) {
@@ -456,7 +625,7 @@ fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> Unit) {
             TextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("завтра в 10 позвонить !высокий #работа", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
@@ -504,8 +673,15 @@ fun QuickAddSheet(onDismiss: () -> Unit, onAdd: (String, Due?, Int) -> Unit) {
         DueDateDialog(
             initialAt = due?.at,
             initialAllDay = due?.isAllDay ?: true,
-            onConfirm = { due = it; pickDate = false },
-            onDismiss = { pickDate = false },
+            onConfirm = {
+                due = it
+                pickDate = false
+                if (submitAfterDate) {
+                    submitAfterDate = false
+                    submit()
+                }
+            },
+            onDismiss = { pickDate = false; submitAfterDate = false },
         )
     }
 }

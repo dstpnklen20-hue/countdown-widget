@@ -10,17 +10,6 @@
     <string name="widget_description">Обратный отсчёт времени до заданной даты на главном экране</string>
     <string name="configure_widget_title">Выберите задачу для отсчёта</string>
     <string name="create_new_countdown">+ Новый отсчёт</string>
-    <string name="settings">Настройки</string>
-    <string name="settings_theme_mode">Тема приложения</string>
-    <string name="settings_accent">Акцентный цвет</string>
-    <string name="settings_presets">Готовые темы</string>
-    <string name="mode_system">Системная</string>
-    <string name="mode_light">Светлая</string>
-    <string name="mode_dark">Тёмная</string>
-    <string name="settings_updates">Обновления</string>
-    <string name="settings_widgets">Добавить виджет на рабочий стол</string>
-    <string name="update_version">Текущая версия: %1$s</string>
-    <string name="update_check">Проверить обновления</string>
     <string name="update_checking">Проверка обновлений…</string>
     <string name="update_up_to_date">У вас последняя версия</string>
     <string name="update_downloading">Скачивание версии %1$d…</string>
@@ -32,7 +21,6 @@
     <string name="update_later">Позже</string>
     <string name="update_allow_installs">Разрешите приложению устанавливать обновления и вернитесь назад</string>
     <string name="update_install_failed">Не удалось установить обновление</string>
-    <string name="accent_from_theme">Цвет из выбранной темы</string>
     <string name="widget_today_label">Tik Tak: Сегодня</string>
     <string name="widget_today_description">Задачи на сегодня с галочками</string>
     <string name="widget_quick_add_label">Tik Tak: Быстро добавить</string>

@@ -33,9 +33,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
-import com.claudecode.countdown.domain.ALL_DAY_REMINDER_PRESETS
+import com.claudecode.countdown.domain.allDayReminderPresets
 import com.claudecode.countdown.domain.TIMED_REMINDER_PRESETS
 import com.claudecode.countdown.domain.reminderLabel
+import com.claudecode.countdown.container
 import com.claudecode.countdown.reminders.ReminderNotifier
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Repeat
@@ -82,6 +83,8 @@ import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.domain.dueDay
 import com.claudecode.countdown.domain.isOverdue
 import com.claudecode.countdown.domain.today
+import com.claudecode.countdown.ui.AppSnackbarHost
+import com.claudecode.countdown.ui.ColorPicker
 import com.claudecode.countdown.ui.ConfirmDialog
 import com.claudecode.countdown.ui.DueDateDialog
 import com.claudecode.countdown.ui.PriorityCheckbox
@@ -116,6 +119,7 @@ fun TaskDetailScreen(
     var pickRepeat by remember { mutableStateOf(false) }
     var reminderMenu by remember { mutableStateOf(false) }
     val reminders by vm.reminders.collectAsStateWithLifecycle()
+    val allDayMinutes = LocalContext.current.container.settings.state.collectAsStateWithLifecycle().value.allDayReminderMinutes
 
     val context = LocalContext.current
     var notificationsAllowed by remember { mutableStateOf(ReminderNotifier.canNotify(context)) }
@@ -146,6 +150,7 @@ fun TaskDetailScreen(
     val today = today()
 
     Scaffold(
+        snackbarHost = { AppSnackbarHost() },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = scheme.background),
@@ -276,7 +281,7 @@ fun TaskDetailScreen(
                         InputChip(
                             selected = false,
                             onClick = { vm.deleteReminder(r) },
-                            label = { Text(reminderLabel(r.offsetMinutes ?: 0, t.isAllDay)) },
+                            label = { Text(reminderLabel(r.offsetMinutes ?: 0, t.isAllDay, allDayMinutes)) },
                             leadingIcon = { Icon(Icons.Outlined.Notifications, null, Modifier.size(16.dp)) },
                             trailingIcon = { Icon(Icons.Filled.Close, "Убрать", Modifier.size(16.dp)) },
                         )
@@ -284,7 +289,7 @@ fun TaskDetailScreen(
                     Box {
                         AssistChip(onClick = { reminderMenu = true }, label = { Text("+ Напоминание") })
                         DropdownMenu(reminderMenu, { reminderMenu = false }) {
-                            val presets = if (t.isAllDay) ALL_DAY_REMINDER_PRESETS else TIMED_REMINDER_PRESETS
+                            val presets = if (t.isAllDay) allDayReminderPresets(allDayMinutes) else TIMED_REMINDER_PRESETS
                             for (p in presets) {
                                 DropdownMenuItem(text = { Text(p.label) }, onClick = {
                                     reminderMenu = false
@@ -330,14 +335,26 @@ fun TaskDetailScreen(
             AddRow("Новый тег") { vm.addTag(it) }
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Text("Цвет", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Метка в списке и в календаре; без цвета берётся цвет списка",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.size(8.dp))
+                ColorPicker(t.color) { vm.setColor(it) }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Показывать как отсчёт", style = MaterialTheme.typography.bodyLarge)
+                    Text("Событие с отсчётом", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        if (t.dueAt == null) "Сначала задайте дату" else "Таймер в списке и на виджете",
+                        if (t.dueAt == null) "Сначала задайте дату" else "Живёт в «Отсчётах», календаре и на виджете, а не среди задач",
                         style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant,
                     )

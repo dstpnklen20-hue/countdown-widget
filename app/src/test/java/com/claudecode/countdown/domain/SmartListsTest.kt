@@ -1,5 +1,6 @@
 package com.claudecode.countdown.domain
 
+import com.claudecode.countdown.data.db.DisplayMode
 import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.data.db.TaskList
 import com.claudecode.countdown.data.db.TaskStatus
@@ -53,6 +54,16 @@ class SmartListsTest {
         assertTrue(match(TaskFilter.ListFilter("work"), t))
         assertFalse(match(TaskFilter.Inbox, t))
         assertTrue(matches(TaskFilter.TagFilter("tag1"), t, setOf("tag1"), today, zone))
+    }
+
+    @Test
+    fun countdownsShowOnlyInTheirOwnList() {
+        val event = task("Отпуск", today).copy(displayMode = DisplayMode.COUNTDOWN)
+        assertTrue(match(TaskFilter.Countdowns, event))
+        for (f in listOf(TaskFilter.Inbox, TaskFilter.Today, TaskFilter.All, TaskFilter.Next7Days, TaskFilter.Completed)) {
+            assertFalse(f.key, match(f, event))
+        }
+        assertFalse(match(TaskFilter.Countdowns, task("обычная", today)))
     }
 
     @Test

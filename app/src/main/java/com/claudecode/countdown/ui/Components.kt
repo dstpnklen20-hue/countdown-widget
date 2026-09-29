@@ -81,24 +81,24 @@ fun rememberNow(periodMs: Long, enabled: Boolean = true): State<Long> {
 }
 
 @Composable
-fun PriorityCheckbox(done: Boolean, priority: Int, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+fun PriorityCheckbox(done: Boolean, priority: Int, onToggle: () -> Unit, modifier: Modifier = Modifier, small: Boolean = false) {
     val color = priorityColor(priority, MaterialTheme.colorScheme.outline)
     Box(
         modifier = modifier
-            .size(40.dp)
+            .size(if (small) 34.dp else 40.dp)
             .clip(CircleShape)
             .clickable(onClick = onToggle),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .size(20.dp)
-                .clip(RoundedCornerShape(5.dp))
+                .size(if (small) 16.dp else 20.dp)
+                .clip(RoundedCornerShape(if (small) 4.dp else 5.dp))
                 .background(if (done) color.copy(alpha = 0.55f) else Color.Transparent)
-                .border(2.dp, color, RoundedCornerShape(5.dp)),
+                .border(if (small) 1.5.dp else 2.dp, color, RoundedCornerShape(if (small) 4.dp else 5.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            if (done) Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
+            if (done) Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(if (small) 11.dp else 14.dp))
         }
     }
 }
