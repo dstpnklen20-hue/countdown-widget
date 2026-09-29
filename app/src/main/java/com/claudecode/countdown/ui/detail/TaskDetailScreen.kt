@@ -352,9 +352,9 @@ fun TaskDetailScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Показывать как отсчёт", style = MaterialTheme.typography.bodyLarge)
+                    Text("Событие с отсчётом", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        if (t.dueAt == null) "Сначала задайте дату" else "Таймер в списке и на виджете",
+                        if (t.dueAt == null) "Сначала задайте дату" else "Живёт в «Отсчётах», календаре и на виджете, а не среди задач",
                         style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant,
                     )

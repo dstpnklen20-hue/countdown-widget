@@ -60,11 +60,13 @@ fun matches(
     today: LocalDate,
     zone: ZoneId = ZoneId.systemDefault(),
 ): Boolean {
+    // Countdowns are events to wait for, not work: they live in their own list (and the calendar).
+    if (task.displayMode == DisplayMode.COUNTDOWN) return filter == TaskFilter.Countdowns
     val day = task.dueDay(zone)
     return when (filter) {
         TaskFilter.Inbox -> task.listId == TaskList.INBOX_ID
         TaskFilter.All -> true
-        TaskFilter.Countdowns -> task.displayMode == DisplayMode.COUNTDOWN
+        TaskFilter.Countdowns -> false
         TaskFilter.Completed -> task.isDone
         TaskFilter.Today -> day != null && (day == today || (!task.isDone && day < today))
         TaskFilter.Tomorrow -> day == today.plusDays(1)

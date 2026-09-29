@@ -92,6 +92,7 @@ class TaskRepository(
                 isAllDay = due?.isAllDay ?: false,
                 timeZone = due?.timeZone,
                 repeatRule = parsed.repeat?.toRRule(),
+                displayMode = if (filter == TaskFilter.Countdowns) DisplayMode.COUNTDOWN else DisplayMode.NORMAL,
             ),
             (parsed.tags + listOfNotNull(filterTag)).distinct(),
         )

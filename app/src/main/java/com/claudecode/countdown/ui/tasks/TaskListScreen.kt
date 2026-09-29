@@ -184,7 +184,7 @@ fun TaskListScreen(
                         onClick = { showQuickAdd = true },
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ) { Icon(Icons.Filled.Add, "Добавить задачу") }
+                    ) { Icon(Icons.Filled.Add, if (filter == TaskFilter.Countdowns) "Новое событие" else "Добавить задачу") }
                 }
             },
         ) { padding ->
@@ -212,8 +212,11 @@ fun TaskListScreen(
     }
 
     if (showQuickAdd) {
+        val event = filter == TaskFilter.Countdowns
         QuickAddSheet(
             onDismiss = { showQuickAdd = false },
+            placeholder = if (event) "Отпуск 7 ноября" else "завтра в 10 позвонить !высокий #работа",
+            requireDate = event,
             onAdd = { title, due, priority -> vm.quickAdd(title, filter, due, priority) },
         )
     }
@@ -292,7 +295,7 @@ private fun smartListHint(filter: TaskFilter): String? = when (filter) {
     TaskFilter.Tomorrow -> "Задачи с датой «завтра» будут показаны здесь."
     TaskFilter.Next7Days -> "Задачи на ближайшую неделю, по дням."
     TaskFilter.All -> "Все задачи из всех списков."
-    TaskFilter.Countdowns -> "Задачи с обратным отсчётом до даты. Включается на экране задачи."
+    TaskFilter.Countdowns -> "События, до которых идёт обратный отсчёт: отпуск, день рождения. Они не смешиваются с задачами."
     else -> null
 }
 
@@ -322,7 +325,7 @@ private fun EmptyState(filter: TaskFilter) {
         TaskFilter.Today -> Triple("☕", "Сегодня нет задач", "Отдохните с чашечкой чая")
         TaskFilter.Tomorrow -> Triple("🌤", "На завтра задач нет", "Можно запланировать что-нибудь приятное")
         TaskFilter.Completed -> Triple("🏁", "Пока ничего не выполнено", "Выполненные задачи появятся здесь")
-        TaskFilter.Countdowns -> Triple("⏳", "Отсчётов нет", "Включите отсчёт на экране задачи")
+        TaskFilter.Countdowns -> Triple("⏳", "Событий нет", "Нажмите «+», чтобы добавить событие с отсчётом")
         else -> Triple("📝", "Задач нет", "Нажмите «+», чтобы добавить")
     }
     Column(
@@ -587,17 +590,30 @@ private fun ParsedPreview(parsed: QuickAddResult, pickedDue: Due?, pickedPriorit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuickAddSheet(onDismiss: () -> Unit, initialPriority: Int = Priority.NONE, onAdd: (String, Due?, Int) -> Unit) {
+fun QuickAddSheet(
+    onDismiss: () -> Unit,
+    initialPriority: Int = Priority.NONE,
+    placeholder: String = "завтра в 10 позвонить !высокий #работа",
+    requireDate: Boolean = false,
+    onAdd: (String, Due?, Int) -> Unit,
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var text by remember { mutableStateOf("") }
     var due by remember { mutableStateOf<Due?>(null) }
     var priority by remember { mutableStateOf(initialPriority) }
     var pickDate by remember { mutableStateOf(false) }
+    var submitAfterDate by remember { mutableStateOf(false) }
     var priorityMenu by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
 
     fun submit() {
         if (text.isBlank()) return
+        // Events need a date: ask for one unless the text already names it.
+        if (requireDate && due == null && parseQuickAdd(text).date == null) {
+            submitAfterDate = true
+            pickDate = true
+            return
+        }
         onAdd(text.trim(), due, priority)
         text = ""
         due = null
@@ -609,7 +625,7 @@ fun QuickAddSheet(onDismiss: () -> Unit, initialPriority: Int = Priority.NONE, o
             TextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("завтра в 10 позвонить !высокий #работа", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
@@ -657,8 +673,15 @@ fun QuickAddSheet(onDismiss: () -> Unit, initialPriority: Int = Priority.NONE, o
         DueDateDialog(
             initialAt = due?.at,
             initialAllDay = due?.isAllDay ?: true,
-            onConfirm = { due = it; pickDate = false },
-            onDismiss = { pickDate = false },
+            onConfirm = {
+                due = it
+                pickDate = false
+                if (submitAfterDate) {
+                    submitAfterDate = false
+                    submit()
+                }
+            },
+            onDismiss = { pickDate = false; submitAfterDate = false },
         )
     }
 }
