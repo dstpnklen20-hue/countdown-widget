@@ -12,3 +12,4 @@ app/build
 *.keystore
 *.jks
 build/
+.kotlin/

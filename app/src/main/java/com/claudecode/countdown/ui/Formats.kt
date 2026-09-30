@@ -48,6 +48,11 @@ fun groupTitle(group: TaskGroup, today: LocalDate): String = when (group.kind) {
     GroupKind.DAY -> group.date?.let { formatDay(it, today) } ?: ""
     GroupKind.LATER -> "Позже"
     GroupKind.NO_DATE -> "Без даты"
+    GroupKind.PRIORITY -> when (val p = group.priority ?: Priority.NONE) {
+        Priority.NONE -> priorityName(p)
+        else -> "${priorityName(p)} приоритет"
+    }
+    GroupKind.ALL -> "Задачи"
     GroupKind.DONE -> "Выполнено"
 }
 

@@ -13,6 +13,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.text.style.TextAlign
+import com.claudecode.countdown.ui.AddFab
 import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.ui.tasks.QuickAddSheet
 import androidx.compose.foundation.layout.Arrangement
@@ -29,7 +30,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -102,12 +105,15 @@ fun MatrixScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) ->
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 8.dp).padding(bottom = 8.dp)) {
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                for (p in MatrixPeriod.entries) {
-                    FilterChip(selected = period == p, onClick = { period = p }, label = { Text(p.label) })
+            // The same control as the calendar's modes, so both screens read alike.
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
+                MatrixPeriod.entries.forEachIndexed { i, p ->
+                    SegmentedButton(
+                        selected = period == p,
+                        onClick = { period = p },
+                        shape = SegmentedButtonDefaults.itemShape(i, MatrixPeriod.entries.size),
+                        icon = {},
+                    ) { Text(p.label, maxLines = 1, style = MaterialTheme.typography.labelMedium) }
                 }
             }
             for (row in QUADRANTS.chunked(2)) {
@@ -147,10 +153,12 @@ private fun QuadrantCard(
             Modifier.fillMaxWidth().clickable(onClick = onExpand).padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Dot(color, 8)
+            // Level with the first line of the title, which may wrap.
+            Box(Modifier.align(Alignment.Top).padding(top = 7.dp)) { Dot(color, 8) }
             Spacer(Modifier.size(6.dp))
             Column(Modifier.weight(1f)) {
-                Text(quadrant.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
+                // Two lines: "Не срочно и не важно" doesn't fit one on a phone.
+                Text(quadrant.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = color, maxLines = 2)
                 Text(quadrant.subtitle, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, maxLines = 1)
             }
             Text("${tasks.size}", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
@@ -201,11 +209,7 @@ private fun ExpandedQuadrant(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { adding = true },
-                containerColor = scheme.primary,
-                contentColor = scheme.onPrimary,
-            ) { Icon(Icons.Filled.Add, "Добавить задачу в этот квадрант") }
+            AddFab("Добавить задачу в этот квадрант") { adding = true }
         },
     ) { padding ->
         if (tasks.isEmpty()) {

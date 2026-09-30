@@ -198,23 +198,30 @@ interface TagDao {
 
     @Query(
         "SELECT tt.taskId AS taskId, t.id AS tagId, t.name AS name, t.color AS color " +
-            "FROM task_tags tt JOIN tags t ON t.id = tt.tagId WHERE t.deleted = 0 ORDER BY t.name"
+            "FROM task_tags tt JOIN tags t ON t.id = tt.tagId WHERE tt.deleted = 0 AND t.deleted = 0 ORDER BY t.name"
     )
     fun observeTaskTags(): Flow<List<TaskTagName>>
 
-    @Query("SELECT t.name FROM task_tags tt JOIN tags t ON t.id = tt.tagId WHERE tt.taskId = :taskId AND t.deleted = 0")
+    @Query(
+        "SELECT t.name FROM task_tags tt JOIN tags t ON t.id = tt.tagId " +
+            "WHERE tt.taskId = :taskId AND tt.deleted = 0 AND t.deleted = 0"
+    )
     suspend fun tagNamesFor(taskId: String): List<String>
 
-    @Query("DELETE FROM task_tags WHERE taskId = :taskId")
-    suspend fun clearTaskTags(taskId: String)
+    @Query("SELECT * FROM task_tags WHERE taskId = :taskId")
+    suspend fun linksFor(taskId: String): List<TaskTag>
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertTaskTags(links: List<TaskTag>)
+    @Upsert
+    suspend fun upsertTaskTags(links: List<TaskTag>)
 
+    /** Links that change are stamped (removed ones stay as deleted), so other devices learn about it. */
     @Transaction
-    suspend fun setTaskTags(taskId: String, tagIds: Collection<String>) {
-        clearTaskTags(taskId)
-        insertTaskTags(tagIds.map { TaskTag(taskId, it) })
+    suspend fun setTaskTags(taskId: String, tagIds: Collection<String>, at: Long = now()) {
+        val keep = tagIds.toSet()
+        val current = linksFor(taskId).associateBy { it.tagId }
+        val changes = current.values.filter { !it.deleted && it.tagId !in keep }.map { it.copy(deleted = true, updatedAt = at) } +
+            keep.filter { current[it]?.deleted != false }.map { TaskTag(taskId, it, updatedAt = at) }
+        if (changes.isNotEmpty()) upsertTaskTags(changes)
     }
 
     @Query("UPDATE tags SET deleted = 1, updatedAt = :at WHERE id = :id")

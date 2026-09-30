@@ -2,10 +2,12 @@
 
 Android-приложение «Tik Tak» — клон TickTick, выросший из «Обратного отсчёта».
 Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContainer`), Glance-виджеты.
-Статус на 2026-09-28: план (этапы 0–8) выполнен и выпущен релизом `build-10` (версия 2.0.10).
-Дальше — доработки из раздела «Бэклог».
-2026-09-29: в `tasks` сделаны корзина/«Отменить»/архив привычек и первая часть идей пользователя
-(календарь, матрица, анимация) — ещё не в релизе.
+Статус на 2026-09-29: выпущен релиз `build-19` (Tik Tak 2.1): корзина и «Отменить», архив привычек,
+навигация как в TickTick (телефон/планшет), настройки на Compose, поиск, календарь «3 дня»/«Год» и свайп,
+матрица по периодам и раскрытый квадрант, цвет задач (база v3), события-отсчёты отдельно от задач.
+В `tasks` после релиза: идеи 15–22 (панель с «Ещё», свои цвета виджетов, анимации, сортировка,
+кнопки в уведомлении таймера, картинки пустых списков) — см. BACKLOG, раздел A2; резервная копия,
+синхронизация через Supabase (база v4) и доработки оформления. Что делать дальше — в [BACKLOG.md](BACKLOG.md), раздел «Следующая сессия».
 
 ## Как работать с пользователем
 
@@ -58,14 +60,25 @@ Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContaine
 - `core/` (чистый Kotlin, быстрые тесты): `RepeatRule` (RRULE: FREQ/INTERVAL/BYDAY/BYMONTHDAY/COUNT/UNTIL),
   `RepeatText` (описания по-русски), `QuickAddParser` (RU/EN: даты, время, повторы, `!приоритет`, `#тег`, `~список`).
 - `app/.../data/db/`: `Entities.kt` (у синхронизируемых сущностей id UUID, createdAt, updatedAt, deleted),
-  `Daos.kt`, `AppDatabase.kt` (версия 3), `Migrations.kt`, `DatabaseSeeder.kt` (Inbox + импорт отсчётов 1.x).
+  `Daos.kt`, `AppDatabase.kt` (версия 4), `Migrations.kt`, `DatabaseSeeder.kt` (Inbox + импорт отсчётов 1.x).
 - `app/.../data/`: `TaskRepository` (единая точка записи задач; `onChanged` → виджеты и будильник),
   `HabitRepository`/`FocusRepository`, `CountdownRepository` (мост для старых View-экранов).
 - `app/.../domain/`: умные списки и группировка, повторы задач, напоминания, проекция календаря, статистика привычек.
 - `app/.../ui/`: Compose-экраны (tasks, detail, calendar, matrix, focus, habits, settings), `Theme.kt`
-  (мост к `ThemeManager`), `Navigation.kt` (вкладки: нижняя панель на телефоне, колонка на планшете),
-  `Undo.kt` (общий Snackbar «Отменить»).
-- `data/AppSettings.kt`: настройки приложения (StateFlow); тема по-прежнему в `ThemeManager` (её читают виджеты).
+  (мост к `ThemeManager`), `Navigation.kt` (панель: снизу на телефоне с «Ещё», колонка на планшете),
+  `Motion.kt` (общие параметры анимаций — брать их, а не свои tween), `EmptyArt.kt` (картинки пустых
+  списков), `Undo.kt` (общий Snackbar «Отменить»).
+- `data/AppSettings.kt`: настройки приложения (StateFlow): закреплённые разделы `Tool` и лимит панели
+  (`barLayout`), сортировка по спискам, картинка пустого списка. Тема — в `ThemeManager` (у виджетов
+  может быть своя: `Target.WIDGETS`); после смены темы вызывать `container.refreshAllWidgets()`.
+- `data/sync/`: `RowStore` (строки любой таблицы как JSON, слияние «новее побеждает»), `Backup` (файл),
+  `SyncEngine` (отправить изменения с `updatedAt` ≥ отметки − 10 с, забрать с сервера по `server_updated_at`
+  с перекрытием 60 с), `Supabase.kt` (HTTP: вход/обновление токена, таблица `sync_records`), `SyncManager`
+  (сессия в prefs `sync`, запуск через 4 с после записи в базу — следит сам через InvalidationTracker,
+  при открытии и раз в час через WorkManager). Сервер: `supabase/schema.sql`, проект `bjwpdcenqeckobvtpvwy`,
+  подтверждение почты выключено. Новая синхронизируемая таблица = добавить в `SyncTable` (нужны
+  `updatedAt` и `deleted`). Удалённое навсегда — через `sync.forget()`. Для проверок на эмуляторе
+  на сервере заведён тестовый аккаунт `emulator-test@example.org` (пароль в репозиторий не пишем).
 - `reminders/` (один точный будильник + «водяной знак» доставленного), `pomodoro/` (состояние в prefs + будильник),
   `widget/` (RemoteViews-отсчёт, Glance «Сегодня» и «Быстро добавить»), `BootReceiver` (перезагрузка/время/обновление).
 - Всё ещё на старом View: `EditCountdownActivity`, `widget/WidgetConfigureActivity` (`SettingsActivity` удалён).

@@ -61,10 +61,12 @@ class TodayWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val repo = context.container.tasks
         val initial = repo.todayTasks()
-        val palette = ThemeManager.palette(context)
+        val theme = context.container.widgetTheme
         provideContent {
             // While the session lives, update() only recomposes, so the data must be observed here.
             val tasks by remember { repo.observeTodayTasks() }.collectAsState(initial)
+            val themeVersion by theme.collectAsState()
+            val palette = remember(themeVersion) { ThemeManager.widgetPalette(context) }
             val now = System.currentTimeMillis()
             val today = today()
             val rows = tasks.map { WidgetRow(it, formatDue(it, today), it.isOverdue(now, today)) }

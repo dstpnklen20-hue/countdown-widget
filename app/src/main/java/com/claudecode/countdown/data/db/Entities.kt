@@ -1,5 +1,6 @@
 package com.claudecode.countdown.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -121,10 +122,13 @@ data class Tag(
     val deleted: Boolean = false,
 )
 
+/** A removed tag stays as a deleted link (v4), so the removal reaches other devices. */
 @Entity(tableName = "task_tags", primaryKeys = ["taskId", "tagId"], indices = [Index("tagId")])
 data class TaskTag(
     val taskId: String,
     val tagId: String,
+    @ColumnInfo(defaultValue = "0") val updatedAt: Long = now(),
+    @ColumnInfo(defaultValue = "0") val deleted: Boolean = false,
 )
 
 /** Fires [offsetMinutes] before the task's due time, or at [absoluteAt] when set. */

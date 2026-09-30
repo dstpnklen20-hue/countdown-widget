@@ -55,6 +55,9 @@ class PomodoroTimer(private val context: Context, private val focus: FocusReposi
 
     companion object {
         const val ACTION_END = "com.claudecode.countdown.ACTION_POMODORO_END"
+        const val ACTION_PAUSE = "com.claudecode.countdown.ACTION_POMODORO_PAUSE"
+        const val ACTION_RESUME = "com.claudecode.countdown.ACTION_POMODORO_RESUME"
+        const val ACTION_STOP = "com.claudecode.countdown.ACTION_POMODORO_STOP"
         private const val PREFS = "pomodoro"
         private const val CHANNEL = "focus"
         private const val ONGOING_ID = 7001
@@ -234,26 +237,44 @@ class PomodoroTimer(private val context: Context, private val focus: FocusReposi
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
+    private fun action(action: String, code: Int): PendingIntent = PendingIntent.getBroadcast(
+        context, code,
+        Intent(context, PomodoroReceiver::class.java).setAction(action),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    /** While a phase runs or is paused, the notification counts down and offers pause/resume and stop. */
     private fun showOngoing(s: PomodoroState) {
         val nm = NotificationManagerCompat.from(context)
-        if (s.status != PomodoroStatus.RUNNING || !ReminderNotifier.canNotify(context)) {
+        if (s.status == PomodoroStatus.IDLE || !ReminderNotifier.canNotify(context)) {
             nm.cancel(ONGOING_ID)
             return
         }
         ensureChannel()
-        val n = NotificationCompat.Builder(context, CHANNEL)
+        val running = s.status == PomodoroStatus.RUNNING
+        val builder = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ThemeManager.palette(context).accent)
             .setContentTitle(s.phase.label)
-            .setContentText("Идёт таймер")
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            .setUsesChronometer(true)
-            .setChronometerCountDown(true)
-            .setWhen(s.endAt)
-            .setShowWhen(true)
             .setContentIntent(openApp())
+        if (running) {
+            builder.setContentText("Идёт таймер")
+                .setUsesChronometer(true)
+                .setChronometerCountDown(true)
+                .setWhen(s.endAt)
+                .setShowWhen(true)
+                .addAction(android.R.drawable.ic_media_pause, "Пауза", action(ACTION_PAUSE, 1003))
+        } else {
+            val left = s.remainingMs / 1000
+            builder.setContentText("На паузе · осталось %d:%02d".format(left / 60, left % 60))
+                .setShowWhen(false)
+                .addAction(android.R.drawable.ic_media_play, "Продолжить", action(ACTION_RESUME, 1004))
+        }
+        val n = builder
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Стоп", action(ACTION_STOP, 1005))
             .build()
         try {
             nm.notify(ONGOING_ID, n)
@@ -282,7 +303,13 @@ class PomodoroTimer(private val context: Context, private val focus: FocusReposi
 
 class PomodoroReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != PomodoroTimer.ACTION_END) return
-        launchAsync(context) { context.container.pomodoro.completeIfDue() }
+        val timer = context.container.pomodoro
+        when (intent.action) {
+            PomodoroTimer.ACTION_END -> launchAsync(context) { timer.completeIfDue() }
+            PomodoroTimer.ACTION_PAUSE -> timer.pause()
+            PomodoroTimer.ACTION_RESUME -> timer.resume()
+            // Stopping keeps a focus of a minute or more in the statistics, like "Reset" in the app.
+            PomodoroTimer.ACTION_STOP -> launchAsync(context) { timer.reset() }
+        }
     }
 }

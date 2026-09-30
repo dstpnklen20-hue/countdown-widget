@@ -100,6 +100,38 @@ class SmartListsTest {
     }
 
     @Test
+    fun sortByPriorityGroupsHighestFirstAndKeepsDoneLast() {
+        val tasks = listOf(
+            task("none", today),
+            task("low", today).copy(priority = 1),
+            task("high later", today.plusDays(3)).copy(priority = 3),
+            task("high overdue", today.minusDays(2)).copy(priority = 3),
+            task("done", today, done = true).copy(priority = 3),
+        )
+        val groups = groupTasks(TaskFilter.All, tasks, now, today, zone, TaskSort.PRIORITY)
+        assertEquals(listOf(3, 1, 0, null), groups.map { it.priority })
+        assertEquals(GroupKind.DONE, groups.last().kind)
+        // Within a priority, earlier dates come first.
+        assertEquals(listOf("high overdue", "high later"), groups.first().tasks.map { it.title })
+        assertEquals(groups.size, groups.map { it.key }.toSet().size)
+    }
+
+    @Test
+    fun sortByTitleIsAlphabeticalIgnoringCase() {
+        val tasks = listOf(task("яблоко", today), task("Арбуз", null), task("банан", today.minusDays(1)))
+        val groups = groupTasks(TaskFilter.All, tasks, now, today, zone, TaskSort.TITLE)
+        assertEquals(listOf("Арбуз", "банан", "яблоко"), groups.single().tasks.map { it.title })
+    }
+
+    @Test
+    fun sortByCreationPutsNewestFirst() {
+        val old = task("old", today).copy(createdAt = 1_000)
+        val new = task("new", null).copy(createdAt = 2_000)
+        val groups = groupTasks(TaskFilter.All, listOf(old, new), now, today, zone, TaskSort.CREATED)
+        assertEquals(listOf("new", "old"), groups.single().tasks.map { it.title })
+    }
+
+    @Test
     fun parseRoundTrips() {
         for (f in TaskFilter.SMART + TaskFilter.ListFilter("abc") + TaskFilter.TagFilter("t")) {
             assertEquals(f, TaskFilter.parse(f.key))

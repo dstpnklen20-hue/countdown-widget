@@ -15,6 +15,7 @@ import com.claudecode.countdown.data.db.now
 import com.claudecode.countdown.domain.Due
 import com.claudecode.countdown.domain.TaskFilter
 import com.claudecode.countdown.domain.TaskGroup
+import com.claudecode.countdown.domain.TaskSort
 import com.claudecode.countdown.domain.groupTasks
 import com.claudecode.countdown.domain.matches
 import com.claudecode.countdown.domain.today
@@ -50,7 +51,8 @@ data class Snapshot(
         matches(filter, it, tagsByTask[it.id].orEmpty().mapTo(HashSet()) { t -> t.tagId }, today)
     }
 
-    fun groups(filter: TaskFilter): List<TaskGroup> = groupTasks(filter, filtered(filter), now, today)
+    fun groups(filter: TaskFilter, sort: TaskSort = TaskSort.DATE): List<TaskGroup> =
+        groupTasks(filter, filtered(filter), now, today, sort = sort)
 
     fun openCount(filter: TaskFilter): Int = filtered(filter).count { !it.isDone }
 

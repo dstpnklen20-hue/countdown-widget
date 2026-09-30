@@ -272,22 +272,37 @@ fun TaskDetailScreen(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                 )
             } else {
-                FlowRow(
-                    Modifier.padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    for (r in reminders) {
-                        InputChip(
-                            selected = false,
-                            onClick = { vm.deleteReminder(r) },
-                            label = { Text(reminderLabel(r.offsetMinutes ?: 0, t.isAllDay, allDayMinutes)) },
-                            leadingIcon = { Icon(Icons.Outlined.Notifications, null, Modifier.size(16.dp)) },
-                            trailingIcon = { Icon(Icons.Filled.Close, "Убрать", Modifier.size(16.dp)) },
-                        )
+                if (reminders.isNotEmpty()) {
+                    FlowRow(
+                        Modifier.padding(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        for (r in reminders) {
+                            InputChip(
+                                selected = false,
+                                onClick = { vm.deleteReminder(r) },
+                                label = { Text(reminderLabel(r.offsetMinutes ?: 0, t.isAllDay, allDayMinutes)) },
+                                leadingIcon = { Icon(Icons.Outlined.Notifications, null, Modifier.size(16.dp)) },
+                                trailingIcon = { Icon(Icons.Filled.Close, "Убрать", Modifier.size(16.dp)) },
+                            )
+                        }
                     }
+                }
+                run {
+                    // Looks like the other "+ Добавить …" rows of this screen.
                     Box {
-                        AssistChip(onClick = { reminderMenu = true }, label = { Text("+ Напоминание") })
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { reminderMenu = true }
+                                .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("+", color = scheme.primary, style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.size(14.dp))
+                            Text("Добавить напоминание", color = scheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+                        }
                         DropdownMenu(reminderMenu, { reminderMenu = false }) {
                             val presets = if (t.isAllDay) allDayReminderPresets(allDayMinutes) else TIMED_REMINDER_PRESETS
                             for (p in presets) {
