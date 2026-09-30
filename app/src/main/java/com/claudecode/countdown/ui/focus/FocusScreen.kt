@@ -65,6 +65,12 @@ import com.claudecode.countdown.pomodoro.PomodoroSettings
 import com.claudecode.countdown.pomodoro.PomodoroStatus
 import com.claudecode.countdown.reminders.ReminderNotifier
 import com.claudecode.countdown.ui.AppSnackbarHost
+import com.claudecode.countdown.ui.stats.DayBarChart
+import com.claudecode.countdown.domain.dayRange
+import com.claudecode.countdown.domain.focusMinutesPerDay
+import com.claudecode.countdown.ui.LocalSnackbarHost
+import com.claudecode.countdown.pomodoro.MIN_FOCUS_MS
+import androidx.compose.material3.Switch
 import com.claudecode.countdown.ui.rememberNow
 import com.claudecode.countdown.ui.tasks.Snapshot
 import kotlinx.coroutines.launch
@@ -76,7 +82,7 @@ private val WEEK_DAYS = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FocusScreen(snapshot: Snapshot) {
+fun FocusScreen(snapshot: Snapshot, onOpenStats: () -> Unit) {
     val context = LocalContext.current
     val timer = remember { context.container.pomodoro }
     val focus = remember { context.container.focus }
@@ -97,6 +103,16 @@ fun FocusScreen(snapshot: Snapshot) {
 
     val remaining = timer.remainingMs(state, now)
     val total = timer.durationMs(state.phase, settings)
+    val snackbar = LocalSnackbarHost.current
+    suspend fun reset() {
+        val wasFocus = state.phase == PomodoroPhase.FOCUS
+        val counted = timer.reset()
+        if (wasFocus) {
+            snackbar.showSnackbar(
+                if (counted > 0) "Засчитано: ${counted / 60_000} мин фокуса" else "Меньше минуты — помидор не засчитан"
+            )
+        }
+    }
     LaunchedEffect(remaining, state.status) {
         if (state.status == PomodoroStatus.RUNNING && remaining <= 0) timer.completeIfDue()
     }
@@ -183,19 +199,28 @@ fun FocusScreen(snapshot: Snapshot) {
                         }) { Text("Старт") }
                         OutlinedButton(onClick = { timer.skip() }) { Text("Пропустить") }
                     }
+                    // "Стоп" only pauses; "Сбросить" abandons the phase (a focus of a minute or more still counts).
                     PomodoroStatus.RUNNING -> {
-                        Button(onClick = { timer.pause() }) { Text("Пауза") }
-                        OutlinedButton(onClick = { scope.launch { timer.reset() } }) { Text("Стоп") }
+                        Button(onClick = { timer.pause() }) { Text("Стоп") }
+                        OutlinedButton(onClick = { scope.launch { reset() } }) { Text("Сбросить") }
                     }
                     PomodoroStatus.PAUSED -> {
                         Button(onClick = { timer.resume() }) { Text("Продолжить") }
-                        OutlinedButton(onClick = { scope.launch { timer.reset() } }) { Text("Стоп") }
+                        OutlinedButton(onClick = { scope.launch { reset() } }) { Text("Сбросить") }
                     }
                 }
             }
+            if (state.phase == PomodoroPhase.FOCUS && state.status != PomodoroStatus.IDLE && total - remaining < MIN_FOCUS_MS) {
+                Text(
+                    "Помидор засчитается, когда пройдёт хотя бы минута",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
 
             Spacer(Modifier.height(24.dp))
-            FocusStats(sessions, totalMs, snapshot.today, weekStart)
+            FocusStats(sessions, totalMs, snapshot.today, weekStart, onOpenStats)
         }
     }
 
@@ -203,13 +228,11 @@ fun FocusScreen(snapshot: Snapshot) {
 }
 
 @Composable
-private fun FocusStats(sessions: List<FocusSession>, totalMs: Long, today: LocalDate, weekStart: LocalDate) {
+private fun FocusStats(sessions: List<FocusSession>, totalMs: Long, today: LocalDate, weekStart: LocalDate, onOpenStats: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val zone = ZoneId.systemDefault()
-    val byDay = sessions.groupBy { Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate() }
-    val todaySessions = byDay[today].orEmpty()
-    val minutesPerDay = (0L..6L).map { i -> (byDay[weekStart.plusDays(i)].orEmpty().sumOf { it.durationMs } / 60_000).toInt() }
-    val maxMinutes = (minutesPerDay.maxOrNull() ?: 0).coerceAtLeast(1)
+    val todaySessions = sessions.filter { Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate() == today }
+    val minutesPerDay = focusMinutesPerDay(sessions, weekStart, 7)
 
     Column(
         Modifier
@@ -229,33 +252,8 @@ private fun FocusStats(sessions: List<FocusSession>, totalMs: Long, today: Local
         Spacer(Modifier.height(16.dp))
         Text("Минуты фокуса за 7 дней", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
-        val barColor = scheme.primary
-        val emptyColor = scheme.surfaceVariant
-        Canvas(Modifier.fillMaxWidth().height(120.dp)) {
-            val slot = size.width / 7
-            val barWidth = slot * 0.5f
-            minutesPerDay.forEachIndexed { i, m ->
-                val h = if (m == 0) 4f else size.height * m / maxMinutes
-                drawRoundRect(
-                    color = if (m == 0) emptyColor else barColor,
-                    topLeft = Offset(slot * i + (slot - barWidth) / 2, size.height - h),
-                    size = Size(barWidth, h),
-                    cornerRadius = CornerRadius(6f, 6f),
-                )
-            }
-        }
-        Row {
-            for (i in 0L..6L) {
-                val day = weekStart.plusDays(i)
-                Text(
-                    WEEK_DAYS[day.dayOfWeek.value - 1],
-                    Modifier.weight(1f),
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (day == today) scheme.primary else scheme.onSurfaceVariant,
-                )
-            }
-        }
+        DayBarChart(minutesPerDay, dayRange(weekStart, 7), today, { "$it мин" })
+        TextButton(onClick = onOpenStats, modifier = Modifier.align(Alignment.End)) { Text("Вся статистика") }
     }
 }
 
@@ -284,6 +282,17 @@ private fun SettingsDialog(initial: PomodoroSettings, onSave: (PomodoroSettings)
                 Stepper("Перерыв, мин", s.shortMin, 1..30, 1) { s = s.copy(shortMin = it) }
                 Stepper("Длинный перерыв, мин", s.longMin, 5..60, 5) { s = s.copy(longMin = it) }
                 Stepper("Длинный после каждых", s.longEvery, 2..8, 1) { s = s.copy(longEvery = it) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Будильник в конце")
+                        Text(
+                            "Звук будильника, пока не выключите",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = s.alarm, onCheckedChange = { s = s.copy(alarm = it) })
+                }
             }
         },
         confirmButton = { TextButton(onClick = { onSave(s) }) { Text("Сохранить") } },

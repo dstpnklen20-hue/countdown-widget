@@ -59,6 +59,9 @@ class TaskRepository(
 
     suspend fun get(id: String): Task? = tasks.get(id)
 
+    fun observeCompletedSince(since: Long) = tasks.observeCompletedSince(since)
+    fun observeCompletedCount() = tasks.observeCompletedCount()
+
     suspend fun create(task: Task, tagNames: Collection<String> = emptyList()): Task {
         val created = task.copy(sortOrder = tasks.maxSortOrder() + 1)
         db.withTransaction {

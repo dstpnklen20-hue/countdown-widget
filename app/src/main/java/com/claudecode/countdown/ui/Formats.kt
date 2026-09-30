@@ -84,6 +84,14 @@ fun priorityName(priority: Int): String = when (priority) {
     else -> "Без приоритета"
 }
 
+/** The Eisenhower-matrix category a priority puts a task in (the matrix quadrants use the same names). */
+fun priorityCategory(priority: Int): String = when (priority) {
+    Priority.HIGH -> "Срочно и важно"
+    Priority.MEDIUM -> "Важно, не срочно"
+    Priority.LOW -> "Срочно, не важно"
+    else -> "Не срочно и не важно"
+}
+
 val LIST_COLORS: List<Int> = listOf(
     0xFFE53935, 0xFFFB8C00, 0xFFFDD835, 0xFF43A047, 0xFF00ACC1,
     0xFF1E88E5, 0xFF5E35B1, 0xFFD81B60, 0xFF6D4C41, 0xFF757575,

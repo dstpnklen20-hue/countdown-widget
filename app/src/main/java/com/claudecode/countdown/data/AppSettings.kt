@@ -15,6 +15,7 @@ enum class Tool(val label: String) {
     MATRIX("Матрица"),
     FOCUS("Фокус"),
     HABITS("Привычки"),
+    STATS("Статистика"),
     COUNTDOWNS("Отсчёты"),
     SEARCH("Поиск"),
     SETTINGS("Настройки");

@@ -67,6 +67,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.lazy.rememberLazyListState
 import java.time.LocalTime
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.geometry.Offset
+import com.claudecode.countdown.domain.timedDue
+import com.claudecode.countdown.domain.dayRange
+import com.claudecode.countdown.domain.layoutBlocks
+import com.claudecode.countdown.domain.blockMinutes
+import com.claudecode.countdown.domain.TimeBlock
+import com.claudecode.countdown.domain.MINUTES_PER_DAY
+import com.claudecode.countdown.ui.rememberNow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -142,6 +154,7 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) 
     var selectedEpoch by rememberSaveable { mutableStateOf(today.toEpochDay()) }
     val selected = LocalDate.ofEpochDay(selectedEpoch)
     var adding by remember { mutableStateOf(false) }
+    var addingAt by remember { mutableStateOf<Pair<LocalDate, LocalTime>?>(null) }
 
     val page = CalendarPage.of(mode, selected)
     val rangeStart = page.start
@@ -253,25 +266,23 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) 
                                 HorizontalDivider(Modifier.padding(top = 4.dp))
                                 DayAgenda(selected, today, entries[selected].orEmpty(), vm, onOpenTask, header = true)
                             }
-                            CalendarMode.WEEK -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
-                                for (i in 0L..6L) {
-                                    val day = rangeStart.plusDays(i)
-                                    item(key = "h$i") { DayHeader(day, today, selected == day) { selectedEpoch = day.toEpochDay() } }
-                                    val list = entries[day].orEmpty()
-                                    if (list.isEmpty()) {
-                                        item(key = "e$i") {
-                                            Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 56.dp, bottom = 4.dp))
-                                        }
-                                    }
-                                    items(list, key = { "t$i:${it.task.id}:${it.projected}" }) { EntryRow(it, vm, onOpenTask) }
-                                }
+                            CalendarMode.WEEK, CalendarMode.THREE_DAYS, CalendarMode.DAY -> {
+                                val days = if (shown.mode == CalendarMode.DAY) listOf(selected)
+                                else dayRange(shown.start, if (shown.mode == CalendarMode.WEEK) 7 else 3)
+                                TimeGrid(
+                                    days = days,
+                                    today = today,
+                                    entries = entries,
+                                    vm = vm,
+                                    onOpenTask = onOpenTask,
+                                    onOpenDay = { day ->
+                                        direction = 0
+                                        selectedEpoch = day.toEpochDay()
+                                        mode = CalendarMode.DAY
+                                    },
+                                    onAddAt = { day, time -> addingAt = day to time },
+                                )
                             }
-                            CalendarMode.THREE_DAYS -> ThreeDays(rangeStart, today, entries, vm, onOpenTask) { day ->
-                                direction = 0
-                                selectedEpoch = day.toEpochDay()
-                                mode = CalendarMode.DAY
-                            }
-                            CalendarMode.DAY -> DayTimeline(selected, entries[selected].orEmpty(), vm, onOpenTask)
                         }
                     }
                 }
@@ -285,6 +296,15 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) 
             confirmLabel = "Добавить",
             onConfirm = { vm.addTask(it, TaskList.INBOX_ID, due = allDayDue(selected)); adding = false },
             onDismiss = { adding = false },
+        )
+    }
+    // A tap on free space of the time scale: a task at that day and half hour.
+    addingAt?.let { (day, time) ->
+        TextInputDialog(
+            title = "Задача на ${day.format(DateTimeFormatter.ofPattern("d MMMM", ru))}, ${"%02d:%02d".format(time.hour, time.minute)}",
+            confirmLabel = "Добавить",
+            onConfirm = { vm.addTask(it, TaskList.INBOX_ID, due = timedDue(day, time)); addingAt = null },
+            onDismiss = { addingAt = null },
         )
     }
 }
@@ -405,127 +425,208 @@ private fun DayAgenda(
     }
 }
 
-/** Hour-by-hour day view; all-day tasks sit above the timeline. */
+/**
+ * A time scale for one, three or seven days, like TickTick: hours down the side, each timed task
+ * a block at its time (tasks at the same time share the width), all-day tasks in a strip above,
+ * and a red line at the current time. Tapping free space adds a task at that half hour.
+ */
 @Composable
-private fun DayTimeline(day: LocalDate, entries: List<CalendarEntry>, vm: TasksViewModel, onOpenTask: (String) -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val allDay = entries.filter { it.task.isAllDay }
-    val byHour = entries.filter { !it.task.isAllDay }.groupBy { localTimeOf(it.task.dueAt!!).hour }
-    val listState = rememberLazyListState()
-    LaunchedEffect(day) {
-        // Start at the first timed task, the current hour today, or the morning.
-        val hour = byHour.keys.minOrNull() ?: if (day == LocalDate.now()) LocalTime.now().hour else 8
-        val allDayItems = if (allDay.isEmpty()) 0 else allDay.size + 2
-        listState.scrollToItem(allDayItems + (hour - 1).coerceAtLeast(0))
-    }
-    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 88.dp)) {
-        if (allDay.isNotEmpty()) {
-            item { Text("Весь день", style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant, modifier = Modifier.padding(16.dp, 8.dp)) }
-            items(allDay, key = { "a:${it.task.id}:${it.projected}" }) { EntryRow(it, vm, onOpenTask) }
-            item { HorizontalDivider() }
-        }
-        items((0..23).toList(), key = { "h$it" }) { hour ->
-            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                Text(
-                    "%02d:00".format(hour),
-                    modifier = Modifier.width(56.dp).padding(start = 12.dp, top = 4.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = scheme.onSurfaceVariant,
-                )
-                Column(Modifier.weight(1f)) {
-                    HorizontalDivider(color = scheme.outlineVariant)
-                    for (e in byHour[hour].orEmpty()) EntryRow(e, vm, onOpenTask, showTime = true)
-                }
-            }
-        }
-    }
-}
-
-/** Three day columns on one hour grid; tapping a day header opens that day. */
-@Composable
-private fun ThreeDays(
-    start: LocalDate,
+private fun TimeGrid(
+    days: List<LocalDate>,
     today: LocalDate,
     entries: Map<LocalDate, List<CalendarEntry>>,
     vm: TasksViewModel,
     onOpenTask: (String) -> Unit,
-    onOpenDay: (LocalDate) -> Unit,
+    onOpenDay: ((LocalDate) -> Unit)?,
+    onAddAt: (LocalDate, LocalTime) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val days = (0L..2L).map { start.plusDays(it) }
-    val allDay = days.map { d -> entries[d].orEmpty().filter { it.task.isAllDay } }
-    val byHour = days.map { d -> entries[d].orEmpty().filter { !it.task.isAllDay }.groupBy { localTimeOf(it.task.dueAt!!).hour } }
-    val listState = rememberLazyListState()
-    LaunchedEffect(start) {
-        val hour = byHour.flatMap { it.keys }.minOrNull() ?: if (today in days) LocalTime.now().hour else 8
-        listState.scrollToItem((hour - 1).coerceAtLeast(0))
+    val single = days.size == 1
+    val allDay = days.map { d -> entries[d].orEmpty().filter { it.task.isAllDay || it.task.dueAt == null } }
+    val timed = days.map { d -> entries[d].orEmpty().filter { !it.task.isAllDay && it.task.dueAt != null } }
+    val scroll = rememberScrollState()
+    val hourPx = with(LocalDensity.current) { HOUR_HEIGHT.toPx() }
+    LaunchedEffect(days.first(), days.size) {
+        // Open at the first timed task, the current hour today, or the morning, with an hour above.
+        val firstMinute = timed.flatten().minOfOrNull { blockMinutes(it.task.dueAt!!, it.task.startAt).first }
+        val hour = firstMinute?.div(60) ?: if (today in days) LocalTime.now().hour else 8
+        scroll.scrollTo(((hour - 1).coerceAtLeast(0) * hourPx).toInt())
     }
+
     Column(Modifier.fillMaxSize().padding(end = 6.dp)) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            Spacer(Modifier.width(HOUR_LABEL_WIDTH))
-            for (d in days) {
-                val isToday = d == today
-                Column(
-                    Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).clickable { onOpenDay(d) }.padding(vertical = 2.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(WEEK_DAYS[d.dayOfWeek.value - 1], style = MaterialTheme.typography.labelSmall, color = if (isToday) scheme.primary else scheme.onSurfaceVariant)
-                    Box(
-                        Modifier.size(30.dp).clip(CircleShape).background(if (isToday) scheme.primary else Color.Transparent),
-                        contentAlignment = Alignment.Center,
+        if (!single) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Spacer(Modifier.width(HOUR_LABEL_WIDTH))
+                for (d in days) {
+                    val isToday = d == today
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .then(if (onOpenDay != null) Modifier.clickable { onOpenDay(d) } else Modifier)
+                            .padding(vertical = 2.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text(
-                            "${d.dayOfMonth}",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isToday) scheme.onPrimary else scheme.onSurface,
-                        )
-                    }
-                }
-            }
-        }
-        if (allDay.any { it.isNotEmpty() }) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-                Text(
-                    "весь\nдень",
-                    modifier = Modifier.width(HOUR_LABEL_WIDTH).padding(start = 8.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = scheme.onSurfaceVariant,
-                )
-                for (list in allDay) {
-                    Column(Modifier.weight(1f).padding(horizontal = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        for (e in list) EntryChip(e, onOpenTask)
-                    }
-                }
-            }
-        }
-        HorizontalDivider()
-        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 88.dp)) {
-            items((0..23).toList(), key = { "h$it" }) { hour ->
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    Text(
-                        "%02d:00".format(hour),
-                        modifier = Modifier.width(HOUR_LABEL_WIDTH).padding(start = 8.dp, top = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = scheme.onSurfaceVariant,
-                    )
-                    for (hours in byHour) {
-                        Column(
-                            Modifier
-                                .weight(1f)
-                                .heightIn(min = 48.dp)
-                                .border(0.5.dp, scheme.outlineVariant)
-                                .padding(2.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        Text(WEEK_DAYS[d.dayOfWeek.value - 1], style = MaterialTheme.typography.labelSmall, color = if (isToday) scheme.primary else scheme.onSurfaceVariant)
+                        Box(
+                            Modifier.size(28.dp).clip(CircleShape).background(if (isToday) scheme.primary else Color.Transparent),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            for (e in hours[hour].orEmpty()) EntryChip(e, onOpenTask, showTime = true)
+                            Text(
+                                "${d.dayOfMonth}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isToday) scheme.onPrimary else scheme.onSurface,
+                            )
                         }
                     }
                 }
             }
         }
+        // All-day tasks: full rows with a checkbox for one day, compact chips for several.
+        if (allDay.any { it.isNotEmpty() }) {
+            if (single) {
+                Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                    for (e in allDay.first()) EntryRow(e, vm, onOpenTask)
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                    Text(
+                        "весь\nдень",
+                        modifier = Modifier.width(HOUR_LABEL_WIDTH).padding(start = 8.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                    for (list in allDay) {
+                        Column(Modifier.weight(1f).padding(horizontal = 1.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            for (e in list.take(3)) EntryChip(e, onOpenTask)
+                            if (list.size > 3) Text("+${list.size - 3}", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+        HorizontalDivider(color = scheme.outlineVariant)
+        val now by rememberNow(60_000)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(scroll)
+                .height(HOUR_HEIGHT * 24)
+                .padding(bottom = 0.dp),
+        ) {
+            // Hour captions sit on the lines they name.
+            Box(Modifier.width(HOUR_LABEL_WIDTH).fillMaxHeight()) {
+                for (h in 1..23) {
+                    Text(
+                        "%02d:00".format(h),
+                        modifier = Modifier.offset(y = HOUR_HEIGHT * h - 7.dp).padding(start = 8.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
+            }
+            days.forEachIndexed { i, day ->
+                DayColumn(
+                    day = day,
+                    entries = timed[i],
+                    isToday = day == today,
+                    nowMillis = now,
+                    onOpenTask = onOpenTask,
+                    onAddAt = onAddAt,
+                    compact = days.size > 3,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+            }
+        }
     }
 }
+
+@Composable
+private fun DayColumn(
+    day: LocalDate,
+    entries: List<CalendarEntry>,
+    isToday: Boolean,
+    nowMillis: Long,
+    onOpenTask: (String) -> Unit,
+    onAddAt: (LocalDate, LocalTime) -> Unit,
+    compact: Boolean,
+    modifier: Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val line = scheme.outlineVariant
+    val halfLine = scheme.outlineVariant.copy(alpha = 0.4f)
+    val placed = remember(entries) {
+        layoutBlocks(entries.map { e -> blockMinutes(e.task.dueAt!!, e.task.startAt).let { (s, end) -> TimeBlock(e, s, end) } })
+    }
+    BoxWithConstraints(
+        modifier
+            .drawBehind {
+                val hour = size.height / 24
+                drawLine(line, Offset(0f, 0f), Offset(0f, size.height), strokeWidth = 0.5.dp.toPx())
+                for (h in 1..23) {
+                    drawLine(line, Offset(0f, hour * h), Offset(size.width, hour * h), strokeWidth = 0.5.dp.toPx())
+                    drawLine(halfLine, Offset(0f, hour * (h - 0.5f)), Offset(size.width, hour * (h - 0.5f)), strokeWidth = 0.5.dp.toPx())
+                }
+            }
+            // Free space: add a task at that half hour. Blocks take their own taps.
+            .pointerInput(day) {
+                detectTapGestures { offset ->
+                    val minute = ((offset.y / (size.height / 24f)) * 60).toInt().coerceIn(0, MINUTES_PER_DAY - 1) / 30 * 30
+                    onAddAt(day, LocalTime.of(minute / 60, minute % 60))
+                }
+            },
+    ) {
+        for (p in placed) {
+            val top = HOUR_HEIGHT * (p.start / 60f)
+            val height = (HOUR_HEIGHT * ((p.end - p.start) / 60f)).coerceAtLeast(MIN_BLOCK_HEIGHT)
+            val width = maxWidth / p.lanes
+            TimeBlockView(
+                p.item,
+                onOpenTask,
+                compact,
+                Modifier.offset(x = width * p.lane, y = top).width(width).height(height).padding(horizontal = 1.dp, vertical = 0.5.dp),
+            )
+        }
+        if (isToday) {
+            val t = localTimeOf(nowMillis)
+            val y = HOUR_HEIGHT * ((t.hour * 60 + t.minute) / 60f)
+            val red = Color(0xFFE53935)
+            Box(Modifier.offset(y = y - 1.dp).fillMaxWidth().height(2.dp).background(red))
+            Box(Modifier.offset(x = (-4).dp, y = y - 4.dp).size(8.dp).clip(CircleShape).background(red))
+        }
+    }
+}
+
+/** A task on the time scale: tinted block with a solid edge in the task's colour. */
+@Composable
+private fun TimeBlockView(entry: CalendarEntry, onOpenTask: (String) -> Unit, compact: Boolean, modifier: Modifier) {
+    val task = entry.task
+    val scheme = MaterialTheme.colorScheme
+    val color = entryColor(task)
+    val faded = entry.projected || task.isDone
+    Column(
+        modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(color.copy(alpha = if (faded) 0.12f else 0.24f))
+            .drawBehind { drawRect(color.copy(alpha = if (faded) 0.5f else 1f), size = Size(3.dp.toPx(), size.height)) }
+            .clickable { onOpenTask(task.id) }
+            .padding(start = 5.dp, end = 2.dp, top = 1.dp),
+    ) {
+        Text(
+            task.title,
+            style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            color = if (faded) scheme.onSurfaceVariant else scheme.onSurface,
+            textDecoration = if (task.isDone) TextDecoration.LineThrough else null,
+        )
+    }
+}
+
+private val HOUR_HEIGHT = 56.dp
+private val MIN_BLOCK_HEIGHT = 22.dp
 
 private val HOUR_LABEL_WIDTH = 44.dp
 
@@ -548,7 +649,8 @@ private fun EntryChip(entry: CalendarEntry, onOpenTask: (String) -> Unit, showTi
             .clickable { onOpenTask(task.id) }
             .padding(horizontal = 4.dp, vertical = 2.dp),
         style = MaterialTheme.typography.labelSmall,
-        maxLines = 3,
+        // One line keeps the all-day strip short above the time scale.
+        maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         color = if (faded) scheme.onSurfaceVariant else scheme.onSurface,
         textDecoration = if (task.isDone) TextDecoration.LineThrough else null,

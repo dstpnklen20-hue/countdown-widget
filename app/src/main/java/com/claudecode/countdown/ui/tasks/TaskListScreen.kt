@@ -130,6 +130,7 @@ import com.claudecode.countdown.domain.parseQuickAdd
 import com.claudecode.countdown.domain.today
 import com.claudecode.countdown.ui.formatDay
 import com.claudecode.countdown.ui.priorityName
+import com.claudecode.countdown.ui.priorityCategory
 import com.claudecode.tiktak.core.QuickAddResult
 import com.claudecode.tiktak.core.describe
 import com.claudecode.countdown.ui.formatCountdown
@@ -153,13 +154,15 @@ fun TaskListScreen(
     permanentDrawer: Boolean = false,
     /** Phones search from the top bar; tablets have Search in the side rail and pass null. */
     onOpenSearch: (() -> Unit)? = null,
+    /** False for a section of its own (Countdowns): no lists panel and no ☰ button. */
+    showLists: Boolean = true,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showQuickAdd by remember { mutableStateOf(false) }
     val list = (filter as? TaskFilter.ListFilter)?.let { snapshot.listsById[it.listId] }
     // Back closes the open lists menu first instead of leaving the app.
-    BackHandler(enabled = !permanentDrawer && drawerState.isOpen) { scope.launch { drawerState.close() } }
+    BackHandler(enabled = showLists && !permanentDrawer && drawerState.isOpen) { scope.launch { drawerState.close() } }
 
     val drawer = @Composable {
         AppDrawer(
@@ -178,7 +181,7 @@ fun TaskListScreen(
                 TopAppBar(
                     title = { Text(snapshot.title(filter), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = {
-                        if (!permanentDrawer) {
+                        if (showLists && !permanentDrawer) {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Filled.Menu, "Меню") }
                         }
                     },
@@ -223,13 +226,13 @@ fun TaskListScreen(
         }
     }
 
-    if (permanentDrawer) {
-        Row(Modifier.fillMaxSize()) {
+    when {
+        !showLists -> content()
+        permanentDrawer -> Row(Modifier.fillMaxSize()) {
             drawer()
             Box(Modifier.weight(1f)) { content() }
         }
-    } else {
-        ModalNavigationDrawer(drawerState = drawerState, drawerContent = drawer) { content() }
+        else -> ModalNavigationDrawer(drawerState = drawerState, drawerContent = drawer) { content() }
     }
 
     if (showQuickAdd) {
@@ -640,7 +643,9 @@ private fun ParsedPreview(parsed: QuickAddResult, pickedDue: Due?, pickedPriorit
             add("📅 " + formatDay(date, today) + (parsed.time?.let { ", %02d:%02d".format(it.hour, it.minute) } ?: ""))
         }
         parsed.repeat?.let { add("⟳ " + it.describe()) }
-        if (pickedPriority == Priority.NONE) parsed.priority?.let { add("⚑ " + priorityName(it)) }
+        // Priority by name and category, not just the flag's colour.
+        val priority = if (pickedPriority != Priority.NONE) pickedPriority else parsed.priority
+        if (priority != null && priority != Priority.NONE) add("⚑ " + priorityName(priority) + " · " + priorityCategory(priority))
         parsed.tags.forEach { add("#$it") }
         parsed.listName?.let { add("~$it") }
     }
@@ -718,7 +723,8 @@ fun QuickAddSheet(
                 runCatching { focus.requestFocus() }
             }
             val parsed = remember(text) { if (text.isBlank()) null else parseQuickAdd(text) }
-            if (parsed != null) ParsedPreview(parsed, due, priority)
+            // Also before typing, so a priority picked with the flag shows its category right away.
+            if (parsed != null || priority != Priority.NONE) ParsedPreview(parsed ?: parseQuickAdd(""), due, priority)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { pickDate = true }) {
                     Icon(

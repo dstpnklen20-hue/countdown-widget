@@ -49,6 +49,7 @@ import com.claudecode.countdown.ui.focus.FocusScreen
 import com.claudecode.countdown.ui.habits.HabitsScreen
 import com.claudecode.countdown.ui.matrix.MatrixScreen
 import com.claudecode.countdown.ui.settings.SettingsScreen
+import com.claudecode.countdown.ui.stats.StatsScreen
 import com.claudecode.countdown.ui.settings.ToolbarSettingsScreen
 import com.claudecode.countdown.ui.tasks.DrawerSection
 import com.claudecode.countdown.ui.tasks.SearchScreen
@@ -143,7 +144,7 @@ class MainActivity : AppCompatActivity() {
         val searchOnBar = !wide && Tool.SEARCH in bar.visible
         // A section opened from the ☰ menu (not pinned) returns to the tasks with Back.
         BackHandler(enabled = !wide && tab != Tool.TASKS && tab !in settings.tools) { tab = Tool.TASKS }
-        val sections = listOf(Tool.MATRIX, Tool.FOCUS, Tool.HABITS).map { t ->
+        val sections = listOf(Tool.MATRIX, Tool.FOCUS, Tool.HABITS, Tool.STATS).map { t ->
             DrawerSection(t.label, t.icon!!) { tab = t }
         }
         val selectFilter: (TaskFilter) -> Unit = {
@@ -244,11 +245,14 @@ class MainActivity : AppCompatActivity() {
                 sections = sections,
                 permanentDrawer = width >= 720,
                 onOpenSearch = if (wide || searchOnBar) null else ({ onTab(Tool.SEARCH) }),
+                // Countdowns is a section of its own: it opens without the lists panel.
+                showLists = tool == Tool.TASKS,
             )
             Tool.CALENDAR -> CalendarScreen(tasksVm, snapshot, openTask)
             Tool.MATRIX -> MatrixScreen(tasksVm, snapshot, openTask)
-            Tool.FOCUS -> FocusScreen(snapshot)
+            Tool.FOCUS -> FocusScreen(snapshot, onOpenStats = { onTab(Tool.STATS) })
             Tool.HABITS -> HabitsScreen(snapshot.today)
+            Tool.STATS -> StatsScreen(snapshot.today)
             Tool.SEARCH -> SearchScreen(tasksVm, snapshot, openTask, onBack = if (wide || searchOnBar) null else ({ onTab(Tool.TASKS) }))
             Tool.SETTINGS -> SettingsScreen(
                 onBack = null,

@@ -2,6 +2,8 @@ package com.claudecode.countdown.ui.matrix
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.PaddingValues
@@ -62,15 +64,16 @@ import com.claudecode.countdown.ui.priorityColor
 import com.claudecode.countdown.ui.tasks.Snapshot
 import com.claudecode.countdown.ui.tasks.TaskRow
 import com.claudecode.countdown.ui.tasks.TasksViewModel
+import com.claudecode.countdown.ui.priorityCategory
 
 /** Quadrants map to priorities, like TickTick's default matrix rules. */
 private data class Quadrant(val title: String, val subtitle: String, val priority: Int)
 
 private val QUADRANTS = listOf(
-    Quadrant("Срочно и важно", "Высокий приоритет", Priority.HIGH),
-    Quadrant("Важно, не срочно", "Средний приоритет", Priority.MEDIUM),
-    Quadrant("Срочно, не важно", "Низкий приоритет", Priority.LOW),
-    Quadrant("Не срочно и не важно", "Без приоритета", Priority.NONE),
+    Quadrant(priorityCategory(Priority.HIGH), "Высокий приоритет", Priority.HIGH),
+    Quadrant(priorityCategory(Priority.MEDIUM), "Средний приоритет", Priority.MEDIUM),
+    Quadrant(priorityCategory(Priority.LOW), "Низкий приоритет", Priority.LOW),
+    Quadrant(priorityCategory(Priority.NONE), "Без приоритета", Priority.NONE),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -169,7 +172,14 @@ private fun QuadrantCard(
                 Text("Нет задач", color = scheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize().padding(top = 2.dp)) {
+            LazyColumn(
+                Modifier
+                    .fillMaxSize()
+                    .padding(top = 2.dp)
+                    // A tap that no task row took (the free space below the tasks) opens the quadrant;
+                    // rows consume their own taps, and scrolling cancels the gesture.
+                    .pointerInput(onExpand) { detectTapGestures { onExpand() } },
+            ) {
                 items(tasks, key = { it.id }) { task -> MatrixTaskRow(task, snapshot, vm, onOpenTask, compact = true) }
             }
         }

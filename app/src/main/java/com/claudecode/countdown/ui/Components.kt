@@ -123,7 +123,13 @@ fun PriorityMenu(expanded: Boolean, onDismiss: () -> Unit, onSelect: (Int) -> Un
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         for (p in listOf(Priority.HIGH, Priority.MEDIUM, Priority.LOW, Priority.NONE)) {
             DropdownMenuItem(
-                text = { Text(priorityName(p)) },
+                // The level and, below it, the matrix category it puts the task in.
+                text = {
+                    Column {
+                        Text(priorityName(p))
+                        Text(priorityCategory(p), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
                 leadingIcon = {
                     Icon(
                         if (p == Priority.NONE) Icons.Outlined.Flag else Icons.Filled.Flag,
