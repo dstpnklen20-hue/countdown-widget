@@ -29,11 +29,13 @@ import kotlinx.coroutines.flow.combine
 /**
  * Single write path for tasks and their satellites. [onChanged] refreshes widgets and alarms
  * after every write; [onClosed] takes down the reminder notification of a task that was
- * completed or deleted.
+ * completed or deleted. [onPurged] gets the ids of tasks removed for good, so sync removes them
+ * from the account too.
  */
 class TaskRepository(
     private val db: AppDatabase,
     private val onClosed: (taskId: String) -> Unit = {},
+    private val onPurged: (taskIds: List<String>) -> Unit = {},
     private val onChanged: suspend () -> Unit,
 ) {
     private val tasks = db.taskDao()
@@ -181,12 +183,16 @@ class TaskRepository(
     }
 
     suspend fun purge(task: Task) {
-        tasks.purge(tasks.idsWithSubtasks(task.id))
+        val ids = tasks.idsWithSubtasks(task.id)
+        tasks.purge(ids)
+        onPurged(ids)
         onChanged()
     }
 
     suspend fun emptyTrash() {
-        tasks.purge(tasks.deletedIds())
+        val ids = tasks.deletedIds()
+        tasks.purge(ids)
+        onPurged(ids)
         onChanged()
     }
 

@@ -6,6 +6,9 @@ import com.claudecode.countdown.data.AppSettings
 import com.claudecode.countdown.data.FocusRepository
 import com.claudecode.countdown.data.HabitRepository
 import com.claudecode.countdown.data.TaskRepository
+import com.claudecode.countdown.data.sync.RowStore
+import com.claudecode.countdown.data.sync.SyncManager
+import com.claudecode.countdown.data.sync.SyncTable
 import com.claudecode.countdown.pomodoro.PomodoroTimer
 import com.claudecode.countdown.data.db.AppDatabase
 import com.claudecode.countdown.reminders.ReminderNotifier
@@ -27,8 +30,15 @@ class AppContainer(private val context: Context) {
     val settings: AppSettings by lazy { AppSettings(context) }
     val reminders: ReminderScheduler by lazy { ReminderScheduler(context, database, settings) }
     val tasks: TaskRepository by lazy {
-        TaskRepository(database, onClosed = { ReminderNotifier.cancel(context, it) }) { onDataChanged() }
+        TaskRepository(
+            database,
+            onClosed = { ReminderNotifier.cancel(context, it) },
+            onPurged = { sync.forget(SyncTable.TASKS, it) },
+        ) { onDataChanged() }
     }
+    val rows: RowStore by lazy { RowStore(database) }
+    /** Account and sync; it watches the database itself, so every write gets pushed. */
+    val sync: SyncManager by lazy { SyncManager(context, database, rows, appScope) { onDataChanged() } }
     val habits: HabitRepository by lazy {
         HabitRepository(database, onClosed = { ReminderNotifier.cancelHabit(context, it) }) { reminders.reschedule() }
     }

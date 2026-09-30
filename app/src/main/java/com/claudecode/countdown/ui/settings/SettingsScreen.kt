@@ -224,8 +224,13 @@ fun SettingsScreen(onBack: (() -> Unit)?, onOpenTrash: () -> Unit, onOpenToolbar
                 }
             }
 
+            Section("Синхронизация") {
+                SyncSettings()
+            }
+
             Section("Данные") {
                 SettingRow("Корзина", "Удалённые задачи можно вернуть", onClick = onOpenTrash)
+                BackupSettings()
             }
 
             Section("О приложении") {
@@ -243,7 +248,7 @@ fun SettingsScreen(onBack: (() -> Unit)?, onOpenTrash: () -> Unit, onOpenToolbar
 }
 
 @Composable
-private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
     Text(
         title,
         style = MaterialTheme.typography.labelLarge,
@@ -258,7 +263,7 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
 }
 
 @Composable
-private fun SettingRow(title: String, subtitle: String? = null, onClick: (() -> Unit)? = null) {
+internal fun SettingRow(title: String, subtitle: String? = null, onClick: (() -> Unit)? = null) {
     Row(
         Modifier
             .fillMaxWidth()

@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    version = 3,
+    version = 4,
     exportSchema = true,
     entities = [
         Folder::class, TaskList::class, Section::class, Task::class, ChecklistItem::class,

@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.claudecode.countdown.ui.AddFab
 import com.claudecode.countdown.data.db.Task
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -199,11 +200,7 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) 
                 )
             },
             floatingActionButton = {
-                FloatingActionButton(
-                    onClick = { adding = true },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) { Icon(Icons.Filled.Add, "Добавить задачу на выбранный день") }
+                AddFab("Добавить задачу на выбранный день") { adding = true }
             },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {

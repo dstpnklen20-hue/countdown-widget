@@ -35,4 +35,12 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
-val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+/** v4: task-tag links get sync fields, so removing a tag can travel to other devices. */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `task_tags` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `task_tags` ADD COLUMN `deleted` INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)

@@ -1,5 +1,6 @@
 package com.claudecode.countdown.ui.tasks
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -12,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.claudecode.countdown.ui.AddFab
 import com.claudecode.countdown.container
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -156,6 +158,8 @@ fun TaskListScreen(
     val scope = rememberCoroutineScope()
     var showQuickAdd by remember { mutableStateOf(false) }
     val list = (filter as? TaskFilter.ListFilter)?.let { snapshot.listsById[it.listId] }
+    // Back closes the open lists menu first instead of leaving the app.
+    BackHandler(enabled = !permanentDrawer && drawerState.isOpen) { scope.launch { drawerState.close() } }
 
     val drawer = @Composable {
         AppDrawer(
@@ -201,11 +205,7 @@ fun TaskListScreen(
                     enter = Motion.popIn,
                     exit = Motion.popOut,
                 ) {
-                    FloatingActionButton(
-                        onClick = { showQuickAdd = true },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ) { Icon(Icons.Filled.Add, if (filter == TaskFilter.Countdowns) "Новое событие" else "Добавить задачу") }
+                    AddFab(if (filter == TaskFilter.Countdowns) "Новое событие" else "Добавить задачу") { showQuickAdd = true }
                 }
             },
         ) { padding ->
@@ -324,19 +324,22 @@ private fun smartListHint(filter: TaskFilter): String? = when (filter) {
 @Composable
 private fun HintBanner(text: String, modifier: Modifier = Modifier, onClose: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    // A quiet note rather than a banner: the accent only on the icon.
     Row(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(scheme.primary)
-            .padding(start = 16.dp, top = 6.dp, bottom = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(scheme.surfaceContainerLow)
+            .padding(start = 14.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.EventAvailable, null, tint = scheme.onPrimary)
+        Icon(Icons.Outlined.EventAvailable, null, tint = scheme.primary, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
-        Text(text, color = scheme.onPrimary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Закрыть подсказку", tint = scheme.onPrimary) }
+        Text(text, color = scheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        IconButton(onClick = onClose) {
+            Icon(Icons.Filled.Close, "Закрыть подсказку", tint = scheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
     }
 }
 

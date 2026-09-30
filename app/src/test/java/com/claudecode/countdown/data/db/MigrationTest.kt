@@ -73,7 +73,14 @@ class MigrationTest {
             assertNull(task.color)
             db.taskDao().upsert(task.copy(color = 0xFF43A047.toInt()))
             assertEquals(0xFF43A047.toInt(), db.taskDao().get("t1")!!.color)
-            assertEquals(3, db.openHelper.readableDatabase.version)
+            // v4: task-tag links keep removals as deleted rows.
+            db.tagDao().upsert(Tag(id = "g1", name = "работа"))
+            db.tagDao().setTaskTags("t1", listOf("g1"))
+            assertEquals(listOf("работа"), db.tagDao().tagNamesFor("t1"))
+            db.tagDao().setTaskTags("t1", emptyList())
+            assertEquals(emptyList<String>(), db.tagDao().tagNamesFor("t1"))
+            assertEquals(true, db.tagDao().linksFor("t1").single().deleted)
+            assertEquals(4, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }

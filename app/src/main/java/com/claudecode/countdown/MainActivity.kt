@@ -31,6 +31,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.claudecode.countdown.data.sync.SyncManager
 import com.claudecode.countdown.domain.TaskFilter
 import com.claudecode.countdown.ui.AppBottomBar
 import com.claudecode.countdown.ui.AppRail
@@ -107,6 +108,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         // The system dark mode may have changed while the app was in the background.
         onThemeChanged()
+        // Pick up what was changed on other devices meanwhile.
+        if (SyncManager.isSignedIn(this)) container.sync.requestSync(delayMs = 0)
     }
 
     private fun onThemeChanged() {
