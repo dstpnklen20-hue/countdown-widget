@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,7 +60,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,11 +78,15 @@ import com.claudecode.countdown.ThemeManager
 import com.claudecode.countdown.Updater
 import com.claudecode.countdown.container
 import com.claudecode.countdown.data.AppSettings
-import com.claudecode.countdown.data.OptionalTab
+import com.claudecode.countdown.data.barLayout
+import com.claudecode.countdown.ui.EMPTY_ARTS
+import com.claudecode.countdown.ui.EmptyArt
+import com.claudecode.countdown.ui.Motion
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.claudecode.countdown.data.StartList
 import com.claudecode.countdown.domain.formatMinuteOfDay
 import com.claudecode.countdown.ui.AppSnackbarHost
-import com.claudecode.countdown.ui.LocalSnackbarHost
 import com.claudecode.countdown.widget.CountdownWidgetProvider
 import com.claudecode.countdown.widget.QuickAddWidgetReceiver
 import com.claudecode.countdown.widget.TodayWidgetReceiver
@@ -93,12 +98,10 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: (() -> Unit)?, onOpenTrash: () -> Unit, onThemeChanged: () -> Unit) {
+fun SettingsScreen(onBack: (() -> Unit)?, onOpenTrash: () -> Unit, onOpenToolbar: () -> Unit, onThemeChanged: () -> Unit) {
     val context = LocalContext.current
     val appSettings = remember { context.container.settings }
     val settings by appSettings.state.collectAsStateWithLifecycle()
-    val snackbar = LocalSnackbarHost.current
-    val scope = rememberCoroutineScope()
     // Theme values live in ThemeManager's prefs; bumping this re-reads them.
     var themeVersion by remember { mutableIntStateOf(0) }
     fun themeChanged() {
@@ -121,21 +124,16 @@ fun SettingsScreen(onBack: (() -> Unit)?, onOpenTrash: () -> Unit, onThemeChange
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         ) {
-            Section("Нижняя панель") {
-                Text(
-                    "Всегда: Задачи, Календарь, Настройки. Можно добавить ещё ${AppSettings.MAX_OPTIONAL_TABS}. " +
-                        "Все разделы также есть в меню ☰.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            Section("Панель инструментов") {
+                val layout = barLayout(settings.tools, settings.barLimit)
+                SettingRow(
+                    "Разделы на панели",
+                    buildString {
+                        append(layout.visible.joinToString(", ") { it.label })
+                        if (layout.more.isNotEmpty()) append("; в «Ещё»: ").append(layout.more.joinToString(", ") { it.label })
+                    },
+                    onClick = onOpenToolbar,
                 )
-                for (tab in OptionalTab.entries) {
-                    SwitchRow(tab.label, checked = tab in settings.tabs) { on ->
-                        if (!appSettings.setTab(tab, on)) {
-                            scope.launch { snackbar.showSnackbar("В панели нет места: сначала уберите другой раздел") }
-                        }
-                    }
-                }
             }
 
             Section("Задачи") {
@@ -168,7 +166,41 @@ fun SettingsScreen(onBack: (() -> Unit)?, onOpenTrash: () -> Unit, onThemeChange
             }
 
             Section("Оформление") {
-                ThemeSettings(themeVersion, ::themeChanged)
+                var target by rememberSaveable { mutableStateOf(ThemeManager.Target.APP) }
+                val targets = listOf(ThemeManager.Target.APP to "Приложение", ThemeManager.Target.WIDGETS to "Виджеты")
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
+                    targets.forEachIndexed { i, (value, label) ->
+                        SegmentedButton(
+                            selected = target == value,
+                            onClick = { target = value },
+                            shape = SegmentedButtonDefaults.itemShape(i, targets.size),
+                        ) { Text(label) }
+                    }
+                }
+                AnimatedContent(target, transitionSpec = { Motion.sectionChange() }, label = "themeTarget") { t ->
+                    Column {
+                        if (t == ThemeManager.Target.WIDGETS) {
+                            val own = remember(themeVersion) { ThemeManager.widgetsHaveOwnTheme(context) }
+                            Spacer(Modifier.height(8.dp))
+                            SwitchRow("Свои цвета для виджетов", checked = own) {
+                                ThemeManager.setWidgetsHaveOwnTheme(context, it)
+                                themeChanged()
+                            }
+                            Text(
+                                if (own) "Виджеты на главном экране оформлены отдельно от приложения."
+                                else "Сейчас виджеты повторяют оформление приложения.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                            if (own) ThemeSettings(t, themeVersion, ::themeChanged)
+                            else Spacer(Modifier.height(16.dp))
+                        } else {
+                            ThemeSettings(t, themeVersion, ::themeChanged)
+                            EmptyArtSetting(settings.emptyArt, appSettings::setEmptyArt)
+                        }
+                    }
+                }
             }
 
             Section("Уведомления") {
@@ -259,13 +291,13 @@ private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Un
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun ThemeSettings(version: Int, onChanged: () -> Unit) {
+private fun ThemeSettings(target: ThemeManager.Target, version: Int, onChanged: () -> Unit) {
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
-    val mode = remember(version) { ThemeManager.getMode(context) }
-    val accent = remember(version) { ThemeManager.getAccentOverride(context) }
-    val presetId = remember(version) { ThemeManager.getPresetId(context) }
-    val isDark = remember(version) { ThemeManager.palette(context).isDark }
+    val mode = remember(version, target) { ThemeManager.getMode(context, target) }
+    val accent = remember(version, target) { ThemeManager.getAccentOverride(context, target) }
+    val presetId = remember(version, target) { ThemeManager.getPresetId(context, target) }
+    val isDark = remember(version, target) { ThemeManager.palette(context, target).isDark }
 
     Column(Modifier.padding(16.dp)) {
         Text("Режим", style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
@@ -275,7 +307,7 @@ private fun ThemeSettings(version: Int, onChanged: () -> Unit) {
             modes.forEachIndexed { i, (value, label) ->
                 SegmentedButton(
                     selected = mode == value,
-                    onClick = { ThemeManager.setMode(context, value); onChanged() },
+                    onClick = { ThemeManager.setMode(context, value, target); onChanged() },
                     shape = SegmentedButtonDefaults.itemShape(i, modes.size),
                     icon = {},
                 ) { Text(label, maxLines = 1, style = MaterialTheme.typography.labelMedium) }
@@ -293,14 +325,14 @@ private fun ThemeSettings(version: Int, onChanged: () -> Unit) {
                         .clip(CircleShape)
                         .background(Color(color))
                         .border(if (accent == color) 3.dp else 0.dp, scheme.onSurface, CircleShape)
-                        .clickable { ThemeManager.setAccentOverride(context, color); onChanged() }
+                        .clickable { ThemeManager.setAccentOverride(context, color, target); onChanged() }
                 )
             }
         }
         Spacer(Modifier.height(8.dp))
         FilterChip(
             selected = accent == null,
-            onClick = { ThemeManager.setAccentOverride(context, null); onChanged() },
+            onClick = { ThemeManager.setAccentOverride(context, null, target); onChanged() },
             label = { Text("Цвет из темы") },
         )
 
@@ -323,7 +355,7 @@ private fun ThemeSettings(version: Int, onChanged: () -> Unit) {
                             .clip(RoundedCornerShape(12.dp))
                             .background(Color(sc.bg))
                             .border(if (selected) 3.dp else 1.dp, Color(if (selected) sc.accent else sc.surface), RoundedCornerShape(12.dp))
-                            .clickable { ThemeManager.setPreset(context, preset.id); onChanged() }
+                            .clickable { ThemeManager.setPreset(context, preset.id, target); onChanged() }
                             .padding(horizontal = 10.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -350,6 +382,62 @@ private fun ThemeSettings(version: Int, onChanged: () -> Unit) {
 }
 
 private const val COLLAPSED_PRESETS = 6
+
+/** Which picture empty lists show: one of the gallery, or a different one every day. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EmptyArtSetting(selected: Int, onSelect: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    SettingRow(
+        "Картинка в пустом списке",
+        EMPTY_ARTS.getOrNull(selected)?.name ?: "Разные каждый день",
+        onClick = { open = true },
+    )
+    if (!open) return
+    AlertDialog(
+        onDismissRequest = { open = false },
+        confirmButton = { TextButton(onClick = { open = false }) { Text("Готово") } },
+        title = { Text("Картинка в пустом списке") },
+        text = {
+            Column {
+                FilterChip(
+                    selected = selected == AppSettings.EMPTY_ART_DAILY,
+                    onClick = { onSelect(AppSettings.EMPTY_ART_DAILY) },
+                    label = { Text("Разные каждый день") },
+                )
+                Spacer(Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    EMPTY_ARTS.forEachIndexed { i, art ->
+                        Column(
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(
+                                    if (i == selected) 2.dp else 0.dp,
+                                    if (i == selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    RoundedCornerShape(12.dp),
+                                )
+                                .clickable { onSelect(i) }
+                                .padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            // On the list's own background, as it will look there.
+                            EmptyArt(i, Modifier.size(76.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.background))
+                            Text(
+                                art.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 2,
+                                minLines = 2,
+                                modifier = Modifier.width(76.dp).padding(top = 4.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
 
 /** Shows whether reminders can reach the user and links to the system switches that fix it. */
 @Composable

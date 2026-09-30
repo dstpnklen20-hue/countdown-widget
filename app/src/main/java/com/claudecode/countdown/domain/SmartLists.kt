@@ -3,9 +3,11 @@ package com.claudecode.countdown.domain
 import com.claudecode.countdown.data.db.DisplayMode
 import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.data.db.TaskList
+import java.text.Collator
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Locale
 
 sealed interface TaskFilter {
     val key: String
@@ -34,9 +36,20 @@ sealed interface TaskFilter {
     }
 }
 
-enum class GroupKind { OVERDUE, TODAY, TOMORROW, DAY, LATER, NO_DATE, DONE }
+enum class GroupKind { OVERDUE, TODAY, TOMORROW, DAY, LATER, NO_DATE, PRIORITY, ALL, DONE }
 
-data class TaskGroup(val kind: GroupKind, val date: LocalDate?, val tasks: List<Task>)
+data class TaskGroup(val kind: GroupKind, val date: LocalDate?, val tasks: List<Task>, val priority: Int? = null) {
+    /** Stable id of the section, e.g. for remembering which ones are collapsed. */
+    val key: String get() = "$kind:${date ?: priority ?: ""}"
+}
+
+/** How a task list is ordered; the choice is remembered per list (see AppSettings). */
+enum class TaskSort(val label: String) {
+    DATE("По дате"),
+    PRIORITY("По приоритету"),
+    TITLE("По названию"),
+    CREATED("Сначала новые"),
+}
 
 /** Calendar day of a task's due date. All-day dates stay fixed in the zone they were set in. */
 fun Task.dueDay(deviceZone: ZoneId = ZoneId.systemDefault()): LocalDate? {
@@ -76,9 +89,12 @@ fun matches(
     }
 }
 
+private val titleCollator = Collator.getInstance(Locale("ru")).apply { strength = Collator.PRIMARY }
+
 /**
- * Splits already-filtered tasks into TickTick-like sections: overdue, today, tomorrow,
- * the rest of the week day by day, later, no date, and completed at the bottom.
+ * Splits already-filtered tasks into TickTick-like sections, completed ones always at the bottom.
+ * By date: overdue, today, tomorrow, the rest of the week day by day, later, no date.
+ * By priority: one section per priority. By title or creation: a single section.
  */
 fun groupTasks(
     filter: TaskFilter,
@@ -86,12 +102,31 @@ fun groupTasks(
     now: Long,
     today: LocalDate,
     zone: ZoneId = ZoneId.systemDefault(),
+    sort: TaskSort = TaskSort.DATE,
 ): List<TaskGroup> {
     if (filter == TaskFilter.Completed) {
         val done = tasks.sortedByDescending { it.completedAt ?: it.updatedAt }
         return if (done.isEmpty()) emptyList() else listOf(TaskGroup(GroupKind.DONE, null, done))
     }
     val (done, open) = tasks.partition { it.isDone }
+    val groups = when (sort) {
+        TaskSort.DATE -> groupByDate(open, now, today, zone)
+        TaskSort.PRIORITY -> open.sortedWith(taskOrder).groupBy { it.priority }.entries
+            .sortedByDescending { it.key }
+            .map { TaskGroup(GroupKind.PRIORITY, null, it.value, priority = it.key) }
+        TaskSort.TITLE -> listOfNotNull(
+            open.sortedWith(compareBy(titleCollator) { it.title.trim() }).takeIf { it.isNotEmpty() }
+                ?.let { TaskGroup(GroupKind.ALL, null, it) }
+        )
+        TaskSort.CREATED -> listOfNotNull(
+            open.sortedByDescending { it.createdAt }.takeIf { it.isNotEmpty() }?.let { TaskGroup(GroupKind.ALL, null, it) }
+        )
+    }
+    val doneSorted = done.sortedByDescending { it.completedAt ?: it.updatedAt }
+    return if (doneSorted.isEmpty()) groups else groups + TaskGroup(GroupKind.DONE, null, doneSorted)
+}
+
+private fun groupByDate(open: List<Task>, now: Long, today: LocalDate, zone: ZoneId): List<TaskGroup> {
     val buckets = linkedMapOf<Pair<GroupKind, LocalDate?>, MutableList<Task>>()
     for (task in open.sortedWith(taskOrder)) {
         val day = task.dueDay(zone)
@@ -106,9 +141,7 @@ fun groupTasks(
         buckets.getOrPut(key) { mutableListOf() } += task
     }
     val order = listOf(GroupKind.OVERDUE, GroupKind.TODAY, GroupKind.TOMORROW, GroupKind.DAY, GroupKind.LATER, GroupKind.NO_DATE)
-    val groups = buckets.entries
+    return buckets.entries
         .sortedWith(compareBy({ order.indexOf(it.key.first) }, { it.key.second }))
         .map { TaskGroup(it.key.first, it.key.second, it.value) }
-    val doneSorted = done.sortedByDescending { it.completedAt ?: it.updatedAt }
-    return if (doneSorted.isEmpty()) groups else groups + TaskGroup(GroupKind.DONE, null, doneSorted)
 }

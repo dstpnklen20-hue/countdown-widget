@@ -17,6 +17,8 @@ import com.claudecode.countdown.widget.TodayWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class AppContainer(private val context: Context) {
@@ -41,8 +43,15 @@ class AppContainer(private val context: Context) {
         appScope.launch { reminders.reschedule() }
     }
 
+    /**
+     * Bumped on every theme change. Glance widgets read their colours inside the live session,
+     * keyed on this, because update() alone only recomposes that session.
+     */
+    val widgetTheme = MutableStateFlow(0)
+
     /** After a theme change every widget has to be redrawn with the new colors. */
     fun refreshAllWidgets() {
+        widgetTheme.update { it + 1 }
         appScope.launch { redrawWidgets() }
     }
 

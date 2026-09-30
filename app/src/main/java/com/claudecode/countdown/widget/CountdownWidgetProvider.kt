@@ -35,7 +35,7 @@ class CountdownWidgetProvider : AppWidgetProvider() {
             val countdown = CountdownRepository.getWidgetCountdown(context, appWidgetId)
             val countdownId = countdown?.id
             val views = RemoteViews(context.packageName, R.layout.widget_countdown)
-            val palette = ThemeManager.palette(context)
+            val palette = ThemeManager.widgetPalette(context)
 
             var value = "–"
             var unit = ""

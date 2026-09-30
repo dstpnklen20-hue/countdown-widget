@@ -49,7 +49,23 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.SortByAlpha
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.TaskAlt
+import com.claudecode.countdown.domain.TaskSort
+import com.claudecode.countdown.ui.emptyArtIndex
+import com.claudecode.countdown.ui.EMPTY_ARTS
+import com.claudecode.countdown.ui.EmptyArt
+import com.claudecode.countdown.ui.Motion
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Flag
@@ -173,13 +189,18 @@ fun TaskListScreen(
                                 )
                             }
                         }
+                        if (filter != TaskFilter.Completed && list?.viewMode != ListViewMode.KANBAN) ListMenu(filter)
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 )
             },
             snackbarHost = { AppSnackbarHost() },
             floatingActionButton = {
-                if (filter != TaskFilter.Completed && list?.viewMode != ListViewMode.KANBAN) {
+                AnimatedVisibility(
+                    visible = filter != TaskFilter.Completed && list?.viewMode != ListViewMode.KANBAN,
+                    enter = Motion.popIn,
+                    exit = Motion.popOut,
+                ) {
                     FloatingActionButton(
                         onClick = { showQuickAdd = true },
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -233,8 +254,9 @@ private fun TaskGroupsList(
 ) {
     val appSettings = LocalContext.current.container.settings
     val settings by appSettings.state.collectAsStateWithLifecycle()
-    val groups = remember(snapshot, filter, settings.showCompleted) {
-        snapshot.groups(filter).filter { settings.showCompleted || filter == TaskFilter.Completed || it.kind != GroupKind.DONE }
+    val sort = settings.sortOf(filter)
+    val groups = remember(snapshot, filter, settings.showCompleted, sort) {
+        snapshot.groups(filter, sort).filter { settings.showCompleted || filter == TaskFilter.Completed || it.kind != GroupKind.DONE }
     }
     val collapsed = remember(filter) { mutableStateMapOf<String, Boolean>() }
     val showList = filter !is TaskFilter.ListFilter
@@ -243,7 +265,7 @@ private fun TaskGroupsList(
     if (snapshot.loaded && groups.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(contentPadding)) {
             if (hint != null) HintBanner(hint) { appSettings.dismissHint(filter.key) }
-            EmptyState(filter)
+            EmptyState(filter, emptyArtIndex(settings.emptyArt, filter.key, snapshot.today))
         }
         return
     }
@@ -257,7 +279,7 @@ private fun TaskGroupsList(
     ) {
         if (hint != null) item(key = "hint") { HintBanner(hint, Modifier.animateItem()) { appSettings.dismissHint(filter.key) } }
         for (group in groups) {
-            val key = "${group.kind}:${group.date}"
+            val key = group.key
             val isCollapsed = collapsed[key] ?: (group.kind == GroupKind.DONE && filter != TaskFilter.Completed)
             if (groups.size > 1 || group.kind == GroupKind.DONE) {
                 item(key = "h:$key") {
@@ -318,26 +340,73 @@ private fun HintBanner(text: String, modifier: Modifier = Modifier, onClose: () 
     }
 }
 
+/** Sort order of this list and whether completed tasks show, like TickTick's "⋮" menu. */
 @Composable
-private fun EmptyState(filter: TaskFilter) {
-    val scheme = MaterialTheme.colorScheme
-    val (emoji, title, subtitle) = when (filter) {
-        TaskFilter.Today -> Triple("☕", "Сегодня нет задач", "Отдохните с чашечкой чая")
-        TaskFilter.Tomorrow -> Triple("🌤", "На завтра задач нет", "Можно запланировать что-нибудь приятное")
-        TaskFilter.Completed -> Triple("🏁", "Пока ничего не выполнено", "Выполненные задачи появятся здесь")
-        TaskFilter.Countdowns -> Triple("⏳", "Событий нет", "Нажмите «+», чтобы добавить событие с отсчётом")
-        else -> Triple("📝", "Задач нет", "Нажмите «+», чтобы добавить")
+private fun ListMenu(filter: TaskFilter) {
+    val appSettings = LocalContext.current.container.settings
+    val settings by appSettings.state.collectAsStateWithLifecycle()
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.Filled.MoreVert, "Сортировка и вид") }
+        DropdownMenu(open, { open = false }) {
+            Text(
+                "Сортировка",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            val current = settings.sortOf(filter)
+            for (sort in TaskSort.entries) {
+                DropdownMenuItem(
+                    text = { Text(sort.label) },
+                    leadingIcon = { Icon(sortIcon(sort), null) },
+                    trailingIcon = { if (sort == current) Icon(Icons.Filled.Check, "Выбрано", tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { appSettings.setSort(filter, sort); open = false },
+                )
+            }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text(if (settings.showCompleted) "Скрыть выполненные" else "Показать выполненные") },
+                leadingIcon = { Icon(Icons.Outlined.TaskAlt, null) },
+                onClick = { appSettings.setShowCompleted(!settings.showCompleted); open = false },
+            )
+        }
     }
+}
+
+private fun sortIcon(sort: TaskSort) = when (sort) {
+    TaskSort.DATE -> Icons.Outlined.CalendarToday
+    TaskSort.PRIORITY -> Icons.Outlined.Flag
+    TaskSort.TITLE -> Icons.Filled.SortByAlpha
+    TaskSort.CREATED -> Icons.Outlined.Schedule
+}
+
+@Composable
+private fun EmptyState(filter: TaskFilter, art: Int) {
+    val scheme = MaterialTheme.colorScheme
+    val (title, subtitle) = when (filter) {
+        TaskFilter.Today -> "Сегодня нет задач" to EMPTY_ARTS[art].subtitle
+        TaskFilter.Tomorrow -> "На завтра задач нет" to "Можно запланировать что-нибудь приятное"
+        TaskFilter.Completed -> "Пока ничего не выполнено" to "Выполненные задачи появятся здесь"
+        TaskFilter.Countdowns -> "Событий нет" to "Нажмите «+», чтобы добавить событие с отсчётом"
+        else -> "Задач нет" to "Нажмите «+», чтобы добавить"
+    }
+    // The picture floats up softly instead of popping in.
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, Motion.soft(Motion.MEDIUM + 200)) }
     Column(
-        Modifier.fillMaxSize().padding(32.dp),
+        Modifier
+            .fillMaxSize()
+            .padding(32.dp)
+            .graphicsLayer {
+                alpha = appear.value
+                translationY = (1f - appear.value) * 24.dp.toPx()
+            },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Box(
-            Modifier.size(140.dp).clip(CircleShape).background(scheme.surfaceContainerHigh),
-            contentAlignment = Alignment.Center,
-        ) { Text(emoji, fontSize = 64.sp) }
-        Spacer(Modifier.height(24.dp))
+        EmptyArt(art, Modifier.size(200.dp))
+        Spacer(Modifier.height(16.dp))
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant, textAlign = TextAlign.Center)
@@ -366,10 +435,13 @@ private fun GroupHeader(
         Spacer(Modifier.size(8.dp))
         Text("$count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.weight(1f))
+        // The arrow turns rather than jumping between two icons.
+        val turn by animateFloatAsState(if (collapsed) -90f else 0f, Motion.soft(), label = "chevron")
         Icon(
-            if (collapsed) Icons.Filled.KeyboardArrowRight else Icons.Filled.KeyboardArrowDown,
-            null,
+            Icons.Filled.KeyboardArrowDown,
+            if (collapsed) "Развернуть" else "Свернуть",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.rotate(turn),
         )
     }
 }

@@ -123,33 +123,62 @@ object ThemeManager {
         0x4CAF50, 0x009688, 0x00BCD4, 0x03A9F4, 0x795548, 0x607D8B
     ).map { c(it.toLong()) }
 
+    /**
+     * The app and the home-screen widgets can be themed separately. Widget keys carry a prefix;
+     * the app's keys stay unprefixed, as they were in version 1.x.
+     */
+    enum class Target(val prefix: String) { APP(""), WIDGETS("widget_") }
+
+    private const val KEY_WIDGETS_OWN = "widget_own"
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun getMode(context: Context): String = prefs(context).getString(KEY_MODE, MODE_SYSTEM) ?: MODE_SYSTEM
+    fun getMode(context: Context, target: Target = Target.APP): String =
+        prefs(context).getString(target.prefix + KEY_MODE, MODE_SYSTEM) ?: MODE_SYSTEM
 
-    fun setMode(context: Context, mode: String) {
-        prefs(context).edit().putString(KEY_MODE, mode).apply()
+    fun setMode(context: Context, mode: String, target: Target = Target.APP) {
+        prefs(context).edit().putString(target.prefix + KEY_MODE, mode).apply()
     }
 
-    fun getPresetId(context: Context): String =
-        prefs(context).getString(KEY_PRESET, DEFAULT_PRESET) ?: DEFAULT_PRESET
+    fun getPresetId(context: Context, target: Target = Target.APP): String =
+        prefs(context).getString(target.prefix + KEY_PRESET, DEFAULT_PRESET) ?: DEFAULT_PRESET
 
     /** Selecting a ready-made theme also drops the custom accent, so the theme's own accent shows. */
-    fun setPreset(context: Context, id: String) {
-        prefs(context).edit().putString(KEY_PRESET, id).remove(KEY_ACCENT).apply()
+    fun setPreset(context: Context, id: String, target: Target = Target.APP) {
+        prefs(context).edit().putString(target.prefix + KEY_PRESET, id).remove(target.prefix + KEY_ACCENT).apply()
     }
 
-    fun getAccentOverride(context: Context): Int? {
+    fun getAccentOverride(context: Context, target: Target = Target.APP): Int? {
         val p = prefs(context)
-        return if (p.contains(KEY_ACCENT)) p.getInt(KEY_ACCENT, 0) else null
+        val key = target.prefix + KEY_ACCENT
+        return if (p.contains(key)) p.getInt(key, 0) else null
     }
 
-    fun setAccentOverride(context: Context, color: Int?) {
+    fun setAccentOverride(context: Context, color: Int?, target: Target = Target.APP) {
         val e = prefs(context).edit()
-        if (color == null) e.remove(KEY_ACCENT) else e.putInt(KEY_ACCENT, color)
+        val key = target.prefix + KEY_ACCENT
+        if (color == null) e.remove(key) else e.putInt(key, color)
         e.apply()
     }
+
+    /** False (the default) means the widgets simply follow the app's theme. */
+    fun widgetsHaveOwnTheme(context: Context): Boolean = prefs(context).getBoolean(KEY_WIDGETS_OWN, false)
+
+    /** Turning the own widget theme on starts it from the app's current look, so nothing jumps. */
+    fun setWidgetsHaveOwnTheme(context: Context, own: Boolean) {
+        val e = prefs(context).edit().putBoolean(KEY_WIDGETS_OWN, own)
+        if (own && !prefs(context).contains(Target.WIDGETS.prefix + KEY_PRESET)) {
+            e.putString(Target.WIDGETS.prefix + KEY_MODE, getMode(context))
+            e.putString(Target.WIDGETS.prefix + KEY_PRESET, getPresetId(context))
+            getAccentOverride(context)?.let { e.putInt(Target.WIDGETS.prefix + KEY_ACCENT, it) }
+        }
+        e.apply()
+    }
+
+    /** Colours for home-screen widgets: their own theme, or the app's. */
+    fun widgetPalette(context: Context): Palette =
+        if (widgetsHaveOwnTheme(context)) palette(context, Target.WIDGETS) else palette(context)
 
     fun applyNightMode(context: Context) {
         AppCompatDelegate.setDefaultNightMode(
@@ -161,16 +190,16 @@ object ThemeManager {
         )
     }
 
-    fun palette(context: Context): Palette {
-        val isDark = when (getMode(context)) {
+    fun palette(context: Context, target: Target = Target.APP): Palette {
+        val isDark = when (getMode(context, target)) {
             MODE_LIGHT -> false
             MODE_DARK -> true
             else -> (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
         }
-        val preset = PRESETS.firstOrNull { it.id == getPresetId(context) } ?: PRESETS.first()
+        val preset = PRESETS.firstOrNull { it.id == getPresetId(context, target) } ?: PRESETS.first()
         val scheme = if (isDark) preset.dark else preset.light
-        val accent = getAccentOverride(context) ?: scheme.accent
+        val accent = getAccentOverride(context, target) ?: scheme.accent
         return Palette(
             isDark = isDark,
             bg = scheme.bg,

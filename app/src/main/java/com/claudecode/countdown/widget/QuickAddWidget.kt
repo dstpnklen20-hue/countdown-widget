@@ -26,12 +26,19 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.claudecode.countdown.QuickAddActivity
 import com.claudecode.countdown.ThemeManager
+import com.claudecode.countdown.container
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 
 /** One-tap bar that opens the quick-add sheet over the home screen. */
 class QuickAddWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val p = ThemeManager.palette(context)
+        val theme = context.container.widgetTheme
         provideContent {
+            // Read inside the session: a live session only recomposes on update().
+            val themeVersion by theme.collectAsState()
+            val p = remember(themeVersion) { ThemeManager.widgetPalette(context) }
             Row(
                 GlanceModifier
                     .fillMaxSize()
