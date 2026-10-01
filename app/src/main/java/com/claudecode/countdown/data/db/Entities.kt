@@ -89,6 +89,11 @@ data class Task(
     val completedAt: Long? = null,
     val sortOrder: Long = 0,
     val displayMode: DisplayMode = DisplayMode.NORMAL,
+    /**
+     * An event (sleep, lunch, a lecture) rather than a task: it fills [startAt]..[dueAt] in the
+     * calendar, has nothing to tick and stays out of the task lists.
+     */
+    @ColumnInfo(defaultValue = "0") val isEvent: Boolean = false,
     /** ARGB colour the user picked for the task; null means the list colour is used. */
     val color: Int? = null,
     val createdAt: Long = now(),

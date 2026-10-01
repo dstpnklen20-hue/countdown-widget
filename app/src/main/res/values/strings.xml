@@ -23,6 +23,8 @@
     <string name="update_install_failed">Не удалось установить обновление</string>
     <string name="widget_today_label">Tik Tak: Сегодня</string>
     <string name="widget_today_description">Задачи на сегодня с галочками</string>
+    <string name="widget_schedule_label">Tik Tak: Расписание</string>
+    <string name="widget_schedule_description">События и задачи на две недели, как в Google Календаре</string>
     <string name="widget_quick_add_label">Tik Tak: Быстро добавить</string>
     <string name="widget_quick_add_description">Добавить задачу одним нажатием</string>
     <string name="widget_countdown_label">Tik Tak: Обратный отсчёт</string>

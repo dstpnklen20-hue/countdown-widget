@@ -36,16 +36,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.claudecode.countdown.container
 import com.claudecode.countdown.domain.countPerDay
+import com.claudecode.countdown.domain.countPerMonth
+import com.claudecode.countdown.domain.focusMinutesPerMonth
+import com.claudecode.countdown.domain.monthRange
 import com.claudecode.countdown.domain.dayRange
 import com.claudecode.countdown.domain.focusMinutesPerDay
 import com.claudecode.countdown.domain.formatDuration
 import com.claudecode.countdown.pluralRu
+import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 
 /**
  * Completed tasks and focus in one place: headline numbers for the chosen period, one chart per
- * measure (never two scales on one chart), and all-time totals.
+ * measure (never two scales on one chart); the whole history is shown by months.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,20 +58,14 @@ fun StatsScreen(today: LocalDate) {
     val context = LocalContext.current
     val tasks = remember { context.container.tasks }
     val focus = remember { context.container.focus }
+    // 7 or 30 days, or ALL_TIME for the whole history by months.
     var days by rememberSaveable { mutableIntStateOf(7) }
-    val from = today.minusDays(days - 1L)
-    val since = remember(from) { from.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() }
+    val allTime = days == ALL_TIME
+    val from = if (allTime) LocalDate.ofEpochDay(0) else today.minusDays(days - 1L)
+    val since = remember(from) { if (allTime) 0L else from.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() }
 
     val completed by remember(since) { tasks.observeCompletedSince(since) }.collectAsState(initial = emptyList())
     val sessions by remember(since) { focus.observeFocusSince(since) }.collectAsState(initial = emptyList())
-    val completedTotal by remember { tasks.observeCompletedCount() }.collectAsState(initial = 0)
-    val pomodoroTotal by remember { focus.observeFocusCount() }.collectAsState(initial = 0)
-    val focusTotalMs by remember { focus.observeTotalFocusMs() }.collectAsState(initial = 0L)
-
-    val range = remember(from, days) { dayRange(from, days) }
-    val donePerDay = remember(completed, range) { countPerDay(completed, from, days) }
-    val minutesPerDay = remember(sessions, range) { focusMinutesPerDay(sessions, from, days) }
-    val todayIndex = range.indexOf(today)
 
     Scaffold(
         topBar = {
@@ -80,7 +79,7 @@ fun StatsScreen(today: LocalDate) {
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            val periods = listOf(7 to "Неделя", 30 to "Месяц")
+            val periods = listOf(7 to "Неделя", 30 to "Месяц", ALL_TIME to "За всё время")
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 periods.forEachIndexed { i, (n, label) ->
                     SegmentedButton(
@@ -88,53 +87,74 @@ fun StatsScreen(today: LocalDate) {
                         onClick = { days = n },
                         shape = SegmentedButtonDefaults.itemShape(i, periods.size),
                         icon = {},
-                    ) { Text(label) }
+                    ) { Text(label, maxLines = 1) }
                 }
             }
 
             Card {
                 Text(
-                    if (days == 7) "За неделю" else "За 30 дней",
+                    when (days) {
+                        7 -> "За неделю"
+                        30 -> "За 30 дней"
+                        else -> "За всё время"
+                    },
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(8.dp))
                 Row {
-                    Tile("${donePerDay.sum()}", "задач выполнено", Modifier.weight(1f))
+                    Tile("${completed.size}", "задач выполнено", Modifier.weight(1f))
                     Tile("${sessions.size}", "помидоров", Modifier.weight(1f))
                     Tile(formatDuration(sessions.sumOf { it.durationMs }), "фокуса", Modifier.weight(1f))
                 }
-                if (todayIndex >= 0) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "Сегодня: ${tasksText(donePerDay[todayIndex])} · ${minutesPerDay[todayIndex]} мин фокуса",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                val todayStart = remember(today) { today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() }
+                val doneToday = completed.count { it >= todayStart }
+                val focusToday = sessions.filter { it.startedAt >= todayStart }.sumOf { it.durationMs } / 60_000
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Сегодня: ${tasksText(doneToday)} · $focusToday мин фокуса",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (allTime) {
+                // From the first month with anything in it, but never fewer than six bars.
+                val months = remember(completed, sessions, today) {
+                    val first = (completed + sessions.map { it.startedAt }).minOrNull()
+                        ?.let { YearMonth.from(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault())) }
+                    val current = YearMonth.from(today)
+                    monthRange(minOf(first ?: current, current.minusMonths(5)), current)
                 }
-            }
-
-            Card {
-                ChartTitle("Выполненные задачи")
-                DayBarChart(donePerDay, range, today, ::tasksText)
-            }
-
-            Card {
-                ChartTitle("Минуты фокуса")
-                DayBarChart(minutesPerDay, range, today, { "$it мин" })
-            }
-
-            Card {
-                ChartTitle("За всё время")
-                Row {
-                    Tile("$completedTotal", "задач выполнено", Modifier.weight(1f))
-                    Tile("$pomodoroTotal", "помидоров", Modifier.weight(1f))
-                    Tile(formatDuration(focusTotalMs), "фокуса", Modifier.weight(1f))
+                val donePerMonth = remember(completed, months) { countPerMonth(completed, months) }
+                val minutesPerMonth = remember(sessions, months) { focusMinutesPerMonth(sessions, months) }
+                Card {
+                    ChartTitle("Выполненные задачи по месяцам")
+                    MonthBarChart(donePerMonth, months, YearMonth.from(today), ::tasksText)
+                }
+                Card {
+                    ChartTitle("Фокус по месяцам")
+                    MonthBarChart(minutesPerMonth, months, YearMonth.from(today), { formatDuration(it * 60_000L) })
+                }
+            } else {
+                val range = remember(from, days) { dayRange(from, days) }
+                val donePerDay = remember(completed, range) { countPerDay(completed, from, days) }
+                val minutesPerDay = remember(sessions, range) { focusMinutesPerDay(sessions, from, days) }
+                Card {
+                    ChartTitle("Выполненные задачи")
+                    DayBarChart(donePerDay, range, today, ::tasksText)
+                }
+                Card {
+                    ChartTitle("Минуты фокуса")
+                    DayBarChart(minutesPerDay, range, today, { "$it мин" })
                 }
             }
         }
     }
 }
+
+/** The period choice for the whole history. */
+private const val ALL_TIME = 0
 
 private fun tasksText(n: Int) = "$n ${pluralRu(n.toLong(), "задача", "задачи", "задач")}"
 

@@ -2,12 +2,14 @@ package com.claudecode.countdown.ui.tasks
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -47,9 +49,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalContext
-import com.claudecode.countdown.AppIcon
-import com.claudecode.countdown.ui.AppLogo
+import com.claudecode.countdown.ui.ThemedLogo
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -104,13 +104,11 @@ fun AppDrawer(
     val body: @Composable ColumnScope.() -> Unit = {
         LazyColumn(Modifier.weight(1f)) {
             item {
-                val context = LocalContext.current
-                val logo = remember { AppIcon.current(context) }
                 Row(
                     Modifier.padding(start = 24.dp, top = 20.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AppLogo(logo, Modifier.size(32.dp))
+                    ThemedLogo(Modifier.size(32.dp))
                     Spacer(Modifier.width(12.dp))
                     Text("Tik Tak", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 }
@@ -187,15 +185,14 @@ fun AppDrawer(
                     )
                 }
             }
-            if (sections.isNotEmpty()) {
-                item { SectionHeader("Разделы") {} }
-                items(sections, key = { "s:${it.label}" }) { s ->
-                    DrawerItem(icon = s.icon, label = s.label, count = 0, selected = false, onClick = s.onClick)
-                }
+        }
+        // The sections and the trash stay in one place at the bottom, however long the lists are.
+        HorizontalDivider()
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+            for (s in sections + DrawerSection("Корзина", Icons.Outlined.Delete, onOpenTrash)) {
+                SectionTile(s, Modifier.weight(1f))
             }
         }
-        HorizontalDivider()
-        DrawerItem(icon = Icons.Outlined.Delete, label = "Корзина", count = 0, selected = false, onClick = onOpenTrash)
     }
     if (permanent) {
         PermanentDrawerSheet(Modifier.width(300.dp), drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, content = body)
@@ -328,6 +325,29 @@ private fun ListDialog(
             }
         },
     )
+}
+
+/** A section at the bottom of the menu: icon over a short caption. */
+@Composable
+private fun SectionTile(section: DrawerSection, modifier: Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = section.onClick)
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(section.icon, null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.height(4.dp))
+        Text(
+            section.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = scheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 @Composable

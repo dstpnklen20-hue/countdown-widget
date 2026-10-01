@@ -89,6 +89,7 @@ import com.claudecode.countdown.domain.formatMinuteOfDay
 import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.widget.CountdownWidgetProvider
 import com.claudecode.countdown.widget.QuickAddWidgetReceiver
+import com.claudecode.countdown.widget.ScheduleWidgetReceiver
 import com.claudecode.countdown.widget.TodayWidgetReceiver
 import kotlinx.coroutines.launch
 
@@ -214,6 +215,7 @@ fun SettingsScreen(onBack: (() -> Unit)?, onOpenTrash: () -> Unit, onOpenToolbar
                 val manager = AppWidgetManager.getInstance(context)
                 if (manager.isRequestPinAppWidgetSupported) {
                     for ((label, provider) in listOf(
+                        "«Расписание»" to ScheduleWidgetReceiver::class.java,
                         "«Сегодня»" to TodayWidgetReceiver::class.java,
                         "«Быстро добавить»" to QuickAddWidgetReceiver::class.java,
                         "«Обратный отсчёт»" to CountdownWidgetProvider::class.java,

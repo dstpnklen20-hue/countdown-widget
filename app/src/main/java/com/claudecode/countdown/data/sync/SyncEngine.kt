@@ -54,15 +54,22 @@ class SyncEngine(
         private val OVERLAP: Duration = Duration.ofSeconds(60)
     }
 
-    /** Returns how many records changed on this device. */
-    suspend fun run(): Int {
+    /**
+     * Returns how many records changed on this device. Copies of one thing made on two devices
+     * are merged after the pull (see [Deduplicator]); [dedupeAll] merges every such group, not
+     * only those with a newly arrived row.
+     */
+    suspend fun run(dedupeAll: Boolean = false): Int {
         push()
-        val (changed, superseded) = pull()
-        if (superseded.isNotEmpty()) {
-            marks.pendingDeletes = marks.pendingDeletes + superseded.map { "${it.table.table}|${it.id}" }
+        val pulled = pull()
+        if (pulled.superseded.isNotEmpty()) {
+            marks.pendingDeletes = marks.pendingDeletes + pulled.superseded.map { "${it.table.table}|${it.id}" }
             pushDeletes()
         }
-        return changed
+        val merged = store.dedupe(if (dedupeAll) null else pulled.arrived, clock)
+        // The merge is a local edit: send it now rather than on the next run.
+        if (merged > 0) push()
+        return pulled.changed + merged
     }
 
     fun forget(table: SyncTable, ids: Collection<String>) {
@@ -100,11 +107,14 @@ class SyncEngine(
         marks.pendingDeletes = marks.pendingDeletes - pending
     }
 
-    private suspend fun pull(): MergeResult {
+    private class Pulled(val changed: Int, val superseded: List<Superseded>, val arrived: Map<SyncTable, Set<String>>)
+
+    private suspend fun pull(): Pulled {
         var since = marks.pulledUpTo?.minus(OVERLAP)
         var newest = marks.pulledUpTo
         var changed = 0
         val superseded = mutableListOf<Superseded>()
+        val arrived = HashMap<SyncTable, MutableSet<String>>()
         while (true) {
             val page = api.pull(since, PAGE)
             val byTable = page.groupBy { SyncTable.byTable(it.kind) }
@@ -114,6 +124,7 @@ class SyncEngine(
                 val result = store.merge(table, rows.map { it.data })
                 changed += result.changed
                 superseded += result.superseded
+                arrived.getOrPut(table) { HashSet() } += result.arrived
             }
             page.lastOrNull()?.serverAt?.let { last ->
                 since = last
@@ -122,6 +133,6 @@ class SyncEngine(
             if (page.size < PAGE) break
         }
         marks.pulledUpTo = newest
-        return MergeResult(changed, superseded)
+        return Pulled(changed, superseded, arrived)
     }
 }

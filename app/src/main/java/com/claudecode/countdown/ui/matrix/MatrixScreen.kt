@@ -1,6 +1,26 @@
 package com.claudecode.countdown.ui.matrix
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -107,6 +127,9 @@ fun MatrixScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) ->
             )
         },
     ) { padding ->
+        val drag = remember { MatrixDrag() }
+        val target = drag.target()
+        Box(Modifier.fillMaxSize().onGloballyPositioned { drag.origin = it.positionInRoot() }) {
         Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 8.dp).padding(bottom = 8.dp)) {
             // The same control as the calendar's modes, so both screens read alike.
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
@@ -129,13 +152,53 @@ fun MatrixScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) ->
                             vm = vm,
                             onOpenTask = onOpenTask,
                             onExpand = { expandedPriority = q.priority },
-                            modifier = Modifier.weight(1f).fillMaxSize().padding(4.dp),
+                            drag = drag,
+                            highlighted = target == q.priority && drag.task?.priority != q.priority,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxSize()
+                                .padding(4.dp)
+                                .onGloballyPositioned { drag.bounds[q.priority] = it.boundsInRoot() },
                         )
                     }
                 }
             }
         }
+        // The task being dragged follows the finger as a small card.
+        drag.task?.let { task ->
+            val at = drag.pointer - drag.origin
+            val density = LocalDensity.current
+            Text(
+                task.title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .offset { IntOffset((at.x - with(density) { 80.dp.toPx() }).toInt(), (at.y - with(density) { 44.dp.toPx() }).toInt()) }
+                    .widthIn(max = 200.dp)
+                    .shadow(8.dp, RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            )
+        }
+        }
     }
+}
+
+/**
+ * Dragging a task between quadrants: which task, where the finger is (in root coordinates) and
+ * where each quadrant is on the screen, so the drop lands in the one under the finger.
+ */
+private class MatrixDrag {
+    var task by mutableStateOf<Task?>(null)
+    var pointer by mutableStateOf(Offset.Zero)
+    var origin = Offset.Zero
+    val bounds = HashMap<Int, Rect>()
+
+    /** Priority of the quadrant under the finger while dragging. */
+    fun target(): Int? = if (task == null) null else bounds.entries.firstOrNull { pointer in it.value }?.key
 }
 
 @Composable
@@ -146,11 +209,19 @@ private fun QuadrantCard(
     vm: TasksViewModel,
     onOpenTask: (String) -> Unit,
     onExpand: () -> Unit,
+    drag: MatrixDrag,
+    highlighted: Boolean,
     modifier: Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
     val color = quadrantColor(quadrant)
-    Column(modifier.clip(RoundedCornerShape(16.dp)).background(scheme.surfaceContainerLow)) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier
+            .clip(shape)
+            .background(if (highlighted) color.copy(alpha = 0.16f) else scheme.surfaceContainerLow)
+            .then(if (highlighted) Modifier.border(2.dp, color, shape) else Modifier),
+    ) {
         // Tapping the header (or the empty space) opens the quadrant on the whole screen.
         Row(
             Modifier.fillMaxWidth().clickable(onClick = onExpand).padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 2.dp),
@@ -180,7 +251,7 @@ private fun QuadrantCard(
                     // rows consume their own taps, and scrolling cancels the gesture.
                     .pointerInput(onExpand) { detectTapGestures { onExpand() } },
             ) {
-                items(tasks, key = { it.id }) { task -> MatrixTaskRow(task, snapshot, vm, onOpenTask, compact = true) }
+                items(tasks, key = { it.id }) { task -> MatrixTaskRow(task, snapshot, vm, onOpenTask, compact = true, drag = drag) }
             }
         }
     }
@@ -240,16 +311,53 @@ private fun ExpandedQuadrant(
     }
 }
 
-/** A task in the matrix; long press moves it to another quadrant. */
+/**
+ * A task in the matrix. In the four quadrants a long press picks it up to drag into another one
+ * (held without moving, it opens the "move to" menu); on a quadrant's own screen, long press
+ * opens the menu.
+ */
 @Composable
-private fun MatrixTaskRow(task: Task, snapshot: Snapshot, vm: TasksViewModel, onOpenTask: (String) -> Unit, compact: Boolean) {
+private fun MatrixTaskRow(
+    task: Task,
+    snapshot: Snapshot,
+    vm: TasksViewModel,
+    onOpenTask: (String) -> Unit,
+    compact: Boolean,
+    drag: MatrixDrag? = null,
+) {
     var menu by remember { mutableStateOf(false) }
-    Box {
+    var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val haptic = LocalHapticFeedback.current
+    val dragging = drag?.task?.id == task.id
+    Box(
+        Modifier
+            .onGloballyPositioned { coords = it }
+            .graphicsLayer { alpha = if (dragging) 0.35f else 1f }
+            .then(
+                if (drag == null) Modifier else Modifier.longPressDrag(
+                    key = task.id,
+                    onStart = { local ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        drag.pointer = coords?.localToRoot(local) ?: Offset.Zero
+                        drag.task = task
+                    },
+                    onMove = { local -> coords?.let { drag.pointer = it.localToRoot(local) } },
+                    onEnd = { moved ->
+                        val to = drag.target()
+                        drag.task = null
+                        when {
+                            !moved -> menu = true
+                            to != null && to != task.priority -> vm.setPriority(task, to)
+                        }
+                    },
+                )
+            ),
+    ) {
         TaskRow(
             task, snapshot, showList = !compact,
             onToggle = { vm.toggleDone(task) },
             onClick = { onOpenTask(task.id) },
-            onLongClick = { menu = true },
+            onLongClick = if (drag == null) ({ menu = true }) else null,
             compact = compact,
         )
         DropdownMenu(menu, { menu = false }) {
@@ -271,3 +379,38 @@ private fun MatrixTaskRow(task: Task, snapshot: Snapshot, vm: TasksViewModel, on
 }
 
 private fun quadrantColor(q: Quadrant): Color = priorityColor(q.priority, Color(0xFF9E9E9E))
+
+/**
+ * Long press, then drag. Until the press is long enough nothing is taken, so taps and scrolling
+ * work as usual; after that every event is consumed before the row sees it, so letting go does
+ * not also open the task. [onEnd] says whether the finger moved at all.
+ */
+private fun Modifier.longPressDrag(
+    key: Any,
+    onStart: (Offset) -> Unit,
+    onMove: (Offset) -> Unit,
+    onEnd: (moved: Boolean) -> Unit,
+): Modifier = pointerInput(key) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            while (true) {
+                val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull true
+                if (!change.pressed || change.isConsumed) return@withTimeoutOrNull true
+                if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) return@withTimeoutOrNull true
+            }
+        }
+        if (released != null) return@awaitEachGesture
+        onStart(down.position)
+        var moved = false
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            event.changes.forEach { it.consume() }
+            if (!change.pressed) break
+            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
+            onMove(change.position)
+        }
+        onEnd(moved)
+    }
+}

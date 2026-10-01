@@ -50,6 +50,7 @@ class SyncManager(
         private const val PREFS = "sync"
         private const val WORK = "tiktak-sync"
         private const val DEBOUNCE_MS = 4_000L
+        private const val KEY_DEDUPED_ALL = "dedupedAll"
 
         fun isSignedIn(context: Context): Boolean =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).contains("refreshToken")
@@ -173,7 +174,10 @@ class SyncManager(
         _status.update { it.copy(running = true, error = null) }
         try {
             // Database work may not run on the main thread, and this is called from the UI too.
-            val changed = withContext(Dispatchers.IO) { engine.run() }
+            // The first run of this version also clears duplicates that synced before merging existed.
+            val dedupeAll = !prefs.getBoolean(KEY_DEDUPED_ALL, false)
+            val changed = withContext(Dispatchers.IO) { engine.run(dedupeAll) }
+            if (dedupeAll) prefs.edit().putBoolean(KEY_DEDUPED_ALL, true).apply()
             val at = System.currentTimeMillis()
             prefs.edit().putLong("lastSyncAt", at).apply()
             _status.update { it.copy(running = false, lastSyncAt = at, error = null) }

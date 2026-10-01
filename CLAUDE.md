@@ -2,13 +2,13 @@
 
 Android-приложение «Tik Tak» — клон TickTick, выросший из «Обратного отсчёта».
 Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContainer`), Glance-виджеты.
-Статус на 2026-09-30: выпущен релиз `build-24` (Tik Tak 2.2): синхронизация через Supabase и
-резервная копия (база v4), панель инструментов с «Ещё», свои цвета виджетов, сортировка списков,
-кнопки таймера в уведомлении, рисованные картинки пустых списков, общие анимации (`ui/Motion.kt`).
-До этого 2.1 (`build-19`): корзина, навигация как в TickTick, календарь «3 дня»/«Год», матрица по
-периодам, цвет задач, события-отсчёты. В `tasks` после релиза: пункты 23–31 (BACKLOG, раздел A3):
-таймер «Стоп/Сбросить» и будильник, раздел «Статистика», временная шкала календаря, матрица,
-категории у флажка. Что делать дальше — в [BACKLOG.md](BACKLOG.md), раздел «Следующая сессия».
+Статус на 2026-10-01: в `tasks` готова 2.4 (не выпущена): события отдельно от задач (база v5), календарь
+в стиле Google, виджет «Расписание», объединение дублей при синхронизации, ускорение (BACKLOG A5).
+Выпущен `build-29` (Tik Tak 2.3): новый логотип и выбор цвета значка,
+временная шкала календаря, раздел «Статистика», таймер «Стоп/Сбросить» и будильник, категории у флажка.
+Ранее 2.2 (`build-24`): синхронизация через Supabase и резервная копия (база v4), панель с «Ещё»,
+свои цвета виджетов, сортировка, анимации (`ui/Motion.kt`); 2.1 (`build-19`): корзина, навигация как
+в TickTick, календарь «3 дня»/«Год», цвет задач, события-отсчёты. `tasks` = `main`. Что делать дальше — в [BACKLOG.md](BACKLOG.md), раздел «Следующая сессия».
 
 ## Как работать с пользователем
 
@@ -65,10 +65,15 @@ Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContaine
 - `core/` (чистый Kotlin, быстрые тесты): `RepeatRule` (RRULE: FREQ/INTERVAL/BYDAY/BYMONTHDAY/COUNT/UNTIL),
   `RepeatText` (описания по-русски), `QuickAddParser` (RU/EN: даты, время, повторы, `!приоритет`, `#тег`, `~список`).
 - `app/.../data/db/`: `Entities.kt` (у синхронизируемых сущностей id UUID, createdAt, updatedAt, deleted),
-  `Daos.kt`, `AppDatabase.kt` (версия 4), `Migrations.kt`, `DatabaseSeeder.kt` (Inbox + импорт отсчётов 1.x).
+  `Daos.kt`, `AppDatabase.kt` (версия 5), `Migrations.kt`, `DatabaseSeeder.kt` (Inbox + импорт отсчётов 1.x).
 - `app/.../data/`: `TaskRepository` (единая точка записи задач; `onChanged` → виджеты и будильник),
   `HabitRepository`/`FocusRepository`, `CountdownRepository` (мост для старых View-экранов).
 - `app/.../domain/`: умные списки и группировка, повторы задач, напоминания, проекция календаря, статистика привычек.
+- События и задачи: одна таблица `tasks`; `isEvent` = событие (сон, обед: `startAt`..`dueAt`, без галочки, не в списках
+  и матрице, `matches()`), `displayMode = COUNTDOWN` = отсчёт. Календарь берёт отрезки по дням из `calendarEntries`
+  (`CalendarEntry.start/end/part`, сон через полночь — на двух днях), раскладка блоков — `layoutBlocks` (lane + depth).
+  Экраны: `ui/calendar/` (`CalendarScreen` — режимы и мини-месяц, `TimeGrid`, `Schedule` — расписание и картинки
+  месяцев), создание и время событий — `ui/EventEditor.kt`.
 - `app/.../ui/`: Compose-экраны (tasks, detail, calendar, matrix, focus, habits, settings), `Theme.kt`
   (мост к `ThemeManager`), `Navigation.kt` (панель: снизу на телефоне с «Ещё», колонка на планшете),
   `Motion.kt` (общие параметры анимаций — брать их, а не свои tween), `EmptyArt.kt` (картинки пустых
@@ -80,12 +85,13 @@ Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContaine
   `SyncEngine` (отправить изменения с `updatedAt` ≥ отметки − 10 с, забрать с сервера по `server_updated_at`
   с перекрытием 60 с), `Supabase.kt` (HTTP: вход/обновление токена, таблица `sync_records`), `SyncManager`
   (сессия в prefs `sync`, запуск через 4 с после записи в базу — следит сам через InvalidationTracker,
-  при открытии и раз в час через WorkManager). Сервер: `supabase/schema.sql`, проект `bjwpdcenqeckobvtpvwy`,
+  при открытии и раз в час через WorkManager), `Dedupe.kt` (после pull объединяет копии одного и того же с разных
+  устройств по содержимому; первая синхронизация версии — полная чистка). Сервер: `supabase/schema.sql`, проект `bjwpdcenqeckobvtpvwy`,
   подтверждение почты выключено. Новая синхронизируемая таблица = добавить в `SyncTable` (нужны
   `updatedAt` и `deleted`). Удалённое навсегда — через `sync.forget()`. Для проверок на эмуляторе
   на сервере заведён тестовый аккаунт `emulator-test@example.org` (пароль в репозиторий не пишем).
 - `reminders/` (один точный будильник + «водяной знак» доставленного), `pomodoro/` (состояние в prefs + будильник),
-  `widget/` (RemoteViews-отсчёт, Glance «Сегодня» и «Быстро добавить»), `BootReceiver` (перезагрузка/время/обновление).
+  `widget/` (RemoteViews-отсчёт, Glance «Сегодня», «Расписание» и «Быстро добавить»), `BootReceiver` (перезагрузка/время/обновление).
 - Всё ещё на старом View: `EditCountdownActivity`, `widget/WidgetConfigureActivity` (`SettingsActivity` удалён).
 
 ## Изменение схемы БД
@@ -102,7 +108,8 @@ Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContaine
 - `FocusRequester.requestFocus()` в `ModalBottomSheet`/диалоге — только после `awaitFrame()` и в `runCatching`.
 - `LazyRow` держит позицию по ключу видимого элемента: вставка слева уходит за экран.
 - Robolectric не видит assets из `test` — поэтому свой `MigrationTest` вместо `MigrationTestHelper`.
-- Debug-сборка (её и публикует CI) ужимается R8 с `-dontobfuscate`; при рефлексии добавить keep-правила.
+- Debug-сборка (её и публикует CI) не debuggable (`isDebuggable = false`, иначе Compose тормозит) и
+  полностью оптимизируется R8 с `-dontobfuscate`; при рефлексии добавить keep-правила и прогнать все экраны.
 - Зависимости закреплены под compileSdk 34 (AGP 8.5.2); обновление библиотек потребует compileSdk 35.
 - `SharedPreferences.commit()` в сидере и планировщике намеренный (флаги должны записаться синхронно).
 

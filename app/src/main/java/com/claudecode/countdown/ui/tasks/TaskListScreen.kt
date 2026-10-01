@@ -52,6 +52,13 @@ import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -73,6 +80,8 @@ import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -184,6 +193,12 @@ fun TaskListScreen(
                         if (showLists && !permanentDrawer) {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Filled.Menu, "Меню") }
                         }
+                        // On a tablet the button shows and hides the docked panel.
+                        if (showLists && permanentDrawer) {
+                            IconButton(onClick = { panelHidden.value = !panelHidden.value }) {
+                                Icon(Icons.Filled.Menu, if (panelHidden.value) "Показать списки" else "Скрыть списки")
+                            }
+                        }
                     },
                     actions = {
                         if (onOpenSearch != null) IconButton(onClick = onOpenSearch) { Icon(Icons.Filled.Search, "Поиск") }
@@ -229,7 +244,23 @@ fun TaskListScreen(
     when {
         !showLists -> content()
         permanentDrawer -> Row(Modifier.fillMaxSize()) {
-            drawer()
+            // A swipe to the left tucks the panel away; the tab and the list stay as they are.
+            val swipe = with(LocalDensity.current) { 48.dp.toPx() }
+            AnimatedVisibility(
+                visible = !panelHidden.value,
+                enter = expandHorizontally(Motion.soft()) + fadeIn(Motion.soft()),
+                exit = shrinkHorizontally(Motion.softOut()) + fadeOut(Motion.softOut()),
+            ) {
+                Box(
+                    Modifier.pointerInput(Unit) {
+                        var dragged = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { dragged = 0f },
+                            onDragEnd = { if (dragged < -swipe) panelHidden.value = true },
+                        ) { _, dx -> dragged += dx }
+                    },
+                ) { drawer() }
+            }
             Box(Modifier.weight(1f)) { content() }
         }
         else -> ModalNavigationDrawer(drawerState = drawerState, drawerContent = drawer) { content() }
@@ -245,6 +276,9 @@ fun TaskListScreen(
         )
     }
 }
+
+/** Whether the tablet's docked lists panel is tucked away; kept while switching tabs. */
+private val panelHidden = mutableStateOf(false)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -281,13 +315,27 @@ private fun TaskGroupsList(
         ),
     ) {
         if (hint != null) item(key = "hint") { HintBanner(hint, Modifier.animateItem()) { appSettings.dismissHint(filter.key) } }
+        if (filter == TaskFilter.Completed) {
+            item(key = "categories") {
+                // Completed tasks by the day they were done, by matrix category or by list.
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for ((option, label) in COMPLETED_GROUPINGS) {
+                        FilterChip(
+                            selected = sort == option,
+                            onClick = { appSettings.setSort(filter, option) },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+            }
+        }
         for (group in groups) {
             val key = group.key
             val isCollapsed = collapsed[key] ?: (group.kind == GroupKind.DONE && filter != TaskFilter.Completed)
             if (groups.size > 1 || group.kind == GroupKind.DONE) {
                 item(key = "h:$key") {
                     GroupHeader(
-                        title = groupTitle(group, snapshot.today),
+                        title = groupTitle(group, snapshot.today) { snapshot.listsById[it]?.name },
                         count = group.tasks.size,
                         collapsed = isCollapsed,
                         overdue = group.kind == GroupKind.OVERDUE,
@@ -312,6 +360,12 @@ private fun TaskGroupsList(
         }
     }
 }
+
+private val COMPLETED_GROUPINGS = listOf(
+    TaskSort.DATE to "По дням",
+    TaskSort.PRIORITY to "По категориям",
+    TaskSort.LIST to "По спискам",
+)
 
 /** What a smart list collects, shown once at its top until the user closes it. */
 private fun smartListHint(filter: TaskFilter): String? = when (filter) {
@@ -383,6 +437,7 @@ private fun ListMenu(filter: TaskFilter) {
 private fun sortIcon(sort: TaskSort) = when (sort) {
     TaskSort.DATE -> Icons.Outlined.CalendarToday
     TaskSort.PRIORITY -> Icons.Outlined.Flag
+    TaskSort.LIST -> Icons.AutoMirrored.Outlined.List
     TaskSort.TITLE -> Icons.Filled.SortByAlpha
     TaskSort.CREATED -> Icons.Outlined.Schedule
 }

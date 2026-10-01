@@ -57,4 +57,15 @@ class RemindersTest {
         assertEquals("За 2 ч 15 мин", reminderLabel(135, false))
         assertEquals("За день (9:00)", reminderLabel(1440, true))
     }
+
+    @Test
+    fun repeatingEventRemindsBeforeEachStart() {
+        val day = LocalDate.of(2026, 10, 1)
+        val start = timedDue(day, LocalTime.of(13, 0)).at
+        val lunch = Task(title = "Обед", isEvent = true, startAt = start, dueAt = start + 30 * 60_000L, repeatRule = "FREQ=DAILY")
+        val reminder = Reminder(taskId = lunch.id, offsetMinutes = 10)
+        assertEquals(start - 10 * 60_000L, reminderTrigger(lunch, reminder))
+        // Once today's has fired, the next one is before tomorrow's lunch.
+        assertEquals(timedDue(day.plusDays(1), LocalTime.of(12, 50)).at, reminderTrigger(lunch, reminder, after = start))
+    }
 }

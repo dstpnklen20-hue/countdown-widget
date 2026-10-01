@@ -34,7 +34,7 @@ object Motion {
 
     fun <T> gentleSpring(): SpringSpec<T> = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
     fun <T> soft(duration: Int = MEDIUM): FiniteAnimationSpec<T> = tween(duration, easing = Soft)
-    private fun <T> softOut(duration: Int = SHORT): FiniteAnimationSpec<T> = tween(duration, easing = SoftOut)
+    fun <T> softOut(duration: Int = SHORT): FiniteAnimationSpec<T> = tween(duration, easing = SoftOut)
 
     /** Switching sections: the new one fades in while growing slightly, like TickTick. */
     fun sectionChange(): ContentTransform =

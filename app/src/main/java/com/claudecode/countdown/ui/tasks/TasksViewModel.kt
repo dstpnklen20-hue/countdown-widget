@@ -20,7 +20,9 @@ import com.claudecode.countdown.domain.groupTasks
 import com.claudecode.countdown.domain.matches
 import com.claudecode.countdown.domain.today
 import com.claudecode.countdown.ui.UndoBus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -43,16 +45,23 @@ data class Snapshot(
     val loaded: Boolean = false,
 ) {
     val listsById: Map<String, TaskList> by lazy { lists.associateBy { it.id } }
+    private val listOrder: Map<String, Int> by lazy { lists.withIndex().associate { (i, l) -> l.id to i } }
 
     /** The task's own colour, else its list's; null when neither is set. */
     fun colorOf(task: Task): Int? = task.color ?: listsById[task.listId]?.color
 
-    fun filtered(filter: TaskFilter): List<Task> = tasks.filter {
-        matches(filter, it, tagsByTask[it.id].orEmpty().mapTo(HashSet()) { t -> t.tagId }, today)
+    private val tagIdsByTask: Map<String, Set<String>> by lazy { tagsByTask.mapValues { (_, tags) -> tags.mapTo(HashSet()) { it.tagId } } }
+
+    // The snapshot never changes, so a list filtered once (the drawer counts every list on each
+    // recomposition) is kept for as long as the snapshot lives.
+    private val filterCache = java.util.concurrent.ConcurrentHashMap<TaskFilter, List<Task>>()
+
+    fun filtered(filter: TaskFilter): List<Task> = filterCache.getOrPut(filter) {
+        tasks.filter { matches(filter, it, tagIdsByTask[it.id].orEmpty(), today) }
     }
 
     fun groups(filter: TaskFilter, sort: TaskSort = TaskSort.DATE): List<TaskGroup> =
-        groupTasks(filter, filtered(filter), now, today, sort = sort)
+        groupTasks(filter, filtered(filter), now, today, sort = sort, listOrder = listOrder)
 
     fun openCount(filter: TaskFilter): Int = filtered(filter).count { !it.isDone }
 
@@ -108,7 +117,10 @@ class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus
             today = today(),
             loaded = true,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Snapshot())
+    }
+        // Building the snapshot (grouping, maps) is kept off the main thread, which only draws.
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Snapshot())
 
     fun toggleDone(task: Task) = viewModelScope.launch { repo.setDone(task, !task.isDone) }
 
@@ -148,6 +160,12 @@ class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus
     fun deleteSection(section: Section) = viewModelScope.launch { repo.deleteSection(section) }
     fun moveToSection(task: Task, sectionId: String?) = viewModelScope.launch { repo.update(task.copy(sectionId = sectionId)) }
     fun setPriority(task: Task, priority: Int) = viewModelScope.launch { repo.update(task.copy(priority = priority)) }
+
+    /** A new event or task from the calendar; [remind] adds an "at the time" reminder. */
+    fun createEntry(task: Task, remind: Boolean) = viewModelScope.launch {
+        val created = repo.create(task)
+        if (remind) repo.addReminder(created.id, 0)
+    }
 
     fun addTask(title: String, listId: String, sectionId: String? = null, due: Due? = null) = viewModelScope.launch {
         repo.create(

@@ -80,7 +80,11 @@ class MigrationTest {
             db.tagDao().setTaskTags("t1", emptyList())
             assertEquals(emptyList<String>(), db.tagDao().tagNamesFor("t1"))
             assertEquals(true, db.tagDao().linksFor("t1").single().deleted)
-            assertEquals(4, db.openHelper.readableDatabase.version)
+            // v5: old entries are tasks, and an event can be stored.
+            assertEquals(false, db.taskDao().get("t1")!!.isEvent)
+            db.taskDao().upsert(db.taskDao().get("t1")!!.copy(isEvent = true))
+            assertEquals(true, db.taskDao().get("t1")!!.isEvent)
+            assertEquals(5, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }

@@ -87,6 +87,9 @@ import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.ui.ColorPicker
 import com.claudecode.countdown.ui.ConfirmDialog
 import com.claudecode.countdown.ui.DueDateDialog
+import com.claudecode.countdown.ui.EventTimeDialog
+import com.claudecode.countdown.ui.formatEventSpan
+import androidx.compose.material.icons.outlined.Event
 import com.claudecode.countdown.ui.PriorityCheckbox
 import com.claudecode.countdown.ui.PriorityMenu
 import com.claudecode.countdown.ui.formatCountdown
@@ -112,6 +115,7 @@ fun TaskDetailScreen(
     val lists by vm.lists.collectAsStateWithLifecycle()
 
     var pickDate by remember { mutableStateOf(false) }
+    var pickEventTime by remember { mutableStateOf(false) }
     var priorityMenu by remember { mutableStateOf(false) }
     var listMenu by remember { mutableStateOf(false) }
     var overflow by remember { mutableStateOf(false) }
@@ -198,20 +202,27 @@ fun TaskDetailScreen(
                 .padding(bottom = 32.dp),
         ) {
             Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                PriorityCheckbox(t.isDone, t.priority, { vm.toggleDone() })
-                val due = formatDue(t, today)
+                // An event has nothing to tick: its icon instead of the checkbox.
+                if (t.isEvent) {
+                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Event, "Событие", tint = scheme.primary)
+                    }
+                } else {
+                    PriorityCheckbox(t.isDone, t.priority, { vm.toggleDone() })
+                }
+                val due = if (t.isEvent) formatEventSpan(t, today) else formatDue(t, today)
                 Row(
-                    Modifier.clip(RoundedCornerShape(8.dp)).clickable { pickDate = true }.padding(8.dp),
+                    Modifier.clip(RoundedCornerShape(8.dp)).clickable { if (t.isEvent) pickEventTime = true else pickDate = true }.padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    val overdue = t.isOverdue(System.currentTimeMillis(), today)
+                    val overdue = !t.isEvent && t.isOverdue(System.currentTimeMillis(), today)
                     val color = if (overdue) Color(0xFFE53935) else if (due != null) scheme.primary else scheme.onSurfaceVariant
                     Icon(Icons.Outlined.CalendarToday, null, tint = color, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.size(6.dp))
                     Text(due ?: "Дата", color = color, style = MaterialTheme.typography.bodyMedium)
                 }
                 Spacer(Modifier.weight(1f))
-                Box {
+                if (!t.isEvent) Box {
                     IconButton(onClick = { priorityMenu = true }) {
                         Icon(
                             if (t.priority == Priority.NONE) Icons.Outlined.Flag else Icons.Filled.Flag,
@@ -326,9 +337,11 @@ fun TaskDetailScreen(
             for (item in checklist) ChecklistRow(item, vm)
             AddRow("Добавить пункт") { vm.addChecklistItem(it) }
 
-            SectionTitle("Подзадачи")
-            for (sub in subtasks) SubtaskRow(sub, onToggle = { vm.toggleSubtask(sub) }, onClick = { onOpenTask(sub.id) })
-            AddRow("Добавить подзадачу") { vm.addSubtask(it) }
+            if (!t.isEvent || subtasks.isNotEmpty()) {
+                SectionTitle("Подзадачи")
+                for (sub in subtasks) SubtaskRow(sub, onToggle = { vm.toggleSubtask(sub) }, onClick = { onOpenTask(sub.id) })
+                AddRow("Добавить подзадачу") { vm.addSubtask(it) }
+            }
 
             SectionTitle("Теги")
             FlowRow(
@@ -367,6 +380,21 @@ fun TaskDetailScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
+                    Text("Событие", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Занимает время в календаре (сон, обед, пара): начало и конец, без галочки, не в списках задач",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = t.isEvent, onCheckedChange = { vm.setEvent(it) })
+            }
+            Spacer(Modifier.size(12.dp))
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
                     Text("Событие с отсчётом", style = MaterialTheme.typography.bodyLarge)
                     Text(
                         if (t.dueAt == null) "Сначала задайте дату" else "Живёт в «Отсчётах», календаре и на виджете, а не среди задач",
@@ -387,6 +415,9 @@ fun TaskDetailScreen(
             onDismiss = { pickDate = false },
         )
     }
+    if (pickEventTime) {
+        EventTimeDialog(t, onConfirm = { vm.setEventTime(it); pickEventTime = false }, onDismiss = { pickEventTime = false })
+    }
     if (pickRepeat) {
         RepeatDialog(
             anchor = t.dueDay() ?: today,
@@ -398,7 +429,7 @@ fun TaskDetailScreen(
     }
     if (confirmDelete) {
         ConfirmDialog(
-            title = "Удалить задачу?",
+            title = if (t.isEvent) "Удалить событие?" else "Удалить задачу?",
             text = "«${vm.title}» и её подзадачи будут удалены.",
             confirmLabel = "Удалить",
             onConfirm = { vm.delete(onBack) },

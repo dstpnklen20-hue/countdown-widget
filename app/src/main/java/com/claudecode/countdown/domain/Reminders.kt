@@ -2,6 +2,9 @@ package com.claudecode.countdown.domain
 
 import com.claudecode.countdown.data.db.Reminder
 import com.claudecode.countdown.data.db.Task
+import com.claudecode.tiktak.core.RepeatRule
+import java.time.Instant
+import java.time.ZoneId
 
 /** Default time of day (minutes after midnight) at which all-day tasks remind; the user can change it. */
 const val ALL_DAY_REMINDER_MINUTES = 9 * 60
@@ -10,13 +13,31 @@ private const val MINUTE = 60_000L
 
 /**
  * When [reminder] should fire for [task]; a later snooze wins over the base time. All-day tasks
- * remind at [allDayMinutes] after midnight of the due day (minus the offset).
+ * remind at [allDayMinutes] after midnight of the due day (minus the offset). Events remind
+ * before they start rather than end, and a repeating event, which is never ticked off and so
+ * never moves on, reminds before its first occurrence that fires after [after].
  */
-fun reminderTrigger(task: Task, reminder: Reminder, allDayMinutes: Int = ALL_DAY_REMINDER_MINUTES): Long? {
-    val base = reminder.absoluteAt ?: task.dueAt?.let { due ->
-        val offset = (reminder.offsetMinutes ?: 0) * MINUTE
-        if (task.isAllDay) due + allDayMinutes * MINUTE - offset else due - offset
-    } ?: return null
+fun reminderTrigger(task: Task, reminder: Reminder, allDayMinutes: Int = ALL_DAY_REMINDER_MINUTES, after: Long = Long.MIN_VALUE): Long? {
+    reminder.absoluteAt?.let { return withSnooze(it, reminder) }
+    val anchor = (if (task.isEvent) task.startAt?.takeIf { s -> task.dueAt.let { it == null || s <= it } } else null) ?: task.dueAt ?: return null
+    val offset = (reminder.offsetMinutes ?: 0) * MINUTE
+    fun triggerAt(at: Long) = if (task.isAllDay) at + allDayMinutes * MINUTE - offset else at - offset
+    var base = triggerAt(anchor)
+    if (task.isEvent && base <= after) {
+        val first = Instant.ofEpochMilli(anchor).atZone(ZoneId.systemDefault())
+        var rule = RepeatRule.parse(task.repeatRule)
+        var day = first.toLocalDate()
+        var steps = 0
+        while (rule != null && base <= after && steps++ < 2_000) {
+            day = rule.nextAfter(day) ?: break
+            rule = rule.advanced()
+            base = triggerAt(first.with(day).toInstant().toEpochMilli())
+        }
+    }
+    return withSnooze(base, reminder)
+}
+
+private fun withSnooze(base: Long, reminder: Reminder): Long {
     val snooze = reminder.snoozedUntil
     return if (snooze != null && snooze > base) snooze else base
 }
@@ -67,9 +88,9 @@ fun dueReminders(
 ): List<Pair<Task, Reminder>> =
     reminders.mapNotNull { r ->
         val task = tasks[r.taskId] ?: return@mapNotNull null
-        val at = reminderTrigger(task, r, allDayMinutes) ?: return@mapNotNull null
+        val at = reminderTrigger(task, r, allDayMinutes, after = from) ?: return@mapNotNull null
         if (at > from && at <= to) task to r else null
     }
 
 fun nextTrigger(tasks: Map<String, Task>, reminders: List<Reminder>, after: Long, allDayMinutes: Int = ALL_DAY_REMINDER_MINUTES): Long? =
-    reminders.mapNotNull { r -> tasks[r.taskId]?.let { reminderTrigger(it, r, allDayMinutes) } }.filter { it > after }.minOrNull()
+    reminders.mapNotNull { r -> tasks[r.taskId]?.let { reminderTrigger(it, r, allDayMinutes, after) } }.filter { it > after }.minOrNull()
