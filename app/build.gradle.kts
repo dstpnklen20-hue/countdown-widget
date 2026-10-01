@@ -38,6 +38,9 @@ android {
     buildTypes {
         // CI publishes the debug build, so it is shrunk too (icons library is large).
         debug {
+            // Not debuggable: a debuggable app runs mostly interpreted, without ahead-of-time
+            // compilation or baseline profiles, and Compose stutters. Signing is unaffected.
+            isDebuggable = false
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -98,6 +101,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
+    // Installs the libraries' baseline profiles on first start: the app is not installed from a store.
+    implementation(libs.androidx.profileinstaller)
     debugImplementation(libs.compose.ui.tooling)
 
     implementation(libs.room.runtime)

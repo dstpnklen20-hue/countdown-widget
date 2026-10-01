@@ -16,6 +16,7 @@ import com.claudecode.countdown.reminders.ReminderScheduler
 import com.claudecode.countdown.ui.UndoBus
 import com.claudecode.countdown.widget.CountdownWidgetProvider
 import com.claudecode.countdown.widget.QuickAddWidget
+import com.claudecode.countdown.widget.ScheduleWidget
 import com.claudecode.countdown.widget.TodayWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +51,7 @@ class AppContainer(private val context: Context) {
     fun onDataChanged() {
         CountdownWidgetProvider.updateAllWidgets(context)
         appScope.launch { TodayWidget.refresh(context) }
+        appScope.launch { ScheduleWidget.refresh(context) }
         appScope.launch { reminders.reschedule() }
     }
 
@@ -68,6 +70,7 @@ class AppContainer(private val context: Context) {
     suspend fun redrawWidgets() {
         CountdownWidgetProvider.updateAllWidgets(context)
         TodayWidget.refresh(context)
+        ScheduleWidget.refresh(context)
         QuickAddWidget.refresh(context)
     }
 }

@@ -20,7 +20,9 @@ import com.claudecode.countdown.domain.groupTasks
 import com.claudecode.countdown.domain.matches
 import com.claudecode.countdown.domain.today
 import com.claudecode.countdown.ui.UndoBus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -48,8 +50,14 @@ data class Snapshot(
     /** The task's own colour, else its list's; null when neither is set. */
     fun colorOf(task: Task): Int? = task.color ?: listsById[task.listId]?.color
 
-    fun filtered(filter: TaskFilter): List<Task> = tasks.filter {
-        matches(filter, it, tagsByTask[it.id].orEmpty().mapTo(HashSet()) { t -> t.tagId }, today)
+    private val tagIdsByTask: Map<String, Set<String>> by lazy { tagsByTask.mapValues { (_, tags) -> tags.mapTo(HashSet()) { it.tagId } } }
+
+    // The snapshot never changes, so a list filtered once (the drawer counts every list on each
+    // recomposition) is kept for as long as the snapshot lives.
+    private val filterCache = java.util.concurrent.ConcurrentHashMap<TaskFilter, List<Task>>()
+
+    fun filtered(filter: TaskFilter): List<Task> = filterCache.getOrPut(filter) {
+        tasks.filter { matches(filter, it, tagIdsByTask[it.id].orEmpty(), today) }
     }
 
     fun groups(filter: TaskFilter, sort: TaskSort = TaskSort.DATE): List<TaskGroup> =
@@ -109,7 +117,10 @@ class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus
             today = today(),
             loaded = true,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Snapshot())
+    }
+        // Building the snapshot (grouping, maps) is kept off the main thread, which only draws.
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Snapshot())
 
     fun toggleDone(task: Task) = viewModelScope.launch { repo.setDone(task, !task.isDone) }
 
