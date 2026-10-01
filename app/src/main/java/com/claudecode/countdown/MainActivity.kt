@@ -63,20 +63,32 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_TASK_ID = "task_id"
+        /** A Tool name to open on start (after the icon change restarts the app on Settings). */
+        const val EXTRA_OPEN_TOOL = "open_tool"
+
+        /**
+         * Opens the app. Always through the enabled launcher component: with another icon chosen,
+         * MainActivity itself is disabled and can only be reached through its alias (see AppIcon).
+         */
+        fun launchIntent(context: Context): Intent = AppIcon.launchIntent(context)
 
         fun openTaskIntent(context: Context, taskId: String): Intent =
-            Intent(context, MainActivity::class.java)
+            launchIntent(context)
                 .putExtra(EXTRA_TASK_ID, taskId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
 
     private var palette by mutableStateOf<ThemeManager.Palette?>(null)
     private var pendingTaskId by mutableStateOf<String?>(null)
+    private var pendingTool by mutableStateOf<Tool?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         palette = ThemeManager.palette(this)
-        if (savedInstanceState == null) pendingTaskId = intent.getStringExtra(EXTRA_TASK_ID)
+        if (savedInstanceState == null) {
+            pendingTaskId = intent.getStringExtra(EXTRA_TASK_ID)
+            pendingTool = intent.getStringExtra(EXTRA_OPEN_TOOL)?.let { name -> Tool.entries.firstOrNull { it.name == name } }
+        }
 
         setContent {
             val p = palette ?: return@setContent
@@ -132,6 +144,9 @@ class MainActivity : AppCompatActivity() {
         val settings by container.settings.state.collectAsStateWithLifecycle()
         var filterKey by rememberSaveable { mutableStateOf(container.settings.current.startFilterKey) }
         var tab by rememberSaveable { mutableStateOf(Tool.TASKS) }
+        LaunchedEffect(pendingTool) {
+            pendingTool?.let { tab = it; pendingTool = null }
+        }
         var moreTools by remember { mutableStateOf<List<Tool>?>(null) }
         val openTask: (String) -> Unit = { nav.navigate("task/$it") }
         val openTrash = { nav.navigate("trash") }

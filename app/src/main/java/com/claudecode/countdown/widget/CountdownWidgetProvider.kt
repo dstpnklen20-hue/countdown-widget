@@ -108,7 +108,7 @@ class CountdownWidgetProvider : AppWidgetProvider() {
             val clickIntent = if (countdownId != null) {
                 MainActivity.openTaskIntent(context, countdownId)
             } else {
-                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                MainActivity.launchIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             val pendingIntent = PendingIntent.getActivity(
                 context, appWidgetId, clickIntent,

@@ -36,6 +36,10 @@ Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContaine
 
 - `applicationId = com.claudecode.countdown` и `namespace`; ключ подписи (в GitHub Secrets).
 - Имена классов `MainActivity` и `widget.CountdownWidgetProvider`.
+- Значок приложения (`AppIcon.kt`): цветовые варианты — `activity-alias` `.IconLight` … `.IconViolet`
+  к `MainActivity`; включён ровно один вход (MainActivity = «Классика»). Алиасы НЕ удалять и не
+  переименовывать (у кого-то он единственный вход в приложение). Открывать приложение только через
+  `MainActivity.launchIntent()`/`openTaskIntent()`: прямой Intent на выключенную MainActivity падает.
 - Имя репозитория GitHub `countdown-widget` (на него смотрит `Updater`).
 - Никогда `fallbackToDestructiveMigration`; старые SharedPreferences (`countdowns_data`,
   `countdowns_widget_map`) не удалять — это резервная копия данных версии 1.x.

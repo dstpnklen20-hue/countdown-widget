@@ -16,6 +16,8 @@ class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action !in handled) return
+        // An update must never leave the app without a launcher entry (see AppIcon).
+        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) AppIcon.ensureLaunchable(context)
         WidgetUpdateScheduler.schedule(context)
         launchAsync(context) {
             // After an update Glance widgets keep their loading layout until redrawn.

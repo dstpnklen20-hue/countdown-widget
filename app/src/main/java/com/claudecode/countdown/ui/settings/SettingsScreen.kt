@@ -166,20 +166,23 @@ fun SettingsScreen(onBack: (() -> Unit)?, onOpenTrash: () -> Unit, onOpenToolbar
             }
 
             Section("Оформление") {
-                var target by rememberSaveable { mutableStateOf(ThemeManager.Target.APP) }
-                val targets = listOf(ThemeManager.Target.APP to "Приложение", ThemeManager.Target.WIDGETS to "Виджеты")
+                var part by rememberSaveable { mutableStateOf(ThemePart.APP) }
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
-                    targets.forEachIndexed { i, (value, label) ->
+                    ThemePart.entries.forEachIndexed { i, value ->
                         SegmentedButton(
-                            selected = target == value,
-                            onClick = { target = value },
-                            shape = SegmentedButtonDefaults.itemShape(i, targets.size),
-                        ) { Text(label) }
+                            selected = part == value,
+                            onClick = { part = value },
+                            shape = SegmentedButtonDefaults.itemShape(i, ThemePart.entries.size),
+                            icon = {},
+                        ) { Text(value.label, maxLines = 1) }
                     }
                 }
-                AnimatedContent(target, transitionSpec = { Motion.sectionChange() }, label = "themeTarget") { t ->
+                AnimatedContent(part, transitionSpec = { Motion.sectionChange() }, label = "themeTarget") { p ->
+                    val t = if (p == ThemePart.WIDGETS) ThemeManager.Target.WIDGETS else ThemeManager.Target.APP
                     Column {
-                        if (t == ThemeManager.Target.WIDGETS) {
+                        if (p == ThemePart.ICON) {
+                            IconSettings()
+                        } else if (p == ThemePart.WIDGETS) {
                             val own = remember(themeVersion) { ThemeManager.widgetsHaveOwnTheme(context) }
                             Spacer(Modifier.height(8.dp))
                             SwitchRow("Свои цвета для виджетов", checked = own) {
@@ -387,6 +390,9 @@ private fun ThemeSettings(target: ThemeManager.Target, version: Int, onChanged: 
 }
 
 private const val COLLAPSED_PRESETS = 6
+
+/** What the "Оформление" section styles: the app, the home-screen widgets, or the launcher icon. */
+private enum class ThemePart(val label: String) { APP("Приложение"), WIDGETS("Виджеты"), ICON("Значок") }
 
 /** Which picture empty lists show: one of the gallery, or a different one every day. */
 @OptIn(ExperimentalLayoutApi::class)

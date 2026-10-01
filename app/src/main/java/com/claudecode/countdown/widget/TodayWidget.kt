@@ -110,7 +110,7 @@ private fun TodayContent(context: Context, rows: List<WidgetRow>, p: ThemeManage
                 "Сегодня",
                 style = TextStyle(color = text, fontSize = 16.sp, fontWeight = FontWeight.Bold),
                 modifier = GlanceModifier.defaultWeight().clickable(
-                    actionStartActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    actionStartActivity(MainActivity.launchIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 ),
             )
             if (rows.isNotEmpty()) Text("${rows.size}", style = TextStyle(color = secondary, fontSize = 13.sp))

@@ -4,6 +4,8 @@ import android.app.AlarmManager
 import android.app.Notification
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.os.SystemClock
+import android.widget.RemoteViews
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -263,7 +265,7 @@ class PomodoroTimer(private val context: Context, private val focus: FocusReposi
 
     private fun openApp(): PendingIntent = PendingIntent.getActivity(
         context, 1002,
-        Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        MainActivity.launchIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
@@ -285,26 +287,34 @@ class PomodoroTimer(private val context: Context, private val focus: FocusReposi
         }
         ensureChannel()
         val running = s.status == PomodoroStatus.RUNNING
+        val left = if (running) (s.endAt - now()).coerceAtLeast(0) else s.remainingMs
+        val status = if (running) "Идёт таймер" else "На паузе"
+        // The time left on a line of its own, large: a countdown Chronometer ticks by itself while
+        // running; paused, it stands still showing what is left.
+        val body = RemoteViews(context.packageName, R.layout.notification_timer).apply {
+            setTextViewText(R.id.timer_phase, s.phase.label)
+            setChronometer(R.id.timer_clock, SystemClock.elapsedRealtime() + left, null, running)
+            setChronometerCountDown(R.id.timer_clock, true)
+            setTextViewText(R.id.timer_state, status)
+        }
         val builder = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(ThemeManager.palette(context).accent)
+            // Title and text stay for places that don't show custom views (lock screen, watches).
             .setContentTitle(s.phase.label)
+            .setContentText(status + " · осталось %d:%02d".format(left / 60_000, left / 1000 % 60))
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setCustomContentView(body)
+            .setCustomBigContentView(body)
+            .setShowWhen(false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setContentIntent(openApp())
         if (running) {
-            builder.setContentText("Идёт таймер")
-                .setUsesChronometer(true)
-                .setChronometerCountDown(true)
-                .setWhen(s.endAt)
-                .setShowWhen(true)
-                .addAction(android.R.drawable.ic_media_pause, "Стоп", action(ACTION_PAUSE, 1003))
+            builder.addAction(android.R.drawable.ic_media_pause, "Стоп", action(ACTION_PAUSE, 1003))
         } else {
-            val left = s.remainingMs / 1000
-            builder.setContentText("На паузе · осталось %d:%02d".format(left / 60, left % 60))
-                .setShowWhen(false)
-                .addAction(android.R.drawable.ic_media_play, "Продолжить", action(ACTION_RESUME, 1004))
+            builder.addAction(android.R.drawable.ic_media_play, "Продолжить", action(ACTION_RESUME, 1004))
         }
         val n = builder
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Сбросить", action(ACTION_RESET, 1005))

@@ -47,6 +47,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import com.claudecode.countdown.AppIcon
+import com.claudecode.countdown.ui.AppLogo
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -101,12 +104,16 @@ fun AppDrawer(
     val body: @Composable ColumnScope.() -> Unit = {
         LazyColumn(Modifier.weight(1f)) {
             item {
-                Text(
-                    "Tik Tak",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 24.dp, top = 20.dp, bottom = 12.dp),
-                )
+                val context = LocalContext.current
+                val logo = remember { AppIcon.current(context) }
+                Row(
+                    Modifier.padding(start = 24.dp, top = 20.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AppLogo(logo, Modifier.size(32.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text("Tik Tak", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                }
             }
             items(TaskFilter.SMART, key = { it.key }) { filter ->
                 DrawerItem(

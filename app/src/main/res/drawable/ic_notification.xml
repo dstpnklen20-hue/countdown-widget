@@ -1,9 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: the logo cropped to its ring (only alpha matters here). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM10,17l-5,-5 1.41,-1.41L10,14.17l7.59,-7.59L19,8l-9,9z" />
+    android:viewportWidth="56"
+    android:viewportHeight="56">
+    <group android:translateX="-26" android:translateY="-26">
+        <path
+            android:pathData="M32.4,54 A21.6,21.6 0 0,1 54,32.4"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeAlpha="0.45"
+            android:strokeWidth="5.6"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M54,32.4 A21.6,21.6 0 1,1 32.4,54"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="5.6"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M45.3,54.7 L51.8,61.2 L63.2,48.2"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="4.5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
 </vector>
