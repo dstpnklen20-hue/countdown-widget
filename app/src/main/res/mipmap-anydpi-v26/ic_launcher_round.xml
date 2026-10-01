@@ -1,4 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/accent" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <background android:drawable="@color/logo_bg_classic" />
+    <foreground android:drawable="@drawable/ic_logo_classic" />
+    <monochrome android:drawable="@drawable/ic_logo_mono" />
 </adaptive-icon>

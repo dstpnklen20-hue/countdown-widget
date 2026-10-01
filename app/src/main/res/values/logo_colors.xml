@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backgrounds of the launcher icon variants (see AppIcon.kt). -->
+<resources>
+    <color name="logo_bg_classic">#FF1F2A44</color>
+    <color name="logo_bg_light">#FFFFFFFF</color>
+    <color name="logo_bg_midnight">#FF0E0E10</color>
+    <color name="logo_bg_ocean">#FF0B63C5</color>
+    <color name="logo_bg_forest">#FF1B5E3B</color>
+    <color name="logo_bg_sunset">#FFD9480F</color>
+    <color name="logo_bg_violet">#FF3F2A7A</color>
+</resources>

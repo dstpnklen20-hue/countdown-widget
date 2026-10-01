@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CheckBox
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.HourglassEmpty
@@ -63,6 +64,7 @@ val Tool.icon: ImageVector?
         Tool.MATRIX -> Icons.Outlined.GridView
         Tool.FOCUS -> Icons.Outlined.Timer
         Tool.HABITS -> Icons.Outlined.Loop
+        Tool.STATS -> Icons.Outlined.BarChart
         Tool.COUNTDOWNS -> Icons.Outlined.HourglassEmpty
         Tool.SEARCH -> Icons.Outlined.Search
         Tool.SETTINGS -> Icons.Outlined.Settings

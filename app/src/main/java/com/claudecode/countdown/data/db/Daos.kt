@@ -52,6 +52,13 @@ interface TaskDao {
     @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM tasks")
     suspend fun maxSortOrder(): Long
 
+    /** When tasks (subtasks included) were completed, for statistics. */
+    @Query("SELECT completedAt FROM tasks WHERE deleted = 0 AND status = 'DONE' AND completedAt >= :since")
+    fun observeCompletedSince(since: Long): Flow<List<Long>>
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE deleted = 0 AND status = 'DONE'")
+    fun observeCompletedCount(): Flow<Int>
+
     // Already deleted rows keep their stamp, so undo does not bring back what was deleted earlier.
     @Query("UPDATE tasks SET deleted = 1, updatedAt = :at WHERE (id = :id OR parentId = :id) AND deleted = 0")
     suspend fun softDelete(id: String, at: Long = now())
@@ -277,6 +284,9 @@ interface FocusDao {
 
     @Query("SELECT COALESCE(SUM(durationMs), 0) FROM focus_sessions WHERE deleted = 0 AND kind = 'FOCUS'")
     fun observeTotalFocusMs(): Flow<Long>
+
+    @Query("SELECT COUNT(*) FROM focus_sessions WHERE deleted = 0 AND kind = 'FOCUS'")
+    fun observeFocusCount(): Flow<Int>
 }
 
 @Dao

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tik Tak logo, "midnight" colours: a progress ring three quarters full around a check mark. 108dp adaptive-icon canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M32.4,54 A21.6,21.6 0 0,1 54,32.4"
+        android:strokeColor="#FF2E2E33"
+        android:strokeWidth="5.6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M54,32.4 A21.6,21.6 0 1,1 32.4,54"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="5.6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M45.3,54.7 L51.8,61.2 L63.2,48.2"
+        android:strokeColor="#FFFDAF22"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

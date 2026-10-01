@@ -62,5 +62,6 @@ class FocusRepository(db: AppDatabase) {
 
     fun observeFocusSince(since: Long) = dao.observeFocusSince(since)
     fun observeTotalFocusMs() = dao.observeTotalFocusMs()
+    fun observeFocusCount() = dao.observeFocusCount()
     suspend fun record(session: FocusSession) = dao.upsert(session)
 }
