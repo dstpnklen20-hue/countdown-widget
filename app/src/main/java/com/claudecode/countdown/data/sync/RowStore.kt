@@ -34,7 +34,8 @@ enum class SyncTable(val table: String, val key: List<String> = listOf("id")) {
 /** A row that lost a merge and should be removed from other copies too (see [RowStore.merge]). */
 data class Superseded(val table: SyncTable, val id: String)
 
-data class MergeResult(val changed: Int, val superseded: List<Superseded>)
+/** [arrived]: ids of rows this device did not have before the merge. */
+data class MergeResult(val changed: Int, val superseded: List<Superseded>, val arrived: List<String> = emptyList())
 
 /**
  * Reads and writes rows as JSON objects keyed by column name, straight from SQLite, so it needs no
@@ -42,6 +43,9 @@ data class MergeResult(val changed: Int, val superseded: List<Superseded>)
  * Every synced row has `updatedAt` and `deleted`; merging keeps whichever version is newer.
  */
 class RowStore(private val db: AppDatabase) {
+
+    /** Merges copies of the same row made on different devices; see [Deduplicator]. */
+    fun dedupe(arrived: Map<SyncTable, Set<String>>?, at: () -> Long): Int = Deduplicator(db, at).run(arrived)
 
     private val columns = HashMap<SyncTable, Map<String, String>>()
 
@@ -85,6 +89,7 @@ class RowStore(private val db: AppDatabase) {
      */
     fun merge(table: SyncTable, incoming: List<JSONObject>): MergeResult {
         if (incoming.isEmpty()) return MergeResult(0, emptyList())
+        val arrived = mutableListOf<String>()
         val known = columnsOf(table)
         var changed = 0
         val superseded = mutableListOf<Superseded>()
@@ -101,10 +106,11 @@ class RowStore(private val db: AppDatabase) {
                 if (local != null && local >= updatedAt) continue
                 if (table == SyncTable.CHECKINS && !resolveCheckIn(sql, row, superseded)) continue
                 sql.insert("`${table.table}`", SQLiteDatabase.CONFLICT_REPLACE, row.toValues(known))
+                if (local == null) arrived += table.idOf(row)
                 changed++
             }
         }
-        return MergeResult(changed, superseded)
+        return MergeResult(changed, superseded, arrived)
     }
 
     /** Returns false when a newer local check-in for the same habit and day keeps its place. */

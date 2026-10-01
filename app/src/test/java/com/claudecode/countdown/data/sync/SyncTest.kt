@@ -54,7 +54,7 @@ private class Device(context: Context, server: SyncApi, clock: () -> Long) {
     val store = RowStore(db)
     val repo = TaskRepository(db) {}
     val engine = SyncEngine(store, server, MemoryMarks(), clock)
-    suspend fun sync() = withContext(Dispatchers.IO) { engine.run() }
+    suspend fun sync(dedupeAll: Boolean = false) = withContext(Dispatchers.IO) { engine.run(dedupeAll) }
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -185,5 +185,70 @@ class SyncTest {
     @Test(expected = Backup.NotABackup::class)
     fun randomJsonIsNotABackup() {
         Backup.import(a.store, """{"hello": 1}""")
+    }
+
+    private data class Live(val id: String, val title: String, val listId: String)
+
+    private fun liveTasks(d: Device): List<Live> =
+        d.store.all(SyncTable.TASKS).filter { it.getInt("deleted") == 0 }.map { Live(it.getString("id"), it.getString("title"), it.getString("listId")) }
+
+    @Test
+    fun sameTaskMadeOnTwoDevicesEndsUpOnce() = runBlocking {
+        val due = time + 86_400_000
+        val first = a.repo.create(Task(title = "Отпуск", dueAt = due, createdAt = time), tagNames = listOf("отдых"))
+        tick()
+        val second = b.repo.create(Task(title = " отпуск ", dueAt = due, createdAt = time), tagNames = listOf("отдых"))
+        tick()
+        a.sync(); b.sync(); a.sync(); b.sync()
+
+        for (d in listOf(a, b)) {
+            assertEquals(listOf(first.id), liveTasks(d).map { it.id })
+            assertTrue(d.repo.get(second.id)!!.deleted)
+            // The tag the copy had is still on the task, once.
+            assertEquals(listOf("отдых"), d.db.tagDao().tagNamesFor(first.id))
+        }
+    }
+
+    @Test
+    fun identicalTasksMadeOnOneDeviceStay() = runBlocking {
+        a.repo.create(Task(title = "Позвонить", createdAt = time))
+        tick()
+        a.repo.create(Task(title = "Позвонить", createdAt = time))
+        tick()
+        // Not the first run any more: only copies from different devices are merged.
+        a.sync(); b.sync()
+        assertEquals(2, liveTasks(a).size)
+        assertEquals(2, liveTasks(b).size)
+    }
+
+    @Test
+    fun sameListOnTwoDevicesBecomesOneWithAllTasks() = runBlocking {
+        val workA = a.repo.createList("Работа", null, null)
+        a.repo.create(Task(title = "Отчёт", listId = workA.id, createdAt = time))
+        tick()
+        val workB = b.repo.createList("Работа", null, null)
+        b.repo.create(Task(title = "Письмо", listId = workB.id, createdAt = time))
+        tick()
+        a.sync(); b.sync(); a.sync(); b.sync()
+
+        val keep = minOf(workA, workB, compareBy({ it.createdAt }, { it.id }))
+        for (d in listOf(a, b)) {
+            assertEquals(1, d.db.taskListDao().all().count { !it.deleted && it.name == "Работа" })
+            assertEquals(setOf("Отчёт", "Письмо"), liveTasks(d).filter { it.listId == keep.id }.map { it.title }.toSet())
+        }
+    }
+
+    @Test
+    fun duplicatesThatSyncedEarlierAreClearedOnce() = runBlocking {
+        a.repo.create(Task(title = "Сон", createdAt = time))
+        tick()
+        a.repo.create(Task(title = "Сон", createdAt = time))
+        tick()
+        assertEquals(2, liveTasks(a).size)
+        a.sync()
+        a.sync(dedupeAll = true)
+        assertEquals(1, liveTasks(a).size)
+        b.sync()
+        assertEquals(1, liveTasks(b).size)
     }
 }

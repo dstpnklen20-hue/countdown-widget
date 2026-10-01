@@ -14,6 +14,7 @@ import com.claudecode.countdown.data.db.Reminder
 import com.claudecode.countdown.domain.Due
 import com.claudecode.countdown.domain.allDayDue
 import com.claudecode.countdown.domain.today
+import com.claudecode.countdown.ui.EventTime
 import com.claudecode.countdown.ui.UndoBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -120,6 +121,21 @@ class TaskDetailViewModel(
     fun setColor(color: Int?) = mutate { it.copy(color = color) }
 
     fun setList(listId: String) = mutate { it.copy(listId = listId, sectionId = null) }
+
+    fun setEventTime(time: EventTime) = mutate { time.applyTo(it) }
+
+    /**
+     * Turns a task into an event or back. A task with a time but no start becomes an hour from that
+     * time; an event keeps its start, which a task shows as its block in the calendar.
+     */
+    fun setEvent(enabled: Boolean) = mutate {
+        when {
+            !enabled -> it.copy(isEvent = false)
+            it.dueAt == null -> EventTime.at(today(), null).applyTo(it.copy(isEvent = true))
+            it.startAt == null && !it.isAllDay -> it.copy(isEvent = true, startAt = it.dueAt, dueAt = it.dueAt + 3_600_000L)
+            else -> it.copy(isEvent = true)
+        }
+    }
 
     fun setCountdown(enabled: Boolean) = mutate {
         it.copy(displayMode = if (enabled) DisplayMode.COUNTDOWN else DisplayMode.NORMAL)

@@ -57,6 +57,10 @@ data class Settings(
     val sorts: Map<String, TaskSort> = emptyMap(),
     /** Picture for empty lists: an index into the gallery, or [AppSettings.EMPTY_ART_DAILY]. */
     val emptyArt: Int = AppSettings.EMPTY_ART_DAILY,
+    /** The calendar view the user last chose (a CalendarMode name), and what it shows. */
+    val calendarMode: String = "MONTH",
+    val calendarEvents: Boolean = true,
+    val calendarTasks: Boolean = true,
 ) {
     val startFilterKey: String
         get() = when (startList) {
@@ -97,6 +101,9 @@ class AppSettings(context: Context) {
             TaskSort.entries.firstOrNull { it.name == entry.substringAfterLast('|') }?.let { key to it }
         }.toMap(),
         emptyArt = prefs.getInt("emptyArt", EMPTY_ART_DAILY),
+        calendarMode = prefs.getString("calendarMode", null) ?: "MONTH",
+        calendarEvents = prefs.getBoolean("calendarEvents", true),
+        calendarTasks = prefs.getBoolean("calendarTasks", true),
     )
 
     private fun loadTools(): List<Tool> {
@@ -122,6 +129,9 @@ class AppSettings(context: Context) {
             .putStringSet("dismissedHints", s.dismissedHints)
             .putStringSet("sorts", s.sorts.mapTo(HashSet()) { (key, sort) -> "$key|${sort.name}" })
             .putInt("emptyArt", s.emptyArt)
+            .putString("calendarMode", s.calendarMode)
+            .putBoolean("calendarEvents", s.calendarEvents)
+            .putBoolean("calendarTasks", s.calendarTasks)
             .apply()
         _state.value = s
     }
@@ -153,4 +163,9 @@ class AppSettings(context: Context) {
         it.copy(sorts = if (sort == TaskSort.DATE) it.sorts - filter.key else it.sorts + (filter.key to sort))
     }
     fun setEmptyArt(value: Int) = update { it.copy(emptyArt = value) }
+    fun setCalendarMode(name: String) = update { it.copy(calendarMode = name) }
+    /** Events and tasks can be hidden one at a time, never both. */
+    fun setCalendarFilter(events: Boolean, tasks: Boolean) {
+        if (events || tasks) update { it.copy(calendarEvents = events, calendarTasks = tasks) }
+    }
 }

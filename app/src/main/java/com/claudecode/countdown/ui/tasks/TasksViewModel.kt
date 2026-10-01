@@ -43,6 +43,7 @@ data class Snapshot(
     val loaded: Boolean = false,
 ) {
     val listsById: Map<String, TaskList> by lazy { lists.associateBy { it.id } }
+    private val listOrder: Map<String, Int> by lazy { lists.withIndex().associate { (i, l) -> l.id to i } }
 
     /** The task's own colour, else its list's; null when neither is set. */
     fun colorOf(task: Task): Int? = task.color ?: listsById[task.listId]?.color
@@ -52,7 +53,7 @@ data class Snapshot(
     }
 
     fun groups(filter: TaskFilter, sort: TaskSort = TaskSort.DATE): List<TaskGroup> =
-        groupTasks(filter, filtered(filter), now, today, sort = sort)
+        groupTasks(filter, filtered(filter), now, today, sort = sort, listOrder = listOrder)
 
     fun openCount(filter: TaskFilter): Int = filtered(filter).count { !it.isDone }
 
@@ -148,6 +149,12 @@ class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus
     fun deleteSection(section: Section) = viewModelScope.launch { repo.deleteSection(section) }
     fun moveToSection(task: Task, sectionId: String?) = viewModelScope.launch { repo.update(task.copy(sectionId = sectionId)) }
     fun setPriority(task: Task, priority: Int) = viewModelScope.launch { repo.update(task.copy(priority = priority)) }
+
+    /** A new event or task from the calendar; [remind] adds an "at the time" reminder. */
+    fun createEntry(task: Task, remind: Boolean) = viewModelScope.launch {
+        val created = repo.create(task)
+        if (remind) repo.addReminder(created.id, 0)
+    }
 
     fun addTask(title: String, listId: String, sectionId: String? = null, due: Due? = null) = viewModelScope.launch {
         repo.create(

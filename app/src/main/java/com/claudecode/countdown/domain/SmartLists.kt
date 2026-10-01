@@ -36,17 +36,24 @@ sealed interface TaskFilter {
     }
 }
 
-enum class GroupKind { OVERDUE, TODAY, TOMORROW, DAY, LATER, NO_DATE, PRIORITY, ALL, DONE }
+enum class GroupKind { OVERDUE, TODAY, TOMORROW, DAY, LATER, NO_DATE, PRIORITY, CATEGORY, LIST, ALL, DONE }
 
-data class TaskGroup(val kind: GroupKind, val date: LocalDate?, val tasks: List<Task>, val priority: Int? = null) {
+data class TaskGroup(
+    val kind: GroupKind,
+    val date: LocalDate?,
+    val tasks: List<Task>,
+    val priority: Int? = null,
+    val listId: String? = null,
+) {
     /** Stable id of the section, e.g. for remembering which ones are collapsed. */
-    val key: String get() = "$kind:${date ?: priority ?: ""}"
+    val key: String get() = "$kind:${date ?: priority ?: listId ?: ""}"
 }
 
 /** How a task list is ordered; the choice is remembered per list (see AppSettings). */
 enum class TaskSort(val label: String) {
     DATE("По дате"),
     PRIORITY("По приоритету"),
+    LIST("По спискам"),
     TITLE("По названию"),
     CREATED("Сначала новые"),
 }
@@ -75,6 +82,8 @@ fun matches(
 ): Boolean {
     // Countdowns are events to wait for, not work: they live in their own list (and the calendar).
     if (task.displayMode == DisplayMode.COUNTDOWN) return filter == TaskFilter.Countdowns
+    // Events (sleep, lunch) only take time in the calendar; there is nothing to do about them.
+    if (task.isEvent) return false
     val day = task.dueDay(zone)
     return when (filter) {
         TaskFilter.Inbox -> task.listId == TaskList.INBOX_ID
@@ -94,7 +103,8 @@ private val titleCollator = Collator.getInstance(Locale("ru")).apply { strength 
 /**
  * Splits already-filtered tasks into TickTick-like sections, completed ones always at the bottom.
  * By date: overdue, today, tomorrow, the rest of the week day by day, later, no date.
- * By priority: one section per priority. By title or creation: a single section.
+ * By priority: one section per priority. By list: one per list, in [listOrder].
+ * By title or creation: a single section. Completed tasks: see [groupCompleted].
  */
 fun groupTasks(
     filter: TaskFilter,
@@ -103,17 +113,16 @@ fun groupTasks(
     today: LocalDate,
     zone: ZoneId = ZoneId.systemDefault(),
     sort: TaskSort = TaskSort.DATE,
+    listOrder: Map<String, Int> = emptyMap(),
 ): List<TaskGroup> {
-    if (filter == TaskFilter.Completed) {
-        val done = tasks.sortedByDescending { it.completedAt ?: it.updatedAt }
-        return if (done.isEmpty()) emptyList() else listOf(TaskGroup(GroupKind.DONE, null, done))
-    }
+    if (filter == TaskFilter.Completed) return groupCompleted(tasks, sort, listOrder, zone)
     val (done, open) = tasks.partition { it.isDone }
     val groups = when (sort) {
         TaskSort.DATE -> groupByDate(open, now, today, zone)
         TaskSort.PRIORITY -> open.sortedWith(taskOrder).groupBy { it.priority }.entries
             .sortedByDescending { it.key }
             .map { TaskGroup(GroupKind.PRIORITY, null, it.value, priority = it.key) }
+        TaskSort.LIST -> byList(open.sortedWith(taskOrder), listOrder)
         TaskSort.TITLE -> listOfNotNull(
             open.sortedWith(compareBy(titleCollator) { it.title.trim() }).takeIf { it.isNotEmpty() }
                 ?.let { TaskGroup(GroupKind.ALL, null, it) }
@@ -125,6 +134,32 @@ fun groupTasks(
     val doneSorted = done.sortedByDescending { it.completedAt ?: it.updatedAt }
     return if (doneSorted.isEmpty()) groups else groups + TaskGroup(GroupKind.DONE, null, doneSorted)
 }
+
+/**
+ * The completed tasks, newest first, in sections: by the day they were done (date), by matrix
+ * category (priority), by list, or all in one section.
+ */
+private fun groupCompleted(tasks: List<Task>, sort: TaskSort, listOrder: Map<String, Int>, zone: ZoneId): List<TaskGroup> {
+    val done = tasks.sortedByDescending { it.doneAt }
+    if (done.isEmpty()) return emptyList()
+    return when (sort) {
+        TaskSort.DATE -> done.groupBy { Instant.ofEpochMilli(it.doneAt).atZone(zone).toLocalDate() }
+            .map { (day, list) -> TaskGroup(GroupKind.DAY, day, list) }
+        TaskSort.PRIORITY -> done.groupBy { it.priority }.entries
+            .sortedByDescending { it.key }
+            .map { TaskGroup(GroupKind.CATEGORY, null, it.value, priority = it.key) }
+        TaskSort.LIST -> byList(done, listOrder)
+        TaskSort.TITLE -> listOf(TaskGroup(GroupKind.DONE, null, done.sortedWith(compareBy(titleCollator) { it.title.trim() })))
+        TaskSort.CREATED -> listOf(TaskGroup(GroupKind.DONE, null, done))
+    }
+}
+
+private val Task.doneAt: Long get() = completedAt ?: updatedAt
+
+private fun byList(tasks: List<Task>, listOrder: Map<String, Int>): List<TaskGroup> =
+    tasks.groupBy { it.listId }.entries
+        .sortedBy { listOrder[it.key] ?: Int.MAX_VALUE }
+        .map { TaskGroup(GroupKind.LIST, null, it.value, listId = it.key) }
 
 private fun groupByDate(open: List<Task>, now: Long, today: LocalDate, zone: ZoneId): List<TaskGroup> {
     val buckets = linkedMapOf<Pair<GroupKind, LocalDate?>, MutableList<Task>>()

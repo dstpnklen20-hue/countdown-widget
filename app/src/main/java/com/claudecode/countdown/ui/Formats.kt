@@ -38,10 +38,23 @@ fun formatDue(task: Task, today: LocalDate): String? {
 
 fun formatTime(millis: Long): String = localTimeOf(millis).format(timeFmt)
 
+/** When an event happens: "Сегодня, 06:35–07:05", "1 окт, 23:00 – 2 окт, 05:45", "1 окт – 3 окт". */
+fun formatEventSpan(task: Task, today: LocalDate): String? {
+    val due = task.dueAt ?: return null
+    val start = task.startAt?.takeIf { it <= due } ?: return formatDue(task, today)
+    val endDay = task.dueDay() ?: return null
+    val startDay = task.copy(dueAt = start).dueDay() ?: return null
+    return when {
+        task.isAllDay -> if (startDay == endDay) formatDay(endDay, today) else "${formatDay(startDay, today)} – ${formatDay(endDay, today)}"
+        startDay == endDay -> "${formatDay(startDay, today)}, ${formatTime(start)}–${formatTime(due)}"
+        else -> "${formatDay(startDay, today)}, ${formatTime(start)} – ${formatDay(endDay, today)}, ${formatTime(due)}"
+    }
+}
+
 fun formatFullDate(day: LocalDate): String =
     day.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", ru)).replaceFirstChar { it.uppercase() }
 
-fun groupTitle(group: TaskGroup, today: LocalDate): String = when (group.kind) {
+fun groupTitle(group: TaskGroup, today: LocalDate, listName: (String) -> String? = { null }): String = when (group.kind) {
     GroupKind.OVERDUE -> "Просрочено"
     GroupKind.TODAY -> "Сегодня"
     GroupKind.TOMORROW -> "Завтра"
@@ -52,6 +65,8 @@ fun groupTitle(group: TaskGroup, today: LocalDate): String = when (group.kind) {
         Priority.NONE -> priorityName(p)
         else -> "${priorityName(p)} приоритет"
     }
+    GroupKind.CATEGORY -> priorityCategory(group.priority ?: Priority.NONE)
+    GroupKind.LIST -> group.listId?.let(listName) ?: "Список"
     GroupKind.ALL -> "Задачи"
     GroupKind.DONE -> "Выполнено"
 }

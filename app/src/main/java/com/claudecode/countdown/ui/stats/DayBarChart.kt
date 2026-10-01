@@ -26,11 +26,15 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private val WEEK_DAYS = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 private val dayMonth = DateTimeFormatter.ofPattern("d MMMM", Locale("ru"))
+
+private val monthYear = DateTimeFormatter.ofPattern("LLLL yyyy", Locale("ru"))
+private val monthShort = DateTimeFormatter.ofPattern("LLL", Locale("ru"))
 
 /**
  * One measure per day as thin bars in the accent colour. Tapping a bar shows its day and value
@@ -39,20 +43,74 @@ private val dayMonth = DateTimeFormatter.ofPattern("d MMMM", Locale("ru"))
  */
 @Composable
 fun DayBarChart(values: List<Int>, days: List<LocalDate>, today: LocalDate, valueText: (Int) -> String, modifier: Modifier = Modifier) {
+    BarChart(
+        values = values,
+        names = remember(days) { days.map { it.format(dayMonth) } },
+        // A month has no room for 30 captions: label Mondays only, centred under their bar.
+        axis = remember(days) {
+            days.map { day ->
+                when {
+                    days.size <= 7 -> WEEK_DAYS[day.dayOfWeek.value - 1]
+                    day.dayOfWeek.value == 1 -> "${day.dayOfMonth}"
+                    else -> null
+                }
+            }
+        },
+        current = days.indexOf(today),
+        valueText = valueText,
+        modifier = modifier,
+    )
+}
+
+/** The same chart with a bar per month, for the whole history. */
+@Composable
+fun MonthBarChart(values: List<Int>, months: List<YearMonth>, current: YearMonth, valueText: (Int) -> String, modifier: Modifier = Modifier) {
+    BarChart(
+        values = values,
+        names = remember(months) { months.map { it.format(monthYear).replaceFirstChar(Char::uppercase) } },
+        // Every month while they fit, else January (with its year) and every third month.
+        axis = remember(months) {
+            months.map { m ->
+                when {
+                    months.size <= 8 -> m.format(monthShort).trimEnd('.')
+                    m.monthValue == 1 -> "${m.year}"
+                    m.monthValue % 3 == 1 -> m.format(monthShort).trimEnd('.')
+                    else -> null
+                }
+            }
+        },
+        current = months.indexOf(current),
+        valueText = valueText,
+        modifier = modifier,
+    )
+}
+
+/**
+ * Bars for [values]; [names] say what each bar stands for when tapped, [axis] are the captions
+ * under the bars (null leaves a bar uncaptioned), [current] is the bar of today (or -1).
+ */
+@Composable
+private fun BarChart(
+    values: List<Int>,
+    names: List<String>,
+    axis: List<String?>,
+    current: Int,
+    valueText: (Int) -> String,
+    modifier: Modifier,
+) {
     val scheme = MaterialTheme.colorScheme
-    var picked by remember(days.firstOrNull(), days.size) { mutableStateOf<Int?>(null) }
+    var picked by remember(names.firstOrNull(), names.size) { mutableStateOf<Int?>(null) }
     val max = (values.maxOrNull() ?: 0).coerceAtLeast(1)
-    val shown = picked ?: days.indexOf(today).takeIf { it >= 0 }
+    val shown = picked ?: current.takeIf { it >= 0 }
     Column(modifier) {
-        // The label line: the picked day, else today; empty-looking days still read "0 …".
+        // The label line: the picked bar, else today's; empty-looking bars still read "0 …".
         Text(
-            shown?.let { "${days[it].format(dayMonth)}: ${valueText(values[it])}" } ?: " ",
+            shown?.let { "${names[it]}: ${valueText(values[it])}" } ?: " ",
             style = MaterialTheme.typography.labelMedium,
             color = scheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 6.dp),
         )
         val bar = scheme.primary
-        val barPicked = scheme.primary
         val muted = scheme.primary.copy(alpha = 0.45f)
         val empty = scheme.outlineVariant
         val baseline = scheme.outlineVariant
@@ -60,8 +118,8 @@ fun DayBarChart(values: List<Int>, days: List<LocalDate>, today: LocalDate, valu
             Modifier
                 .fillMaxWidth()
                 .height(120.dp)
-                .semantics { contentDescription = days.indices.joinToString { "${days[it].format(dayMonth)} ${valueText(values[it])}" } }
-                .pointerInput(days, values) {
+                .semantics { contentDescription = values.indices.joinToString { "${names[it]} ${valueText(values[it])}" } }
+                .pointerInput(names, values) {
                     detectTapGestures { offset ->
                         val i = (offset.x / (size.width / values.size)).toInt().coerceIn(values.indices)
                         picked = if (picked == i) null else i
@@ -80,11 +138,7 @@ fun DayBarChart(values: List<Int>, days: List<LocalDate>, today: LocalDate, valu
                 } else {
                     val h = (size.height * v / max).coerceAtLeast(4.dp.toPx())
                     // Only a bar the user tapped dims the others; the default (today) label doesn't.
-                    val color = when {
-                        picked == null -> bar
-                        i == picked -> barPicked
-                        else -> muted
-                    }
+                    val color = if (picked == null || i == picked) bar else muted
                     topRoundedBar(color, left, size.height - h, barWidth, h, radius)
                 }
             }
@@ -94,15 +148,10 @@ fun DayBarChart(values: List<Int>, days: List<LocalDate>, today: LocalDate, valu
         val labelColor = scheme.onSurfaceVariant
         val accent = scheme.primary
         Canvas(Modifier.fillMaxWidth().height(18.dp).padding(top = 4.dp)) {
-            val slot = size.width / days.size
-            days.forEachIndexed { i, day ->
-                // A month has no room for 30 captions: label Mondays only, centred under their bar.
-                val label = when {
-                    days.size <= 7 -> WEEK_DAYS[day.dayOfWeek.value - 1]
-                    day.dayOfWeek.value == 1 -> "${day.dayOfMonth}"
-                    else -> return@forEachIndexed
-                }
-                val color = if (day == today || i == picked) accent else labelColor
+            val slot = size.width / axis.size
+            axis.forEachIndexed { i, label ->
+                if (label == null) return@forEachIndexed
+                val color = if (i == current || i == picked) accent else labelColor
                 val layout = measurer.measure(label, labelStyle.copy(color = color))
                 val x = (slot * i + slot / 2 - layout.size.width / 2f).coerceIn(0f, size.width - layout.size.width)
                 drawText(layout, topLeft = Offset(x, 0f))

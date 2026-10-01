@@ -46,9 +46,6 @@ data class PomodoroSettings(
     val alarm: Boolean = true,
 )
 
-/** A focus shorter than this is not counted: no pomodoro, no minutes. */
-const val MIN_FOCUS_MS = 60_000L
-
 data class PomodoroState(
     val phase: PomodoroPhase = PomodoroPhase.FOCUS,
     val status: PomodoroStatus = PomodoroStatus.IDLE,
@@ -132,22 +129,8 @@ class PomodoroTimer(private val context: Context, private val focus: FocusReposi
         else it.copy(status = PomodoroStatus.RUNNING, endAt = now() + it.remainingMs)
     }
 
-    /**
-     * Abandons the phase. A focus of at least [MIN_FOCUS_MS] still counts towards statistics;
-     * returns the counted time, 0 when nothing was counted.
-     */
-    suspend fun reset(): Long {
-        val before = _state.value
-        mutate { it.copy(status = PomodoroStatus.IDLE, endAt = 0, remainingMs = 0) }
-        if (before.phase == PomodoroPhase.FOCUS && before.status != PomodoroStatus.IDLE) {
-            val spent = durationMs(before.phase) - remainingMs(before)
-            if (spent >= MIN_FOCUS_MS) {
-                record(before, spent)
-                return spent
-            }
-        }
-        return 0
-    }
+    /** Abandons the phase. Only a focus that runs to its end counts, so nothing is recorded here. */
+    fun reset() = mutate { it.copy(status = PomodoroStatus.IDLE, endAt = 0, remainingMs = 0) }
 
     fun stopAlarm() = NotificationManagerCompat.from(context).cancel(DONE_ID)
 
@@ -384,8 +367,7 @@ class PomodoroReceiver : BroadcastReceiver() {
             PomodoroTimer.ACTION_END -> launchAsync(context) { timer.completeIfDue() }
             PomodoroTimer.ACTION_PAUSE -> timer.pause()
             PomodoroTimer.ACTION_RESUME -> timer.resume()
-            // Resetting keeps a focus of a minute or more in the statistics, like "Сбросить" in the app.
-            PomodoroTimer.ACTION_RESET -> launchAsync(context) { timer.reset() }
+            PomodoroTimer.ACTION_RESET -> timer.reset()
             PomodoroTimer.ACTION_ALARM_OFF -> timer.stopAlarm()
             PomodoroTimer.ACTION_START_NEXT -> {
                 timer.stopAlarm()

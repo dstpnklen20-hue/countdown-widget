@@ -8,6 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
+import java.time.ZoneId
 
 class CalendarProjectionTest {
     private val start = LocalDate.of(2026, 9, 28)
@@ -48,5 +49,48 @@ class CalendarProjectionTest {
         )
         assertEquals(setOf(start), entries.keys)
         assertEquals(2, entries.getValue(start).size)
+    }
+
+    private val zone = ZoneId.of("Europe/Moscow")
+    private fun at(day: LocalDate, h: Int, m: Int = 0) = day.atTime(h, m).atZone(zone).toInstant().toEpochMilli()
+
+    @Test
+    fun sleepPastMidnightShowsOnBothDaysAndRepeats() {
+        val sleep = Task(title = "Сон", isEvent = true, startAt = at(start, 23), dueAt = at(start.plusDays(1), 5, 45), repeatRule = "FREQ=DAILY")
+        val entries = calendarEntries(listOf(sleep), start, start.plusDays(2), zone = zone)
+        val first = entries.getValue(start).single()
+        assertEquals(23 * 60 to MINUTES_PER_DAY, first.start to first.end)
+        assertEquals(1 to 2, first.part to first.parts)
+        // The next day has the morning part of the first night and the evening part of the second.
+        val next = entries.getValue(start.plusDays(1)).map { it.start to it.end }
+        assertEquals(listOf(0 to 5 * 60 + 45, 23 * 60 to MINUTES_PER_DAY), next)
+        assertTrue(entries.getValue(start.plusDays(2)).first().projected)
+    }
+
+    @Test
+    fun timedTaskWithoutStartIsAHalfHourBlock() {
+        val call = Task(title = "Звонок", dueAt = at(start, 10))
+        val e = calendarEntries(listOf(call), start, start, zone = zone).getValue(start).single()
+        assertEquals(600 to 630, e.start to e.end)
+    }
+
+    @Test
+    fun allDayEventOverSeveralDaysFillsEachDay() {
+        val trip = Task(
+            title = "Поездка", isEvent = true, isAllDay = true, timeZone = zone.id,
+            startAt = allDayDue(start, zone).at, dueAt = allDayDue(start.plusDays(2), zone).at,
+        )
+        val entries = calendarEntries(listOf(trip), start, start.plusDays(5), zone = zone)
+        assertEquals(listOf(start, start.plusDays(1), start.plusDays(2)), entries.keys.sorted())
+        assertEquals(listOf(1, 2, 3), entries.keys.sorted().map { entries.getValue(it).single().part })
+    }
+
+    @Test
+    fun laterOverlappingBlockIsNestedLikeGoogleCalendar() {
+        // Morning routine 5:45–6:55, breakfast 6:35–7:05: breakfast sits on top, one step in.
+        val placed = layoutBlocks(listOf(TimeBlock("routine", 345, 415), TimeBlock("breakfast", 395, 425))).associateBy { it.item }
+        assertEquals(1, placed.getValue("breakfast").lanes)
+        assertEquals(1, placed.getValue("breakfast").depth)
+        assertEquals(0, placed.getValue("routine").depth)
     }
 }

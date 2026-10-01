@@ -3,6 +3,7 @@ package com.claudecode.countdown.domain
 import com.claudecode.countdown.data.db.FocusSession
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 
 /** Days [from] .. [from] + [days] - 1, oldest first. */
@@ -36,4 +37,24 @@ fun formatDuration(ms: Long): String {
         minutes % 60 == 0L -> "${minutes / 60} ч"
         else -> "${minutes / 60} ч ${minutes % 60} мин"
     }
+}
+
+/** Months [from] .. [to] inclusive, oldest first. */
+fun monthRange(from: YearMonth, to: YearMonth): List<YearMonth> =
+    generateSequence(from) { it.plusMonths(1) }.takeWhile { it <= to }.toList()
+
+/** How many of [moments] fall in each of [months]. */
+fun countPerMonth(moments: List<Long>, months: List<YearMonth>, zone: ZoneId = ZoneId.systemDefault()): List<Int> {
+    val index = months.withIndex().associate { (i, m) -> m to i }
+    val counts = IntArray(months.size)
+    for (m in moments) index[YearMonth.from(Instant.ofEpochMilli(m).atZone(zone))]?.let { counts[it]++ }
+    return counts.toList()
+}
+
+/** Whole minutes of focus in each of [months], by the day each session started. */
+fun focusMinutesPerMonth(sessions: List<FocusSession>, months: List<YearMonth>, zone: ZoneId = ZoneId.systemDefault()): List<Int> {
+    val index = months.withIndex().associate { (i, m) -> m to i }
+    val ms = LongArray(months.size)
+    for (s in sessions) index[YearMonth.from(Instant.ofEpochMilli(s.startedAt).atZone(zone))]?.let { ms[it] += s.durationMs }
+    return ms.map { (it / 60_000).toInt() }
 }

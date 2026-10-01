@@ -20,7 +20,7 @@ enum class MatrixPeriod(val label: String, val days: Long?) {
 fun matrixTasks(tasks: List<Task>, period: MatrixPeriod, today: LocalDate): List<Task> {
     val last = period.days?.let { today.plusDays(it) }
     return tasks.filter { t ->
-        !t.isDone && t.displayMode != DisplayMode.COUNTDOWN &&
+        !t.isDone && !t.isEvent && t.displayMode != DisplayMode.COUNTDOWN &&
             (last == null || t.dueDay()?.let { it <= last } == true)
     }
 }
