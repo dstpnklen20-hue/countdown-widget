@@ -159,6 +159,8 @@ class CountdownWidgetProvider : AppWidgetProvider() {
                 renderAll(context)
                 TodayWidget.refresh(context)
                 ScheduleWidget.refresh(context)
+                MonthWidget.refresh(context)
+                DateWidget.refresh(context)
             }
         }
     }

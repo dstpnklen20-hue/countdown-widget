@@ -79,6 +79,8 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_TASK_ID = "task_id"
         /** A Tool name to open on start (after the icon change restarts the app on Settings). */
         const val EXTRA_OPEN_TOOL = "open_tool"
+        /** With the calendar tool: the day to show (LocalDate.toEpochDay). */
+        const val EXTRA_CALENDAR_DAY = "calendar_day"
         private const val LIVE_SYNC_MS = 30_000L
 
         /**
@@ -102,7 +104,7 @@ class MainActivity : AppCompatActivity() {
         palette = ThemeManager.palette(this)
         if (savedInstanceState == null) {
             pendingTaskId = intent.getStringExtra(EXTRA_TASK_ID)
-            pendingTool = intent.getStringExtra(EXTRA_OPEN_TOOL)?.let { name -> Tool.entries.firstOrNull { it.name == name } }
+            readToolExtras(intent)
         }
 
         setContent {
@@ -137,9 +139,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun readToolExtras(intent: Intent) {
+        intent.getStringExtra(EXTRA_OPEN_TOOL)?.let { name -> Tool.entries.firstOrNull { it.name == name } }?.let { pendingTool = it }
+        if (intent.hasExtra(EXTRA_CALENDAR_DAY)) {
+            container.calendarJump.value = java.time.LocalDate.ofEpochDay(intent.getLongExtra(EXTRA_CALENDAR_DAY, 0))
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_TASK_ID)?.let { pendingTaskId = it }
+        readToolExtras(intent)
     }
 
     override fun onResume() {
@@ -346,6 +356,7 @@ class MainActivity : AppCompatActivity() {
                 onOpenTrash = openTrash,
                 onOpenToolbar = openToolbar,
                 onThemeChanged = ::onThemeSettingsChanged,
+                onOpenCalendarSettings = calendarNav.openSettings,
             )
         }
     }

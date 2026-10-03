@@ -12,6 +12,8 @@ import com.claudecode.countdown.domain.dueReminders
 import com.claudecode.countdown.domain.nextTrigger
 import com.claudecode.countdown.data.db.Habit
 import com.claudecode.countdown.domain.isScheduled
+import com.claudecode.countdown.domain.calendarEntries
+import com.claudecode.countdown.data.db.ReminderKind
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -53,8 +55,16 @@ class ReminderScheduler(
         val reminders = dao.activeReminders()
         val at = now()
         val from = maxOf(checkedUntil(), at - MISSED_WINDOW_MS)
-        for ((task, _) in dueReminders(tasks, reminders, from, at, allDayMinutes()).distinctBy { it.first.id }) {
-            ReminderNotifier.show(context, task)
+        val due = dueReminders(tasks, reminders, from, at, allDayMinutes()).groupBy { it.first.id }.values
+        if (due.isNotEmpty()) {
+            // Quiet hours and "time to work" events make reminders come without sound; alarms still ring.
+            val minute = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).toLocalTime().let { it.hour * 60 + it.minute }
+            val silent = settings.current.isQuiet(minute) || inFocusTime(at)
+            for (group in due) {
+                val task = group.first().first
+                if (group.any { it.second.kind == ReminderKind.ALARM }) ReminderNotifier.showAlarm(context, task)
+                else ReminderNotifier.show(context, task, silent)
+            }
         }
         val habitDao = db.habitDao()
         for ((habit, trigger) in habitTriggers(from, at)) {
@@ -75,6 +85,17 @@ class ReminderScheduler(
     }
 
     private fun earliest(a: Long?, b: Long?): Long? = listOfNotNull(a, b).minOrNull()
+
+    /** Whether an event of the "time to work" kind is going on at [at]. */
+    private suspend fun inFocusTime(at: Long): Boolean {
+        val focus = db.taskDao().focusEvents()
+        if (focus.isEmpty()) return false
+        val zone = ZoneId.systemDefault()
+        val now = Instant.ofEpochMilli(at).atZone(zone)
+        val minute = now.hour * 60 + now.minute
+        return calendarEntries(focus, now.toLocalDate(), now.toLocalDate())[now.toLocalDate()].orEmpty()
+            .any { e -> e.timed && minute >= e.start!! && minute < e.end!! || !e.timed }
+    }
 
     /** Daily habit reminders on scheduled days, from yesterday to a week ahead. */
     private suspend fun habitCandidates(): List<Pair<Habit, Long>> {

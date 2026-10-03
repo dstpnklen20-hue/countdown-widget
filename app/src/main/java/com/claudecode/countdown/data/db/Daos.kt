@@ -49,6 +49,10 @@ interface TaskDao {
     )
     suspend fun widgetCandidates(): List<Task>
 
+    /** Events of the "time to work" kind: reminders during them come silently. */
+    @Query("SELECT * FROM tasks WHERE deleted = 0 AND isEvent = 1 AND eventType = 'FOCUS'")
+    suspend fun focusEvents(): List<Task>
+
     @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM tasks")
     suspend fun maxSortOrder(): Long
 

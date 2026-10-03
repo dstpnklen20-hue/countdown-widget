@@ -87,6 +87,15 @@ class SeriesTest {
     }
 
     @Test
+    fun snoozedReminderOfARepeatingEventFiresTodayNotTomorrow() {
+        val after = timedDue(monday, LocalTime.of(9, 1)).at
+        val snoozed = Reminder(taskId = "x", offsetMinutes = 0, snoozedUntil = after + 10 * 60_000L)
+        assertEquals(after + 10 * 60_000L, reminderTrigger(daily(), snoozed, after = after))
+        // Once the snooze has fired, the series goes on with tomorrow.
+        assertEquals(timedDue(monday.plusDays(1), LocalTime.of(9, 0)).at, reminderTrigger(daily(), snoozed, after = after + 11 * 60_000L))
+    }
+
+    @Test
     fun reminderSkipsADeletedOccurrence() {
         val master = deleteFromSeries(daily(), monday.plusDays(1), SeriesScope.ONE).save.single()
         val reminder = Reminder(taskId = master.id, offsetMinutes = 0)

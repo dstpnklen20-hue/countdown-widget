@@ -42,6 +42,7 @@ import com.claudecode.countdown.MainActivity
 import com.claudecode.countdown.QuickAddActivity
 import com.claudecode.countdown.ThemeManager
 import com.claudecode.countdown.container
+import com.claudecode.countdown.data.db.CalendarLayer
 import com.claudecode.countdown.data.db.DisplayMode
 import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.data.db.TaskList
@@ -71,7 +72,7 @@ class ScheduleWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val repo = context.container.tasks
-        val source = combine(repo.observeTopLevel(), repo.observeLists()) { tasks, lists -> tasks to lists }
+        val source = combine(repo.observeTopLevel(), repo.observeLists(), repo.observeCalendars()) { tasks, lists, calendars -> Triple(tasks, lists, calendars) }
         val initial = source.first()
         val theme = context.container.widgetTheme
         provideContent {
@@ -80,7 +81,7 @@ class ScheduleWidget : GlanceAppWidget() {
             val themeVersion by theme.collectAsState()
             val palette = remember(themeVersion) { ThemeManager.widgetPalette(context) }
             val today = today()
-            val rows = remember(data, today) { scheduleRows(data.first, data.second, today) }
+            val rows = remember(data, today) { scheduleRows(data.first, data.second, data.third, today) }
             ScheduleContent(context, today, rows, palette)
         }
     }
@@ -97,7 +98,8 @@ class ScheduleWidgetReceiver : GlanceAppWidgetReceiver() {
 /** One line of the list; [first] marks the first entry of its day, which carries the date. */
 private data class ScheduleLine(val entry: CalendarEntry, val first: Boolean, val color: Int, val event: Boolean)
 
-private fun scheduleRows(tasks: List<Task>, lists: List<TaskList>, today: LocalDate): List<ScheduleLine> {
+private fun scheduleRows(tasks: List<Task>, lists: List<TaskList>, calendars: List<CalendarLayer>, today: LocalDate): List<ScheduleLine> {
+    val calendarColors = calendars.associate { it.id to it.color }
     val listColors = lists.associate { it.id to it.color }
     val live = tasks.filter { !it.deleted && it.listId in listColors && (!it.isDone || it.isEvent) }
     val entries = calendarEntries(live, today, today.plusDays(DAYS_AHEAD))
@@ -105,7 +107,7 @@ private fun scheduleRows(tasks: List<Task>, lists: List<TaskList>, today: LocalD
         entries.getValue(day).mapIndexed { i, e ->
             val t = e.task
             val event = t.isEvent || t.displayMode == DisplayMode.COUNTDOWN
-            val own = t.color ?: listColors[t.listId]
+            val own = t.color ?: if (t.isEvent) calendarColors[t.calendarId ?: CalendarLayer.PERSONAL_ID] else listColors[t.listId]
             val color = own ?: if (event) 0 else priorityColor(t.priority, Color(0xFF9E9E9E)).toArgb()
             ScheduleLine(e, i == 0, color, event)
         }

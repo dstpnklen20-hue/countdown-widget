@@ -343,6 +343,15 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
             if (shownMonth.year != today.year) " ${shownMonth.year}" else ""
     }
 
+    // A widget asked for a day: show it in the Day view.
+    val jump by container.calendarJump.collectAsStateWithLifecycle()
+    LaunchedEffect(jump) {
+        val day = jump ?: return@LaunchedEffect
+        goTo(day)
+        setMode(CalendarMode.DAY)
+        container.calendarJump.value = null
+    }
+
     BackHandler(enabled = quick != null) { quick = null }
     BackHandler(enabled = monthPanel && quick == null) { monthPanel = false }
     BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
