@@ -23,15 +23,18 @@ fun reminderTrigger(task: Task, reminder: Reminder, allDayMinutes: Int = ALL_DAY
     val offset = (reminder.offsetMinutes ?: 0) * MINUTE
     fun triggerAt(at: Long) = if (task.isAllDay) at + allDayMinutes * MINUTE - offset else at - offset
     var base = triggerAt(anchor)
-    if (task.isEvent && base <= after) {
-        val first = Instant.ofEpochMilli(anchor).atZone(ZoneId.systemDefault())
-        var rule = RepeatRule.parse(task.repeatRule)
-        var day = first.toLocalDate()
+    val skipped = if (task.isEvent) task.skippedDays() else emptySet()
+    val first = Instant.ofEpochMilli(anchor).atZone(ZoneId.systemDefault())
+    // Occurrences are told apart by their due day; the anchor may be on the day before (sleep).
+    val firstDue = task.dueDay() ?: first.toLocalDate()
+    if (task.isEvent && (base <= after || firstDue in skipped)) {
+        var rule = RepeatRule.parse(task.repeatRule) ?: return if (firstDue in skipped) null else withSnooze(base, reminder)
+        var day = firstDue
         var steps = 0
-        while (rule != null && base <= after && steps++ < 2_000) {
-            day = rule.nextAfter(day) ?: break
+        while ((base <= after || day in skipped) && steps++ < 2_000) {
+            day = rule.nextAfter(day) ?: return null
             rule = rule.advanced()
-            base = triggerAt(first.with(day).toInstant().toEpochMilli())
+            base = triggerAt(first.plusDays(java.time.temporal.ChronoUnit.DAYS.between(firstDue, day)).toInstant().toEpochMilli())
         }
     }
     return withSnooze(base, reminder)

@@ -50,4 +50,22 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
-val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+/**
+ * v6, the calendar: an event's place, calendar, skipped occurrences, series and kind; calendars
+ * (layers) of their own; reminders that ring as an alarm. SQL mirrors schemas/6.json.
+ */
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        for (column in listOf("location", "calendarId", "exDates", "seriesId", "eventType")) {
+            db.execSQL("ALTER TABLE `tasks` ADD COLUMN `$column` TEXT")
+        }
+        db.execSQL("ALTER TABLE `reminders` ADD COLUMN `kind` TEXT NOT NULL DEFAULT 'NOTIFY'")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `calendars` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `color` INTEGER NOT NULL, " +
+                "`defaultReminder` INTEGER, `defaultAllDayReminder` INTEGER, `sortOrder` INTEGER NOT NULL, " +
+                "`createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+        )
+    }
+}
+
+val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)

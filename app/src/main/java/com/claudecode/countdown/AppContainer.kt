@@ -47,6 +47,9 @@ class AppContainer(private val context: Context) {
     val pomodoro: PomodoroTimer by lazy { PomodoroTimer(context, focus) }
     val undo = UndoBus(appScope)
 
+    /** The event the editor screen works on (handed over from the calendar). */
+    val eventDraft = MutableStateFlow<com.claudecode.countdown.ui.calendar.EventDraft?>(null)
+
     /** Everything that mirrors task data outside the app: widgets and the reminder alarm. */
     fun onDataChanged() {
         CountdownWidgetProvider.updateAllWidgets(context)

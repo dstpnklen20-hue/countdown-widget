@@ -1,5 +1,9 @@
 package com.claudecode.countdown.ui.calendar
 
+import android.Manifest
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -8,7 +12,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,9 +29,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -36,30 +42,37 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CalendarViewDay
 import androidx.compose.material.icons.outlined.CalendarViewWeek
 import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material.icons.outlined.ViewColumn
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -80,25 +93,41 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.claudecode.countdown.container
+import com.claudecode.countdown.data.ContactBirthdays
+import com.claudecode.countdown.data.db.CalendarLayer
 import com.claudecode.countdown.data.db.DisplayMode
 import com.claudecode.countdown.data.db.Task
+import com.claudecode.countdown.data.db.TaskList
+import com.claudecode.countdown.data.Ics
+import com.claudecode.countdown.domain.Birthday
 import com.claudecode.countdown.domain.CalendarEntry
+import com.claudecode.countdown.domain.SeriesScope
+import com.claudecode.countdown.domain.allDayDue
+import com.claudecode.countdown.domain.atOccurrence
+import com.claudecode.countdown.domain.birthdayEvents
 import com.claudecode.countdown.domain.calendarEntries
 import com.claudecode.countdown.domain.dayRange
+import com.claudecode.countdown.domain.isVirtual
+import com.claudecode.countdown.domain.russianHolidays
+import com.claudecode.countdown.domain.shifted
+import com.claudecode.countdown.domain.timedDue
 import com.claudecode.countdown.ui.AddFab
 import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.ui.CalendarDayIcon
 import com.claudecode.countdown.ui.Motion
-import com.claudecode.countdown.ui.NewEntryDialog
+import com.claudecode.countdown.ui.formatEventSpan
 import com.claudecode.countdown.ui.priorityColor
+import com.claudecode.countdown.ui.rememberNow
 import com.claudecode.countdown.ui.tasks.Snapshot
 import com.claudecode.countdown.ui.tasks.TasksViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
-import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 import kotlin.math.abs
 
@@ -112,18 +141,20 @@ internal enum class CalendarMode(val label: String, val icon: ImageVector) {
 }
 
 /** What the calendar shows: a mode and the dates it covers. Moving within a page keeps it equal. */
-private data class CalendarPage(val mode: CalendarMode, val start: LocalDate, val end: LocalDate) {
+private data class CalendarPage(val mode: CalendarMode, val start: LocalDate, val end: LocalDate, val month: YearMonth? = null) {
     companion object {
-        fun of(mode: CalendarMode, selected: LocalDate, today: LocalDate): CalendarPage = when (mode) {
+        fun of(mode: CalendarMode, selected: LocalDate, today: LocalDate, first: DayOfWeek): CalendarPage = when (mode) {
             // The schedule is one long list around today; the selected day only sets where it scrolls.
             CalendarMode.SCHEDULE -> CalendarPage(mode, today.minusDays(SCHEDULE_DAYS_BACK), today.plusDays(SCHEDULE_DAYS_AHEAD))
             CalendarMode.MONTH -> {
+                // The grid shows whole weeks, so it reaches into the months around.
                 val month = YearMonth.from(selected)
-                CalendarPage(mode, month.atDay(1), month.atEndOfMonth())
+                val weeks = monthWeeks(month, first)
+                CalendarPage(mode, weeks.first(), weeks.last().plusDays(6), month)
             }
             CalendarMode.WEEK -> {
-                val monday = selected.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-                CalendarPage(mode, monday, monday.plusDays(6))
+                val start = weekStart(selected, first)
+                CalendarPage(mode, start, start.plusDays(6))
             }
             CalendarMode.THREE_DAYS -> CalendarPage(mode, selected, selected.plusDays(2))
             CalendarMode.DAY -> CalendarPage(mode, selected, selected)
@@ -132,16 +163,16 @@ private data class CalendarPage(val mode: CalendarMode, val start: LocalDate, va
     }
 }
 
-internal const val SCHEDULE_DAYS_BACK = 60L
+internal const val SCHEDULE_DAYS_BACK = 366L
 internal const val SCHEDULE_DAYS_AHEAD = 400L
 
-/** Resolves a task's colour (own, else its list's); provided by [CalendarScreen] from the snapshot. */
+/** Resolves a task's colour (own, else its calendar's or list's); provided by [CalendarScreen]. */
 private val LocalColorOf = staticCompositionLocalOf<(Task) -> Int?> { { it.color } }
 
 /** Events and countdowns are things that happen; the rest are tasks to do. */
 internal val Task.happens: Boolean get() = isEvent || displayMode == DisplayMode.COUNTDOWN
 
-/** The task/list colour; events without one take the accent, tasks their priority's colour. */
+/** The task/calendar/list colour; events without one take the accent, tasks their priority's colour. */
 @Composable
 internal fun entryColor(task: Task): Color {
     val scheme = MaterialTheme.colorScheme
@@ -155,31 +186,70 @@ internal fun textOn(fill: Color): Color = if (fill.luminance() > 0.36f) Color(0x
 internal val ru = Locale("ru")
 internal val WEEK_DAYS = listOf("пн", "вт", "ср", "чт", "пт", "сб", "вс")
 
-/** What a tap asked to create: a new entry on a day, at a time for a tap on the time scale. */
-private data class Draft(val date: LocalDate, val time: LocalTime?, val event: Boolean)
+/** A block dragged to a new time, waiting for the user to say which occurrences it moves. */
+private data class PendingShift(val entry: CalendarEntry, val moved: Task)
+
+/** What the calendar asks of the screens around it. */
+class CalendarNav(
+    val openTask: (String) -> Unit,
+    val openEditor: (EventDraft) -> Unit,
+    val openCalendars: () -> Unit,
+    val openSettings: () -> Unit,
+    val openSearch: () -> Unit,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) -> Unit) {
+fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
     val today = snapshot.today
-    val appSettings = LocalContext.current.container.settings
+    val context = LocalContext.current
+    val container = context.container
+    val repo = container.tasks
+    val appSettings = container.settings
+    val scope = rememberCoroutineScope()
     val settings by appSettings.state.collectAsStateWithLifecycle()
+    val calendars by repo.observeCalendars().collectAsStateWithLifecycle(emptyList())
+    val first = settings.firstDay
     val mode = CalendarMode.entries.firstOrNull { it.name == settings.calendarMode } ?: CalendarMode.MONTH
     var selectedEpoch by rememberSaveable { mutableStateOf(today.toEpochDay()) }
     val selected = LocalDate.ofEpochDay(selectedEpoch)
     var monthPanel by rememberSaveable { mutableStateOf(false) }
     var viewMenu by remember { mutableStateOf(false) }
-    var draft by remember { mutableStateOf<Draft?>(null) }
+    var quick by remember { mutableStateOf<QuickDraft?>(null) }
+    var sheet by remember { mutableStateOf<CalendarEntry?>(null) }
+    var pendingShift by remember { mutableStateOf<PendingShift?>(null) }
+    var virtualInfo by remember { mutableStateOf<CalendarEntry?>(null) }
     // Which way the last move went, so the new period slides in from the matching side.
     var direction by remember { mutableStateOf(0) }
     // Counts "go to" requests, so the schedule scrolls back even when the day stays the same.
     var jumps by remember { mutableStateOf(0) }
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+    val now by rememberNow(60_000)
 
-    // The view menu can hide events or tasks.
-    val tasks = remember(snapshot.tasks, settings.calendarEvents, settings.calendarTasks) {
-        snapshot.tasks.filter { if (it.happens) settings.calendarEvents else settings.calendarTasks }
+    // Holidays and birthdays are shown, not stored.
+    val birthdays by produceState(emptyList<Birthday>(), settings.showBirthdays) {
+        value = if (settings.showBirthdays) withContext(Dispatchers.IO) { ContactBirthdays.load(context) } else emptyList()
     }
-    val page = CalendarPage.of(mode, selected, today)
+    val contactsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        appSettings.setShowBirthdays(granted)
+    }
+
+    // Which calendars and kinds are shown (the side menu).
+    val calendarColors = remember(calendars) { calendars.associate { it.id to it.color } }
+    val tasks = remember(snapshot.tasks, settings, birthdays, today.year) {
+        val stored = snapshot.tasks.filter { t ->
+            when {
+                t.isEvent -> settings.calendarEvents && (t.calendarId ?: CalendarLayer.PERSONAL_ID) !in settings.hiddenCalendars
+                t.happens -> settings.calendarEvents
+                else -> settings.calendarTasks && (settings.calendarDone || !t.isDone)
+            }
+        }
+        val year = today.year - 2
+        stored +
+            (if (settings.showHolidays) russianHolidays(year) else emptyList()) +
+            (if (settings.showBirthdays) birthdayEvents(birthdays, year) else emptyList())
+    }
+    val page = CalendarPage.of(mode, selected, today, first)
 
     fun setMode(m: CalendarMode) {
         direction = 0
@@ -203,158 +273,346 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, onOpenTask: (String) 
         selectedEpoch = day.toEpochDay()
     }
 
-    // The month in the title follows the page (the first day of a week that spans two months).
-    val shownMonth = YearMonth.from(if (mode == CalendarMode.WEEK || mode == CalendarMode.THREE_DAYS) page.start else selected)
+    fun openEntry(e: CalendarEntry) {
+        val t = e.task
+        when {
+            t.isVirtual -> virtualInfo = e
+            t.isEvent -> sheet = e
+            else -> nav.openTask(t.id)
+        }
+    }
+
+    /** A new entry where the user tapped: the draft moves there if one is open already. */
+    fun addAt(day: LocalDate, time: LocalTime?) {
+        val q = quick
+        quick = if (q != null && time != null) q.copy(time = q.time.withStart(day, time), timed = true)
+        else QuickDraft.at(day, time, settings.eventMinutes, event = true)
+    }
+
+    fun newEventCalendar(): String? = settings.defaultCalendarId.takeIf { id -> id != CalendarLayer.PERSONAL_ID && calendars.any { it.id == id } }
+
+    fun saveQuick() {
+        val q = quick ?: return
+        if (q.title.isBlank()) return
+        quick = null
+        scope.launch {
+            if (q.event) {
+                val calendarId = newEventCalendar()
+                val task = q.time.applyTo(Task(title = q.title.trim(), isEvent = true, calendarId = calendarId))
+                repo.saveEvent(task, repo.defaultReminders(calendarId, q.time.allDay))
+            } else {
+                val due = if (q.timed) timedDue(q.time.startDate, q.time.start) else allDayDue(q.time.startDate)
+                val created = repo.create(Task(title = q.title.trim(), listId = TaskList.INBOX_ID, dueAt = due.at, isAllDay = due.isAllDay, timeZone = due.timeZone))
+                if (q.timed) repo.addReminder(created.id, 0)
+            }
+        }
+    }
+
+    fun moreOptions() {
+        val q = quick ?: return
+        quick = null
+        scope.launch {
+            if (q.event) {
+                val calendarId = newEventCalendar()
+                val task = q.time.applyTo(Task(title = q.title.trim(), isEvent = true, calendarId = calendarId))
+                nav.openEditor(EventDraft(task, repo.defaultReminders(calendarId, q.time.allDay)))
+            } else {
+                val due = if (q.timed) timedDue(q.time.startDate, q.time.start) else allDayDue(q.time.startDate)
+                val created = repo.create(Task(title = q.title.trim().ifEmpty { "Новая задача" }, dueAt = due.at, isAllDay = due.isAllDay, timeZone = due.timeZone))
+                nav.openTask(created.id)
+            }
+        }
+    }
+
+    fun applyShift(entry: CalendarEntry, moved: Task, scopeChoice: SeriesScope) {
+        val before = entry.task
+        scope.launch {
+            if (before.isEvent && before.repeatRule != null) {
+                repo.saveEvent(moved, repo.remindersOf(before.id), before, entry.occurrence, scopeChoice)
+            } else {
+                repo.update(moved)
+                container.undo.offer(if (before.isEvent) "Событие перенесено" else "Задача перенесена") { repo.update(before) }
+            }
+        }
+    }
+
+    val shownMonth = page.month ?: YearMonth.from(if (mode == CalendarMode.WEEK || mode == CalendarMode.THREE_DAYS) page.start else selected)
     val title = when (mode) {
         CalendarMode.YEAR -> "${selected.year}"
         else -> shownMonth.format(DateTimeFormatter.ofPattern("LLLL", ru)).replaceFirstChar { it.uppercase() } +
             if (shownMonth.year != today.year) " ${shownMonth.year}" else ""
     }
 
-    CompositionLocalProvider(LocalColorOf provides snapshot::colorOf) {
-        Scaffold(
-            snackbarHost = { AppSnackbarHost() },
-            topBar = {
-                TopAppBar(
-                    title = {
-                        // Like Google Calendar: the month name opens a small month to jump around in.
-                        Row(
-                            Modifier.clip(RoundedCornerShape(8.dp)).clickable { monthPanel = !monthPanel }.padding(horizontal = 4.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1)
-                            val turn by animateFloatAsState(if (monthPanel) 180f else 0f, Motion.soft(), label = "panel")
-                            Icon(Icons.Filled.ArrowDropDown, if (monthPanel) "Скрыть месяц" else "Показать месяц", Modifier.rotate(turn))
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { goTo(today); monthPanel = false }) { CalendarDayIcon(today.dayOfMonth, "К сегодня") }
-                        Box {
-                            IconButton(onClick = { viewMenu = true }) { Icon(mode.icon, "Вид: ${mode.label}") }
-                            ViewMenu(viewMenu, mode, settings.calendarEvents, settings.calendarTasks,
-                                onMode = { setMode(it); viewMenu = false },
-                                onFilter = appSettings::setCalendarFilter,
-                                onDismiss = { viewMenu = false },
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+    BackHandler(enabled = quick != null) { quick = null }
+    BackHandler(enabled = monthPanel && quick == null) { monthPanel = false }
+    BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
+
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            val count = withContext(Dispatchers.IO) {
+                runCatching {
+                    val text = context.contentResolver.openInputStream(uri)!!.bufferedReader().use { it.readText() }
+                    Ics.import(repo, text, newEventCalendar())
+                }.getOrElse { -1 }
+            }
+            android.widget.Toast.makeText(
+                context,
+                if (count >= 0) "Импортировано событий: $count" else "Не удалось прочитать файл .ics",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+    val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/calendar")) { uri ->
+        if (uri != null) scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val text = Ics.export(repo, snapshot.tasks.filter { it.dueAt != null })
+                    context.contentResolver.openOutputStream(uri)!!.use { it.write(text.toByteArray()) }
+                }.isSuccess
+            }
+            android.widget.Toast.makeText(context, if (ok) "Календарь сохранён" else "Не удалось сохранить файл", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val colorOf: (Task) -> Int? = remember(calendarColors, snapshot) {
+        { t -> t.color ?: if (t.isEvent) calendarColors[t.calendarId ?: CalendarLayer.PERSONAL_ID] else snapshot.colorOf(t) }
+    }
+
+    CompositionLocalProvider(LocalColorOf provides colorOf) {
+        ModalNavigationDrawer(
+            drawerState = drawer,
+            // Swipes belong to the pages; the menu opens with its button and closes with a swipe.
+            gesturesEnabled = drawer.isOpen,
+            drawerContent = {
+                CalendarDrawer(
+                    mode, settings, calendars,
+                    DrawerActions(
+                        onMode = { setMode(it); scope.launch { drawer.close() } },
+                        onCalendarShown = appSettings::setCalendarShown,
+                        onTasksShown = { appSettings.setCalendarFilter(settings.calendarEvents || !it, it) },
+                        onHolidays = appSettings::setShowHolidays,
+                        onBirthdays = { on ->
+                            if (on && !ContactBirthdays.allowed(context)) contactsPermission.launch(Manifest.permission.READ_CONTACTS)
+                            else appSettings.setShowBirthdays(on)
+                        },
+                        onSearch = { scope.launch { drawer.close() }; nav.openSearch() },
+                        onManage = { scope.launch { drawer.close() }; nav.openCalendars() },
+                        onImport = { importer.launch(arrayOf("text/calendar", "text/x-vcalendar", "application/octet-stream", "*/*")) },
+                        onExport = { exporter.launch("tiktak-$today.ics") },
+                        onSettings = { scope.launch { drawer.close() }; nav.openSettings() },
+                    ),
                 )
             },
-            floatingActionButton = {
-                AddFab("Добавить на выбранный день") { draft = Draft(selected, null, event = false) }
-            },
-        ) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                AnimatedVisibility(
-                    visible = monthPanel && mode != CalendarMode.YEAR,
-                    enter = expandVertically(Motion.soft()) + fadeIn(Motion.soft()),
-                    exit = shrinkVertically(Motion.softOut()) + fadeOut(Motion.softOut()),
-                ) {
-                    MonthPanel(selected, today, tasks) { day ->
-                        goTo(day)
-                        monthPanel = false
+        ) {
+            Scaffold(
+                snackbarHost = { AppSnackbarHost() },
+                topBar = {
+                    TopAppBar(
+                        navigationIcon = { IconButton(onClick = { scope.launch { drawer.open() } }) { Icon(Icons.Filled.Menu, "Меню календаря") } },
+                        title = {
+                            // Like Google Calendar: the month name opens a small month to jump around in.
+                            Row(
+                                Modifier.clip(RoundedCornerShape(8.dp)).clickable { monthPanel = !monthPanel }.padding(horizontal = 4.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1)
+                                val turn by animateFloatAsState(if (monthPanel) 180f else 0f, Motion.soft(), label = "panel")
+                                Icon(Icons.Filled.ArrowDropDown, if (monthPanel) "Скрыть месяц" else "Показать месяц", Modifier.rotate(turn))
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = nav.openSearch) { Icon(Icons.Outlined.Search, "Поиск") }
+                            IconButton(onClick = { goTo(today); monthPanel = false }) { CalendarDayIcon(today.dayOfMonth, "К сегодня") }
+                            Box {
+                                IconButton(onClick = { viewMenu = true }) { Icon(mode.icon, "Вид: ${mode.label}") }
+                                ViewMenu(viewMenu, mode, onMode = { setMode(it); viewMenu = false }, onDismiss = { viewMenu = false })
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                    )
+                },
+                floatingActionButton = {
+                    if (quick == null) AddFab("Добавить") {
+                        val time = if (selected == today) LocalTime.now().plusHours(1).withMinute(0).withSecond(0).withNano(0) else LocalTime.of(9, 0)
+                        addAt(selected, time)
                     }
-                }
-                val swipeThreshold = with(LocalDensity.current) { 72.dp.toPx() }
-                val currentShift by rememberUpdatedState(::shift)
-                AnimatedContent(
-                    targetState = page,
-                    transitionSpec = {
-                        when {
-                            direction > 0 -> slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
-                            direction < 0 -> slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
-                            else -> fadeIn(Motion.soft()) togetherWith fadeOut(Motion.softOut())
-                        }
-                    },
-                    label = "calendar",
-                    modifier = Modifier
-                        .fillMaxSize()
-                        // Swipe left/right moves to the next/previous day, week, month or year.
-                        .then(
-                            if (mode == CalendarMode.SCHEDULE) Modifier else Modifier.pointerInput(Unit) {
-                                var dragged = 0f
-                                detectHorizontalDragGestures(
-                                    onDragStart = { dragged = 0f },
-                                    onDragEnd = { if (abs(dragged) > swipeThreshold) currentShift(if (dragged < 0) 1L else -1L) },
-                                ) { _, dx -> dragged += dx }
-                            }
-                        ),
-                ) { shown ->
-                    val selectedHere = if (selected in shown.start..shown.end) selected else shown.start
-                    when (shown.mode) {
-                        CalendarMode.SCHEDULE -> ScheduleView(
-                            tasks = tasks,
-                            today = today,
-                            target = selected,
-                            jump = jumps,
-                            range = shown.start..shown.end,
-                            vm = vm,
-                            onOpenTask = onOpenTask,
-                            onOpenDay = { goTo(it); setMode(CalendarMode.DAY) },
-                        )
-                        CalendarMode.YEAR -> {
-                            val entries = remember(tasks, shown) { calendarEntries(tasks, shown.start, shown.end) }
-                            YearGrid(shown.start.year, today, entries) { month ->
-                                selectedEpoch = (if (YearMonth.from(today) == month) today else month.atDay(1)).toEpochDay()
-                                setMode(CalendarMode.MONTH)
+                },
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    Column(Modifier.fillMaxSize()) {
+                        AnimatedVisibility(
+                            visible = monthPanel && mode != CalendarMode.YEAR,
+                            enter = expandVertically(Motion.soft()) + fadeIn(Motion.soft()),
+                            exit = shrinkVertically(Motion.softOut()) + fadeOut(Motion.softOut()),
+                        ) {
+                            MonthPanel(selected, today, tasks, first) { day ->
+                                goTo(day)
+                                monthPanel = false
                             }
                         }
-                        CalendarMode.MONTH -> {
-                            val entries = remember(tasks, shown) { calendarEntries(tasks, shown.start, shown.end) }
-                            Column(Modifier.fillMaxSize()) {
-                                MonthGrid(YearMonth.from(shown.start), selectedHere, today, entries, big = true) { selectedEpoch = it.toEpochDay() }
-                                HorizontalDivider(Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                                DayAgenda(selectedHere, today, entries[selectedHere].orEmpty(), vm, onOpenTask)
+                        val swipeThreshold = with(LocalDensity.current) { 72.dp.toPx() }
+                        val currentShift by rememberUpdatedState(::shift)
+                        AnimatedContent(
+                            targetState = page,
+                            transitionSpec = {
+                                when {
+                                    direction > 0 -> slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
+                                    direction < 0 -> slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
+                                    else -> fadeIn(Motion.soft()) togetherWith fadeOut(Motion.softOut())
+                                }
+                            },
+                            label = "calendar",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                // Swipe left/right moves to the next/previous day, week, month or year.
+                                .then(
+                                    if (mode == CalendarMode.SCHEDULE) Modifier else Modifier.pointerInput(mode) {
+                                        var dragged = 0f
+                                        detectHorizontalDragGestures(
+                                            onDragStart = { dragged = 0f },
+                                            onDragEnd = { if (abs(dragged) > swipeThreshold) currentShift(if (dragged < 0) 1L else -1L) },
+                                        ) { _, dx -> dragged += dx }
+                                    }
+                                ),
+                        ) { shownPage ->
+                            val selectedHere = if (selected in shownPage.start..shownPage.end) selected else shownPage.start
+                            when (shownPage.mode) {
+                                CalendarMode.SCHEDULE -> ScheduleView(
+                                    tasks = tasks,
+                                    today = today,
+                                    target = selected,
+                                    jump = jumps,
+                                    range = shownPage.start..shownPage.end,
+                                    vm = vm,
+                                    onOpen = ::openEntry,
+                                    onOpenDay = { goTo(it); setMode(CalendarMode.DAY) },
+                                )
+                                CalendarMode.YEAR -> {
+                                    val entries = remember(tasks, shownPage) { calendarEntries(tasks, shownPage.start, shownPage.end) }
+                                    YearGrid(shownPage.start.year, today, entries, first) { month ->
+                                        selectedEpoch = (if (YearMonth.from(today) == month) today else month.atDay(1)).toEpochDay()
+                                        setMode(CalendarMode.MONTH)
+                                    }
+                                }
+                                CalendarMode.MONTH -> {
+                                    val entries = remember(tasks, shownPage) { calendarEntries(tasks, shownPage.start, shownPage.end) }
+                                    MonthChips(
+                                        month = shownPage.month ?: YearMonth.from(selectedHere),
+                                        today = today,
+                                        entries = entries,
+                                        first = first,
+                                        weekNumbers = settings.weekNumbers,
+                                        dimPast = settings.dimPast,
+                                        onOpenDay = { day -> goTo(day); setMode(CalendarMode.DAY) },
+                                    )
+                                }
+                                CalendarMode.WEEK, CalendarMode.THREE_DAYS, CalendarMode.DAY -> {
+                                    val entries = remember(tasks, shownPage) { calendarEntries(tasks, shownPage.start, shownPage.end) }
+                                    val days = when (shownPage.mode) {
+                                        CalendarMode.DAY -> listOf(selectedHere)
+                                        CalendarMode.WEEK -> dayRange(shownPage.start, 7).filter {
+                                            settings.showWeekends || (it.dayOfWeek != DayOfWeek.SATURDAY && it.dayOfWeek != DayOfWeek.SUNDAY)
+                                        }
+                                        else -> dayRange(shownPage.start, 3)
+                                    }
+                                    TimeGrid(
+                                        days = days,
+                                        today = today,
+                                        entries = entries,
+                                        draft = quick,
+                                        settings = settings,
+                                        bottomInset = if (quick != null) 300.dp else 0.dp,
+                                        actions = GridActions(
+                                            onOpen = ::openEntry,
+                                            onOpenDay = if (shownPage.mode == CalendarMode.DAY) null else ({ day ->
+                                                goTo(day)
+                                                setMode(CalendarMode.DAY)
+                                            }),
+                                            onAddAt = { day, time -> addAt(day, time) },
+                                            onShift = { entry, s, e ->
+                                                val moved = entry.task.shifted(entry.occurrence, s, e)
+                                                if (entry.task.isEvent && entry.task.repeatRule != null) pendingShift = PendingShift(entry, moved)
+                                                else applyShift(entry, moved, SeriesScope.ALL)
+                                            },
+                                            onToggleDone = vm::toggleDone,
+                                            onZoom = appSettings::setHourHeight,
+                                        ),
+                                    )
+                                }
                             }
                         }
-                        CalendarMode.WEEK, CalendarMode.THREE_DAYS, CalendarMode.DAY -> {
-                            val entries = remember(tasks, shown) { calendarEntries(tasks, shown.start, shown.end) }
-                            val days = if (shown.mode == CalendarMode.DAY) listOf(selectedHere)
-                            else dayRange(shown.start, if (shown.mode == CalendarMode.WEEK) 7 else 3)
-                            TimeGrid(
-                                days = days,
-                                today = today,
-                                entries = entries,
-                                vm = vm,
-                                onOpenTask = onOpenTask,
-                                onOpenDay = if (shown.mode == CalendarMode.DAY) null else ({ day ->
-                                    goTo(day)
-                                    setMode(CalendarMode.DAY)
-                                }),
-                                onAddAt = { day, time -> draft = Draft(day, time, event = true) },
-                            )
-                        }
+                    }
+                    // The quick card covers only the bottom: the new block stays in sight above it.
+                    AnimatedVisibility(
+                        visible = quick != null,
+                        enter = slideInVertically(Motion.soft()) { it } + fadeIn(Motion.soft()),
+                        exit = slideOutVertically(Motion.softOut()) { it } + fadeOut(Motion.softOut()),
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    ) {
+                        val q = quick
+                        if (q != null) QuickCreateCard(q, { quick = it }, ::saveQuick, ::moreOptions, { quick = null })
                     }
                 }
             }
         }
     }
 
-    draft?.let { d ->
-        NewEntryDialog(
-            date = d.date,
-            time = d.time,
-            event = d.event,
-            onCreate = { task, remind ->
-                vm.createEntry(task, remind)
-                draft = null
+    sheet?.let { e ->
+        val t = snapshot.tasks.firstOrNull { it.id == e.task.id } ?: e.task
+        EventDetailsSheet(
+            task = t,
+            occurrence = e.occurrence,
+            calendars = calendars,
+            allDayMinutes = settings.allDayReminderMinutes,
+            onEdit = {
+                sheet = null
+                scope.launch { nav.openEditor(EventDraft(t.atOccurrence(e.occurrence), repo.remindersOf(t.id), t, e.occurrence)) }
             },
-            onDismiss = { draft = null },
+            onDuplicate = {
+                sheet = null
+                scope.launch {
+                    val copy = repo.duplicate(t, e.occurrence)
+                    container.undo.offer("Создана копия события") { repo.delete(copy.id) }
+                }
+            },
+            onColor = { c -> scope.launch { repo.update(t.copy(color = c)) } },
+            onDelete = { s ->
+                sheet = null
+                scope.launch {
+                    val undo = repo.deleteEvent(t, e.occurrence, s)
+                    container.undo.offer("Событие удалено") { undo() }
+                }
+            },
+            onDismiss = { sheet = null },
+        )
+    }
+    pendingShift?.let { p ->
+        ScopeDialog(
+            title = "Перенести повторяющееся событие",
+            scopes = SeriesScope.entries,
+            onPick = { s -> pendingShift = null; applyShift(p.entry, p.moved, s) },
+            onDismiss = { pendingShift = null },
+        )
+    }
+    virtualInfo?.let { e ->
+        AlertDialog(
+            onDismissRequest = { virtualInfo = null },
+            title = { Text(e.task.title) },
+            text = {
+                Text(
+                    listOfNotNull(
+                        formatEventSpan(e.task.atOccurrence(e.occurrence), today)?.replaceFirstChar { it.uppercase() },
+                        e.task.content.takeIf { it.isNotBlank() },
+                    ).joinToString("\n")
+                )
+            },
+            confirmButton = { TextButton(onClick = { virtualInfo = null }) { Text("Закрыть") } },
         )
     }
 }
 
 @Composable
-private fun ViewMenu(
-    expanded: Boolean,
-    mode: CalendarMode,
-    events: Boolean,
-    tasks: Boolean,
-    onMode: (CalendarMode) -> Unit,
-    onFilter: (Boolean, Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
+private fun ViewMenu(expanded: Boolean, mode: CalendarMode, onMode: (CalendarMode) -> Unit, onDismiss: () -> Unit) {
     DropdownMenu(expanded, onDismiss) {
         for (m in CalendarMode.entries) {
             DropdownMenuItem(
@@ -364,24 +622,6 @@ private fun ViewMenu(
                 onClick = { onMode(m) },
             )
         }
-        HorizontalDivider()
-        Text(
-            "Показывать",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
-        // At least one of the two stays on (see AppSettings.setCalendarFilter).
-        DropdownMenuItem(
-            text = { Text("События") },
-            leadingIcon = { Checkbox(checked = events, onCheckedChange = null) },
-            onClick = { onFilter(!events, tasks) },
-        )
-        DropdownMenuItem(
-            text = { Text("Задачи") },
-            leadingIcon = { Checkbox(checked = tasks, onCheckedChange = null) },
-            onClick = { onFilter(events, !tasks) },
-        )
     }
 }
 
@@ -390,12 +630,12 @@ private fun ViewMenu(
  * year between December and January) to page through, as in Google Calendar.
  */
 @Composable
-private fun MonthPanel(selected: LocalDate, today: LocalDate, tasks: List<Task>, onPick: (LocalDate) -> Unit) {
+private fun MonthPanel(selected: LocalDate, today: LocalDate, tasks: List<Task>, first: DayOfWeek, onPick: (LocalDate) -> Unit) {
     var month by remember(selected) { mutableStateOf(YearMonth.from(selected)) }
     val entries = remember(tasks, month) { calendarEntries(tasks, month.atDay(1), month.atEndOfMonth()) }
     val scheme = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().background(scheme.surfaceContainerLow).padding(bottom = 8.dp)) {
-        MonthGrid(month, selected, today, entries, big = false, onSelect = onPick)
+        MonthGrid(month, selected, today, entries, first, onSelect = onPick)
         val months = remember(today) { (-12L..36L).map { YearMonth.from(today).plusMonths(it) } }
         val strip = rememberLazyListState()
         LaunchedEffect(Unit) { strip.scrollToItem((months.indexOf(month) - 1).coerceAtLeast(0)) }
@@ -428,9 +668,8 @@ private fun MonthPanel(selected: LocalDate, today: LocalDate, tasks: List<Task>,
 }
 
 /**
- * A month as a grid of day numbers with coloured dots for what is on each day (two dots and a
- * "+" for more). Today is a filled circle, the selected day a lighter one. [big] for the Month
- * view, smaller for the panel under the title.
+ * A small month as a grid of day numbers with coloured dots for what is on each day (two dots
+ * and a "+" for more). Today is a filled circle, the selected day a lighter one.
  */
 @Composable
 internal fun MonthGrid(
@@ -438,21 +677,21 @@ internal fun MonthGrid(
     selected: LocalDate,
     today: LocalDate,
     entries: Map<LocalDate, List<CalendarEntry>>,
-    big: Boolean,
+    first: DayOfWeek,
     onSelect: (LocalDate) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val offset = month.atDay(1).dayOfWeek.value - 1
+    val offset = ((month.atDay(1).dayOfWeek.value - first.value) + 7) % 7
     val weeks = (offset + month.lengthOfMonth() + 6) / 7
     Column(Modifier.padding(horizontal = 8.dp)) {
         Row(Modifier.padding(vertical = 6.dp)) {
-            for ((i, d) in WEEK_DAYS.withIndex()) {
+            for (d in weekDays(first)) {
                 Text(
-                    d.take(1).uppercase(),
+                    WEEK_DAYS[d.value - 1].take(1).uppercase(),
                     Modifier.weight(1f),
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (month == YearMonth.from(today) && today.dayOfWeek.value - 1 == i) scheme.primary else scheme.onSurfaceVariant,
+                    color = if (month == YearMonth.from(today) && today.dayOfWeek == d) scheme.primary else scheme.onSurfaceVariant,
                 )
             }
         }
@@ -467,17 +706,13 @@ internal fun MonthGrid(
                     val day = month.atDay(index + 1)
                     val items = entries[day].orEmpty().filter { !it.task.isDone || it.task.isEvent }
                     Column(
-                        Modifier
-                            .weight(1f)
-                            .then(if (big) Modifier.aspectRatio(1f) else Modifier.height(44.dp))
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onSelect(day) },
+                        Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(12.dp)).clickable { onSelect(day) },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
                         Box(
                             Modifier
-                                .size(if (big) 34.dp else 30.dp)
+                                .size(30.dp)
                                 .clip(CircleShape)
                                 .background(
                                     when (day) {
@@ -490,7 +725,7 @@ internal fun MonthGrid(
                         ) {
                             Text(
                                 "${day.dayOfMonth}",
-                                style = if (big) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = if (day == today || day == selected) FontWeight.SemiBold else FontWeight.Normal,
                                 color = if (day == today) scheme.onPrimary else scheme.onSurface,
                             )
@@ -512,7 +747,7 @@ internal fun MonthGrid(
 
 /** Twelve small months; days with something on them are tinted. Tapping a month opens it. */
 @Composable
-private fun YearGrid(year: Int, today: LocalDate, entries: Map<LocalDate, List<CalendarEntry>>, onOpenMonth: (YearMonth) -> Unit) {
+private fun YearGrid(year: Int, today: LocalDate, entries: Map<LocalDate, List<CalendarEntry>>, first: DayOfWeek, onOpenMonth: (YearMonth) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 8.dp).padding(bottom = 88.dp),
@@ -521,7 +756,7 @@ private fun YearGrid(year: Int, today: LocalDate, entries: Map<LocalDate, List<C
             Row(Modifier.fillMaxWidth()) {
                 for (m in row) {
                     val month = YearMonth.of(year, m)
-                    val offset = month.atDay(1).dayOfWeek.value - 1
+                    val offset = ((month.atDay(1).dayOfWeek.value - first.value) + 7) % 7
                     Column(
                         Modifier.weight(1f).padding(4.dp).clip(RoundedCornerShape(10.dp)).clickable { onOpenMonth(month) }.padding(4.dp),
                     ) {

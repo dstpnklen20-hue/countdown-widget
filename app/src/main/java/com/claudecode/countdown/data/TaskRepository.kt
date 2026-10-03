@@ -14,6 +14,14 @@ import com.claudecode.countdown.data.db.Section
 import com.claudecode.countdown.data.db.newId
 import com.claudecode.countdown.data.db.now
 import com.claudecode.countdown.data.db.Priority
+import com.claudecode.countdown.data.db.CalendarLayer
+import com.claudecode.countdown.data.db.ReminderKind
+import com.claudecode.countdown.domain.SeriesScope
+import com.claudecode.countdown.domain.atOccurrence
+import com.claudecode.countdown.domain.deleteFromSeries
+import com.claudecode.countdown.domain.dueDay
+import com.claudecode.countdown.domain.editSeries
+import java.time.LocalDate
 import com.claudecode.countdown.domain.Due
 import com.claudecode.countdown.domain.TaskFilter
 import com.claudecode.countdown.domain.allDayDue
@@ -310,6 +318,154 @@ class TaskRepository(
     }
 
     suspend fun updateTag(tag: Tag) = tags.upsert(tag.copy(updatedAt = stampAfter(tag.updatedAt)))
+
+    // --- Events and calendars ---
+
+    private val calendars = db.calendarDao()
+
+    fun observeCalendars() = calendars.observeAll()
+    suspend fun calendars(): List<CalendarLayer> = calendars.all()
+    suspend fun calendar(id: String?): CalendarLayer? = calendars.get(id ?: CalendarLayer.PERSONAL_ID)?.takeIf { !it.deleted }
+
+    suspend fun createCalendar(name: String, color: Int): CalendarLayer =
+        CalendarLayer(name = name, color = color, sortOrder = calendars.maxSortOrder() + 1).also { calendars.upsert(it) }
+
+    suspend fun updateCalendar(calendar: CalendarLayer) {
+        calendars.upsert(calendar.copy(updatedAt = stampAfter(calendar.updatedAt)))
+        onChanged()
+    }
+
+    /** Removes a calendar with its events (they go to the trash); returns the stamp for [restoreCalendar]. */
+    suspend fun deleteCalendar(calendar: CalendarLayer): Long? {
+        if (calendar.id == CalendarLayer.PERSONAL_ID) return null
+        val at = now()
+        db.withTransaction {
+            calendars.deleteEvents(calendar.id, at)
+            calendars.upsert(calendar.copy(deleted = true, updatedAt = maxOf(at, calendar.updatedAt + 1)))
+        }
+        onChanged()
+        return at
+    }
+
+    suspend fun restoreCalendar(calendar: CalendarLayer, deletedAt: Long) {
+        db.withTransaction {
+            calendars.upsert(calendar.copy(deleted = false, updatedAt = stampAfter(calendar.updatedAt)))
+            calendars.restoreEvents(calendar.id, deletedAt)
+        }
+        onChanged()
+    }
+
+    /** What a reminder is, without its identity: two equal ones are the same reminder. */
+    data class ReminderSpec(val offsetMinutes: Int?, val absoluteAt: Long? = null, val kind: ReminderKind = ReminderKind.NOTIFY)
+
+    fun Reminder.spec() = ReminderSpec(offsetMinutes, absoluteAt, kind)
+
+    suspend fun remindersOf(taskId: String): List<ReminderSpec> = reminders.forTask(taskId).map { it.spec() }
+
+    /** Makes the task's reminders exactly [wanted]: removes the others, adds the missing ones. */
+    private suspend fun setReminders(taskId: String, wanted: Collection<ReminderSpec>) {
+        val current = reminders.forTask(taskId)
+        val keep = wanted.toSet()
+        for (r in current) if (r.spec() !in keep) reminders.softDelete(r.id)
+        val have = current.map { it.spec() }.toSet()
+        for (s in keep - have) reminders.upsert(Reminder(taskId = taskId, offsetMinutes = s.offsetMinutes, absoluteAt = s.absoluteAt, kind = s.kind))
+    }
+
+    /**
+     * Saves an event from the editor: a new one ([master] null), or the occurrence of [master] due
+     * on [occurrence] for the [scope] the user chose (see [editSeries]). Rows that the change
+     * creates get [reminderSpecs]; a changed series gets them too. Returns the id of the row
+     * that now holds the edited occurrence.
+     */
+    suspend fun saveEvent(
+        edited: Task,
+        reminderSpecs: Collection<ReminderSpec>,
+        master: Task? = null,
+        occurrence: LocalDate? = null,
+        scope: SeriesScope = SeriesScope.ALL,
+    ): String {
+        var resultId = edited.id
+        db.withTransaction {
+            if (master == null) {
+                val created = edited.copy(sortOrder = tasks.maxSortOrder() + 1)
+                tasks.upsert(created)
+                setReminders(created.id, reminderSpecs)
+                resultId = created.id
+            } else {
+                val change = editSeries(master, occurrence ?: master.dueDay() ?: today(), edited, scope, now())
+                for (row in change.save) {
+                    val stored = tasks.get(row.id)
+                    if (stored == null) {
+                        tasks.upsert(row.copy(sortOrder = tasks.maxSortOrder() + 1))
+                        setReminders(row.id, reminderSpecs)
+                        resultId = row.id
+                    } else {
+                        tasks.upsert(row.copy(updatedAt = stampAfter(stored.updatedAt)))
+                        if (row.id == edited.id && (scope == SeriesScope.ALL || master.repeatRule == null)) setReminders(row.id, reminderSpecs)
+                    }
+                }
+                if (master.repeatRule == null || scope == SeriesScope.ALL) resultId = master.id
+            }
+        }
+        onChanged()
+        return resultId
+    }
+
+    /**
+     * Deletes the occurrence of [master] due on [occurrence] for [scope]. Returns how to undo it:
+     * the series comes back as it was and deleted rows leave the trash.
+     */
+    suspend fun deleteEvent(master: Task, occurrence: LocalDate, scope: SeriesScope): suspend () -> Unit {
+        val change = deleteFromSeries(master, occurrence, scope)
+        val at = now()
+        val deleted = mutableListOf<String>()
+        db.withTransaction {
+            for (row in change.save) tasks.upsert(row.copy(updatedAt = stampAfter(master.updatedAt)))
+            for (id in change.delete) {
+                tasks.softDelete(id, at)
+                deleted += id
+                // The occurrences taken out of a deleted series go with it.
+                for (e in calendars.exceptionsOf(id)) {
+                    tasks.softDelete(e.id, at)
+                    deleted += e.id
+                }
+            }
+        }
+        for (id in deleted) onClosed(id)
+        onChanged()
+        return {
+            db.withTransaction {
+                for (id in deleted) tasks.restore(id, at)
+                if (change.save.isNotEmpty()) tasks.get(master.id)?.let { now -> tasks.upsert(master.copy(updatedAt = stampAfter(now.updatedAt))) }
+            }
+            onChanged()
+        }
+    }
+
+    /** A copy of the task (an event as it is on [occurrence] when given), with its reminders and tags. */
+    suspend fun duplicate(task: Task, occurrence: LocalDate? = null): Task {
+        val source = if (occurrence != null && task.repeatRule != null) task.atOccurrence(occurrence).copy(repeatRule = null, exDates = null) else task
+        val at = now()
+        val copy = source.copy(
+            id = newId(), status = TaskStatus.OPEN, completedAt = null, seriesId = null,
+            sortOrder = tasks.maxSortOrder() + 1, createdAt = at, updatedAt = at,
+        )
+        db.withTransaction {
+            tasks.upsert(copy)
+            setReminders(copy.id, reminders.forTask(task.id).map { it.spec() })
+            val tagIds = tags.linksFor(task.id).filter { !it.deleted }.map { it.tagId }
+            if (tagIds.isNotEmpty()) tags.setTaskTags(copy.id, tagIds)
+        }
+        onChanged()
+        return copy
+    }
+
+    /** Reminders a new event gets from its calendar: before the start, or at the all-day time. */
+    suspend fun defaultReminders(calendarId: String?, allDay: Boolean): List<ReminderSpec> {
+        val calendar = calendar(calendarId) ?: return emptyList()
+        val offset = if (allDay) calendar.defaultAllDayReminder else calendar.defaultReminder
+        return listOfNotNull(offset?.let { ReminderSpec(it) })
+    }
 
     suspend fun deleteTag(tag: Tag) {
         tags.softDelete(tag.id)

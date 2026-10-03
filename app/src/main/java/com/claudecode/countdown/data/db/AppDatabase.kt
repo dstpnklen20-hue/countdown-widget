@@ -6,12 +6,12 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    version = 5,
+    version = 6,
     exportSchema = true,
     entities = [
         Folder::class, TaskList::class, Section::class, Task::class, ChecklistItem::class,
         Tag::class, TaskTag::class, Reminder::class, WidgetBinding::class,
-        FocusSession::class, Habit::class, HabitCheckIn::class,
+        FocusSession::class, Habit::class, HabitCheckIn::class, CalendarLayer::class,
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,6 +25,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun focusDao(): FocusDao
     abstract fun habitDao(): HabitDao
     abstract fun widgetBindingDao(): WidgetBindingDao
+    abstract fun calendarDao(): CalendarDao
 
     companion object {
         const val NAME = "tiktak.db"

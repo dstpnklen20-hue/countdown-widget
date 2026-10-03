@@ -318,3 +318,32 @@ interface HabitDao {
     @Query("UPDATE habits SET deleted = 1, updatedAt = max(:at, updatedAt + 1) WHERE id = :id")
     suspend fun softDelete(id: String, at: Long = now())
 }
+
+@Dao
+interface CalendarDao {
+    @Upsert
+    suspend fun upsert(calendar: CalendarLayer)
+
+    @Query("SELECT * FROM calendars WHERE deleted = 0 ORDER BY sortOrder, createdAt")
+    fun observeAll(): Flow<List<CalendarLayer>>
+
+    @Query("SELECT * FROM calendars WHERE deleted = 0 ORDER BY sortOrder, createdAt")
+    suspend fun all(): List<CalendarLayer>
+
+    @Query("SELECT * FROM calendars WHERE id = :id")
+    suspend fun get(id: String): CalendarLayer?
+
+    @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM calendars")
+    suspend fun maxSortOrder(): Long
+
+    /** Events of a removed calendar go with it to the trash. */
+    @Query("UPDATE tasks SET deleted = 1, updatedAt = max(:at, updatedAt + 1) WHERE calendarId = :id AND deleted = 0")
+    suspend fun deleteEvents(id: String, at: Long = now())
+
+    @Query("UPDATE tasks SET deleted = 0, updatedAt = max(:at, updatedAt + 1) WHERE calendarId = :id AND deleted = 1 AND updatedAt >= :deletedAt")
+    suspend fun restoreEvents(id: String, deletedAt: Long, at: Long = now())
+
+    /** The occurrences taken out of a series on their own. */
+    @Query("SELECT * FROM tasks WHERE seriesId = :seriesId AND deleted = 0")
+    suspend fun exceptionsOf(seriesId: String): List<Task>
+}

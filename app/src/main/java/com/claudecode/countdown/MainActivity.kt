@@ -45,9 +45,18 @@ import com.claudecode.countdown.ui.MoreToolsSheet
 import com.claudecode.countdown.ui.icon
 import com.claudecode.countdown.ui.LocalSnackbarHost
 import com.claudecode.countdown.ui.TikTakTheme
+import com.claudecode.countdown.ui.rememberKeyboardOpen
 import com.claudecode.countdown.data.Tool
 import com.claudecode.countdown.data.barLayout
+import com.claudecode.countdown.ui.calendar.CalendarNav
 import com.claudecode.countdown.ui.calendar.CalendarScreen
+import com.claudecode.countdown.ui.calendar.CalendarSearchScreen
+import com.claudecode.countdown.ui.calendar.CalendarSettingsScreen
+import com.claudecode.countdown.ui.calendar.CalendarsScreen
+import com.claudecode.countdown.ui.calendar.EventDraft
+import com.claudecode.countdown.ui.calendar.EventEditRoute
+import com.claudecode.countdown.domain.dueDay
+import androidx.compose.runtime.produceState
 import com.claudecode.countdown.ui.detail.TaskDetailScreen
 import com.claudecode.countdown.ui.detail.TaskDetailViewModel
 import com.claudecode.countdown.ui.focus.FocusScreen
@@ -167,12 +176,22 @@ class MainActivity : AppCompatActivity() {
         val openTask: (String) -> Unit = { nav.navigate("task/$it") }
         val openTrash = { nav.navigate("trash") }
         val openToolbar = { nav.navigate("toolbar") }
+        val calendarNav = remember(nav) {
+            CalendarNav(
+                openTask = { nav.navigate("task/$it") },
+                openEditor = { draft -> container.eventDraft.value = draft; nav.navigate("event") },
+                openCalendars = { nav.navigate("calendars") },
+                openSettings = { nav.navigate("calendar-settings") },
+                openSearch = { nav.navigate("calendar-search") },
+            )
+        }
 
         // Phones get a bottom bar; wider screens a side rail, and from ~720dp the lists panel stays open.
         val width = LocalConfiguration.current.screenWidthDp
         val wide = width >= 600
         val bar = barLayout(settings.tools, settings.barLimit)
         val searchOnBar = !wide && Tool.SEARCH in bar.visible
+        val keyboardOpen by rememberKeyboardOpen()
         // A section opened from the ☰ menu (not pinned) returns to the tasks with Back.
         BackHandler(enabled = !wide && tab != Tool.TASKS && tab !in settings.tools) { tab = Tool.TASKS }
         val sections = listOf(Tool.MATRIX, Tool.FOCUS, Tool.HABITS, Tool.STATS).map { t ->
@@ -194,7 +213,7 @@ class MainActivity : AppCompatActivity() {
             composable("home") {
                 val body = @Composable {
                     AnimatedContent(tab, transitionSpec = { Motion.sectionChange() }, label = "section") { current ->
-                        Section(current, tasksVm, snapshot, filterKey, selectFilter, openTask, openTrash, openToolbar, sections, wide, width, searchOnBar) { tab = it }
+                        Section(current, tasksVm, snapshot, filterKey, selectFilter, openTask, openTrash, openToolbar, sections, wide, width, searchOnBar, calendarNav) { tab = it }
                     }
                 }
                 if (wide) {
@@ -206,7 +225,8 @@ class MainActivity : AppCompatActivity() {
                     Scaffold(
                         bottomBar = {
                             // Search opens full screen, like TickTick, unless it is pinned to the bar.
-                            if (tab != Tool.SEARCH || searchOnBar) {
+                            // Hidden while typing, so what is being typed into sits right above the keyboard.
+                            if ((tab != Tool.SEARCH || searchOnBar) && !keyboardOpen) {
                                 AppBottomBar(bar, tab, snapshot.today.dayOfMonth, onSelect = { tab = it }, onMore = { moreTools = bar.more })
                             }
                         },
@@ -230,11 +250,46 @@ class MainActivity : AppCompatActivity() {
                 val vm: TaskDetailViewModel = viewModel {
                     TaskDetailViewModel(id, container.tasks, container.appScope, container.undo)
                 }
-                TaskDetailScreen(
-                    vm = vm,
-                    onBack = { if (!nav.popBackStack()) finish() },
-                    onOpenTask = { nav.navigate("task/$it") },
-                )
+                val task by vm.task.collectAsStateWithLifecycle()
+                val event = task?.takeIf { it.isEvent && !it.deleted }
+                if (event != null) {
+                    // Events open in the event editor wherever they are opened from (search, widgets, reminders).
+                    val draft by produceState<EventDraft?>(null, event.id) {
+                        value = EventDraft(event, container.tasks.remindersOf(event.id), event, event.dueDay())
+                    }
+                    draft?.let { d ->
+                        EventEditRoute(d, snapshot.tasks.filter { it.isEvent }, onClose = { if (!nav.popBackStack()) finish() }, onTaskInstead = {})
+                    }
+                } else {
+                    TaskDetailScreen(
+                        vm = vm,
+                        onBack = { if (!nav.popBackStack()) finish() },
+                        onOpenTask = { nav.navigate("task/$it") },
+                    )
+                }
+            }
+            composable("event") {
+                val draft by container.eventDraft.collectAsStateWithLifecycle()
+                val d = draft
+                if (d == null) {
+                    LaunchedEffect(Unit) { nav.popBackStack() }
+                } else {
+                    EventEditRoute(
+                        d,
+                        snapshot.tasks.filter { it.isEvent },
+                        onClose = { nav.popBackStack() },
+                        onTaskInstead = { id -> nav.popBackStack(); nav.navigate("task/$id") },
+                    )
+                }
+            }
+            composable("calendars") {
+                CalendarsScreen(onBack = { nav.popBackStack() })
+            }
+            composable("calendar-settings") {
+                CalendarSettingsScreen(onBack = { nav.popBackStack() }, onOpenCalendars = { nav.navigate("calendars") })
+            }
+            composable("calendar-search") {
+                CalendarSearchScreen(snapshot, onOpenTask = openTask, onBack = { nav.popBackStack() })
             }
             composable("trash") {
                 TrashScreen(tasksVm, snapshot, onBack = { nav.popBackStack() })
@@ -259,6 +314,7 @@ class MainActivity : AppCompatActivity() {
         wide: Boolean,
         width: Int,
         searchOnBar: Boolean,
+        calendarNav: CalendarNav,
         onTab: (Tool) -> Unit,
     ) {
         when (tool) {
@@ -279,7 +335,7 @@ class MainActivity : AppCompatActivity() {
                 // Countdowns is a section of its own: it opens without the lists panel.
                 showLists = tool == Tool.TASKS,
             )
-            Tool.CALENDAR -> CalendarScreen(tasksVm, snapshot, openTask)
+            Tool.CALENDAR -> CalendarScreen(tasksVm, snapshot, calendarNav)
             Tool.MATRIX -> MatrixScreen(tasksVm, snapshot, openTask)
             Tool.FOCUS -> FocusScreen(snapshot, onOpenStats = { onTab(Tool.STATS) })
             Tool.HABITS -> HabitsScreen(snapshot.today)

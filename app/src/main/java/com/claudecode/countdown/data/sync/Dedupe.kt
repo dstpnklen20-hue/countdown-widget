@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.claudecode.countdown.data.db.AppDatabase
+import com.claudecode.countdown.data.db.CalendarLayer
 import com.claudecode.countdown.data.db.TaskList
 import java.util.Locale
 
@@ -52,6 +53,13 @@ class Deduplicator(private val db: AppDatabase, private val clock: () -> Long = 
             }
             merge("sections", "SELECT id, createdAt, listId, name FROM sections WHERE deleted = 0", pick(SyncTable.SECTIONS)) { from, to ->
                 repoint("tasks", "sectionId", from, to)
+            }
+            merge(
+                "calendars",
+                "SELECT id, createdAt, name FROM calendars WHERE deleted = 0 AND id != '${CalendarLayer.PERSONAL_ID}'",
+                pick(SyncTable.CALENDARS),
+            ) { from, to ->
+                repoint("tasks", "calendarId", from, to)
             }
             merge("tags", "SELECT id, createdAt, name FROM tags WHERE deleted = 0", pick(SyncTable.TAGS)) { from, to ->
                 repoint("tags", "parentId", from, to)

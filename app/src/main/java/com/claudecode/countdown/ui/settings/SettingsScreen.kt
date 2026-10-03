@@ -289,7 +289,7 @@ internal fun SettingRow(title: String, subtitle: String? = null, onClick: (() ->
 }
 
 @Composable
-private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -494,7 +494,7 @@ private fun appNotificationSettings(context: Context): Intent =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimeDialog(minutes: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
+internal fun TimeDialog(minutes: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
     val state = rememberTimePickerState(initialHour = minutes / 60, initialMinute = minutes % 60, is24Hour = true)
     AlertDialog(
         onDismissRequest = onDismiss,

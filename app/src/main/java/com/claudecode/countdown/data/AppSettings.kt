@@ -1,6 +1,8 @@
 package com.claudecode.countdown.data
 
 import android.content.Context
+import com.claudecode.countdown.data.db.CalendarLayer
+import java.time.DayOfWeek
 import com.claudecode.countdown.domain.ALL_DAY_REMINDER_MINUTES
 import com.claudecode.countdown.domain.TaskFilter
 import com.claudecode.countdown.domain.TaskSort
@@ -61,7 +63,46 @@ data class Settings(
     val calendarMode: String = "MONTH",
     val calendarEvents: Boolean = true,
     val calendarTasks: Boolean = true,
+    // --- Calendar ---
+    /** Calendars (layers) hidden on this device; their events stay in the database. */
+    val hiddenCalendars: Set<String> = emptySet(),
+    /** Where new events go. */
+    val defaultCalendarId: String = CalendarLayer.PERSONAL_ID,
+    /** First day of the week: 1 = Monday, 6 = Saturday, 7 = Sunday (ISO numbers). */
+    val firstDayOfWeek: Int = 1,
+    val weekNumbers: Boolean = false,
+    /** Length of a new event, in minutes. */
+    val eventMinutes: Int = 60,
+    /** Past events are drawn faded. */
+    val dimPast: Boolean = true,
+    /** Saturday and Sunday in the week view. */
+    val showWeekends: Boolean = true,
+    /** Completed tasks stay in the calendar, crossed out. */
+    val calendarDone: Boolean = true,
+    /** Working hours (minutes of the day); outside them the time grid is shaded. Null: no shading. */
+    val workStart: Int? = null,
+    val workEnd: Int? = null,
+    /** A second time zone shown as an extra hour column; null for none. */
+    val secondZone: String? = null,
+    /** Height of an hour on the time grid, in dp (pinch to change). */
+    val hourHeight: Int = AppSettings.DEFAULT_HOUR_HEIGHT,
+    /** Quiet hours (minutes of the day): reminders come without sound. Null: off. */
+    val quietStart: Int? = null,
+    val quietEnd: Int? = null,
+    val showHolidays: Boolean = false,
+    val showBirthdays: Boolean = false,
+    /** Recent searches, newest first. */
+    val recentSearches: List<String> = emptyList(),
 ) {
+    val firstDay: DayOfWeek get() = DayOfWeek.of(firstDayOfWeek.coerceIn(1, 7))
+
+    /** Whether [minuteOfDay] falls into the quiet hours (which may run over midnight). */
+    fun isQuiet(minuteOfDay: Int): Boolean {
+        val from = quietStart ?: return false
+        val to = quietEnd ?: return false
+        return if (from <= to) minuteOfDay in from until to else minuteOfDay >= from || minuteOfDay < to
+    }
+
     val startFilterKey: String
         get() = when (startList) {
             StartList.TODAY -> TaskFilter.Today.key
@@ -81,6 +122,9 @@ class AppSettings(context: Context) {
         const val DEFAULT_BAR_LIMIT = 5
         val BAR_LIMITS = 3..6
         const val EMPTY_ART_DAILY = -1
+        const val DEFAULT_HOUR_HEIGHT = 52
+        /** Pinch zoom range of an hour on the time grid, in dp. */
+        val HOUR_HEIGHTS = 30..150
     }
 
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -104,6 +148,23 @@ class AppSettings(context: Context) {
         calendarMode = prefs.getString("calendarMode", null) ?: "MONTH",
         calendarEvents = prefs.getBoolean("calendarEvents", true),
         calendarTasks = prefs.getBoolean("calendarTasks", true),
+        hiddenCalendars = prefs.getStringSet("hiddenCalendars", emptySet()).orEmpty().toSet(),
+        defaultCalendarId = prefs.getString("defaultCalendarId", null) ?: CalendarLayer.PERSONAL_ID,
+        firstDayOfWeek = prefs.getInt("firstDayOfWeek", 1),
+        weekNumbers = prefs.getBoolean("weekNumbers", false),
+        eventMinutes = prefs.getInt("eventMinutes", 60),
+        dimPast = prefs.getBoolean("dimPast", true),
+        showWeekends = prefs.getBoolean("showWeekends", true),
+        calendarDone = prefs.getBoolean("calendarDone", true),
+        workStart = prefs.getInt("workStart", -1).takeIf { it >= 0 },
+        workEnd = prefs.getInt("workEnd", -1).takeIf { it >= 0 },
+        secondZone = prefs.getString("secondZone", null),
+        hourHeight = prefs.getInt("hourHeight", DEFAULT_HOUR_HEIGHT).coerceIn(HOUR_HEIGHTS),
+        quietStart = prefs.getInt("quietStart", -1).takeIf { it >= 0 },
+        quietEnd = prefs.getInt("quietEnd", -1).takeIf { it >= 0 },
+        showHolidays = prefs.getBoolean("showHolidays", false),
+        showBirthdays = prefs.getBoolean("showBirthdays", false),
+        recentSearches = prefs.getString("recentSearches", null)?.split('\n')?.filter { it.isNotBlank() }.orEmpty(),
     )
 
     private fun loadTools(): List<Tool> {
@@ -132,6 +193,23 @@ class AppSettings(context: Context) {
             .putString("calendarMode", s.calendarMode)
             .putBoolean("calendarEvents", s.calendarEvents)
             .putBoolean("calendarTasks", s.calendarTasks)
+            .putStringSet("hiddenCalendars", s.hiddenCalendars)
+            .putString("defaultCalendarId", s.defaultCalendarId)
+            .putInt("firstDayOfWeek", s.firstDayOfWeek)
+            .putBoolean("weekNumbers", s.weekNumbers)
+            .putInt("eventMinutes", s.eventMinutes)
+            .putBoolean("dimPast", s.dimPast)
+            .putBoolean("showWeekends", s.showWeekends)
+            .putBoolean("calendarDone", s.calendarDone)
+            .putInt("workStart", s.workStart ?: -1)
+            .putInt("workEnd", s.workEnd ?: -1)
+            .putString("secondZone", s.secondZone)
+            .putInt("hourHeight", s.hourHeight)
+            .putInt("quietStart", s.quietStart ?: -1)
+            .putInt("quietEnd", s.quietEnd ?: -1)
+            .putBoolean("showHolidays", s.showHolidays)
+            .putBoolean("showBirthdays", s.showBirthdays)
+            .putString("recentSearches", s.recentSearches.joinToString("\n"))
             .apply()
         _state.value = s
     }
@@ -168,4 +246,30 @@ class AppSettings(context: Context) {
     fun setCalendarFilter(events: Boolean, tasks: Boolean) {
         if (events || tasks) update { it.copy(calendarEvents = events, calendarTasks = tasks) }
     }
+
+    fun setCalendarShown(id: String, shown: Boolean) = update {
+        it.copy(hiddenCalendars = if (shown) it.hiddenCalendars - id else it.hiddenCalendars + id)
+    }
+    fun setDefaultCalendar(id: String) = update { it.copy(defaultCalendarId = id) }
+    fun setFirstDayOfWeek(value: Int) = update { it.copy(firstDayOfWeek = value.coerceIn(1, 7)) }
+    fun setWeekNumbers(value: Boolean) = update { it.copy(weekNumbers = value) }
+    fun setEventMinutes(value: Int) = update { it.copy(eventMinutes = value) }
+    fun setDimPast(value: Boolean) = update { it.copy(dimPast = value) }
+    fun setShowWeekends(value: Boolean) = update { it.copy(showWeekends = value) }
+    fun setCalendarDone(value: Boolean) = update { it.copy(calendarDone = value) }
+    fun setWorkHours(start: Int?, end: Int?) = update { it.copy(workStart = start, workEnd = end) }
+    fun setSecondZone(id: String?) = update { it.copy(secondZone = id) }
+    fun setHourHeight(value: Int) {
+        val v = value.coerceIn(HOUR_HEIGHTS)
+        if (v != current.hourHeight) update { it.copy(hourHeight = v) }
+    }
+    fun setQuietHours(start: Int?, end: Int?) = update { it.copy(quietStart = start, quietEnd = end) }
+    fun setShowHolidays(value: Boolean) = update { it.copy(showHolidays = value) }
+    fun setShowBirthdays(value: Boolean) = update { it.copy(showBirthdays = value) }
+    fun addRecentSearch(query: String) {
+        val q = query.trim()
+        if (q.length < 2) return
+        update { s -> s.copy(recentSearches = (listOf(q) + s.recentSearches.filter { !it.equals(q, ignoreCase = true) }).take(8)) }
+    }
+    fun clearRecentSearches() = update { it.copy(recentSearches = emptyList()) }
 }
