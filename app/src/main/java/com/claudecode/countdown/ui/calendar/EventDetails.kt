@@ -1,5 +1,6 @@
 package com.claudecode.countdown.ui.calendar
 
+import androidx.compose.material.icons.outlined.Public
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -118,6 +119,20 @@ fun EventDetailsSheet(
                 }
             }
             Spacer(Modifier.size(8.dp))
+            if (!task.isAllDay && (task.startZone != null || task.endZone != null)) {
+                // The times as they were set, in their own zones (a flight: departure and arrival local times).
+                val t = com.claudecode.countdown.ui.EventTime.of(shown)
+                val app = java.time.ZoneId.systemDefault().id
+                val startZone = t.startZone ?: app
+                val endZone = t.endZone ?: startZone
+                DetailRow(
+                    Icons.Outlined.Public,
+                    "%s %s → %s %s".format(
+                        com.claudecode.countdown.ui.formatClock(t.start), com.claudecode.countdown.ui.zoneCity(startZone),
+                        com.claudecode.countdown.ui.formatClock(t.end), com.claudecode.countdown.ui.zoneCity(endZone),
+                    ),
+                )
+            }
             task.repeatDescription()?.let { DetailRow(Icons.Outlined.Repeat, it.replaceFirstChar { c -> c.uppercase() }) }
             task.location?.let { place -> DetailRow(Icons.Outlined.LocationOn, place, onClick = { openMap(context, place) }) }
             if (task.content.isNotBlank()) DetailRow(Icons.AutoMirrored.Outlined.Notes, task.content)

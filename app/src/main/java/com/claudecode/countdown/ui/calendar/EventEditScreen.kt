@@ -1,5 +1,8 @@
 package com.claudecode.countdown.ui.calendar
 
+import com.claudecode.countdown.ui.zoneLabel
+import com.claudecode.countdown.ui.ZonePickerDialog
+import androidx.compose.material.icons.outlined.Public
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -157,6 +160,7 @@ fun EventEditScreen(
     var typeMenu by remember { mutableStateOf(false) }
     var askScope by remember { mutableStateOf<String?>(null) }
     var confirmDiscard by remember { mutableStateOf(false) }
+    var zonesDialog by remember { mutableStateOf(false) }
 
     val isNew = draft.master == null
     val series = draft.master?.repeatRule != null
@@ -248,6 +252,15 @@ fun EventEditScreen(
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             FieldRow(Icons.Outlined.AccessTime) { EventTimeFields(time) { time = it } }
+            if (!time.allDay) {
+                FieldRow(Icons.Outlined.Public, onClick = { zonesDialog = true }) {
+                    Text(
+                        if (!time.hasZones) "Часовой пояс приложения" else zonesText(time),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Hint(if (!time.hasZones) "Нажмите, чтобы задать свой пояс началу и концу (перелёт)" else "Время начала и конца — в этих поясах")
+                }
+            }
             FieldRow(Icons.Outlined.Repeat, onClick = { repeatMenu = true }) {
                 Box {
                     Text(
@@ -429,6 +442,9 @@ fun EventEditScreen(
             onDismiss = { askScope = null },
         )
     }
+    if (zonesDialog) {
+        ZonesDialog(time, onChange = { time = it }) { zonesDialog = false }
+    }
     if (confirmDiscard) {
         AlertDialog(
             onDismissRequest = { confirmDiscard = false },
@@ -565,5 +581,49 @@ fun openMap(context: android.content.Context, place: String) {
                 Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=" + Uri.encode(place))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         }
+    }
+}
+
+/** "Москва (UTC+3) → Дубай (UTC+4)", or one zone when both ends share it. */
+private fun zonesText(time: EventTime): String {
+    val app = java.time.ZoneId.systemDefault().id
+    val start = time.startZone ?: app
+    val end = time.endZone ?: start
+    return if (start == end) zoneLabel(start) else "${zoneLabel(start)} → ${zoneLabel(end)}"
+}
+
+/** Zones for the start and the end of an event; the clock times stay as typed. */
+@Composable
+private fun ZonesDialog(time: EventTime, onChange: (EventTime) -> Unit, onDismiss: () -> Unit) {
+    var picking by remember { mutableStateOf<String?>(null) }
+    val app = java.time.ZoneId.systemDefault().id
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Часовой пояс") },
+        text = {
+            Column {
+                Text(
+                    "Например, вылет в 10:00 по Москве и прилёт в 14:00 по Дубаю. В календаре событие встанет на ваше время.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ZoneChoice("Начало", zoneLabel(time.startZone ?: app) + if (time.startZone == null) " — как в приложении" else "") { picking = "start" }
+                ZoneChoice("Конец", zoneLabel(time.endZone ?: time.startZone ?: app) + if (time.endZone == null) " — как у начала" else "") { picking = "end" }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } },
+        dismissButton = { if (time.hasZones) TextButton(onClick = { onChange(time.withZones(null, null)); onDismiss() }) { Text("Как в приложении") } },
+    )
+    when (picking) {
+        "start" -> ZonePickerDialog("Пояс начала", time.startZone, "Как в приложении", { onChange(time.withZones(it, time.endZone)) }) { picking = null }
+        "end" -> ZonePickerDialog("Пояс конца", time.endZone, "Как у начала", { onChange(time.withZones(time.startZone, it)) }) { picking = null }
+    }
+}
+
+@Composable
+private fun ZoneChoice(label: String, value: String, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick).padding(vertical = 10.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
     }
 }

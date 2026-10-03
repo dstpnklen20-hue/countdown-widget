@@ -23,6 +23,8 @@ import com.claudecode.countdown.ui.UndoBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -88,7 +90,12 @@ private val minuteClock = flow {
 }
 
 
-class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus) : ViewModel() {
+class TasksViewModel(
+    private val repo: TaskRepository,
+    private val undo: UndoBus,
+    /** The app's time zone setting: a change rebuilds "today" and the times at once. */
+    zone: Flow<String?> = flowOf(null),
+) : ViewModel() {
 
     private val progress = combine(repo.observeChecklistProgress(), repo.observeSubtaskProgress()) { c, s ->
         c.associateBy { it.taskId } to s.associateBy { it.taskId }
@@ -100,7 +107,7 @@ class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus
     }
 
     val snapshot: StateFlow<Snapshot> = combine(
-        repo.observeTopLevel(), repo.observeTaskTags(), progress, structure, minuteClock,
+        repo.observeTopLevel(), repo.observeTaskTags(), progress, structure, combine(minuteClock, zone) { t, _ -> t },
     ) { tasks, taskTags, (checklist, subtasks), st, clock ->
         val lists = st.lists
         val listIds = lists.mapTo(HashSet()) { it.id }

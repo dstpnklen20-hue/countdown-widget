@@ -82,6 +82,8 @@ data class Settings(
     /** Working hours (minutes of the day); outside them the time grid is shaded. Null: no shading. */
     val workStart: Int? = null,
     val workEnd: Int? = null,
+    /** The zone the whole app works in; null follows the phone (see AppZone). */
+    val appZone: String? = null,
     /** A second time zone shown as an extra hour column; null for none. */
     val secondZone: String? = null,
     /** Height of an hour on the time grid, in dp (pinch to change). */
@@ -129,6 +131,11 @@ class AppSettings(context: Context) {
 
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val _state = MutableStateFlow(load())
+
+    init {
+        // Whoever reads the settings first (app, widget, alarm) puts the app in its time zone.
+        AppZone.apply(_state.value.appZone)
+    }
     val state: StateFlow<Settings> = _state.asStateFlow()
     val current: Settings get() = _state.value
 
@@ -159,6 +166,7 @@ class AppSettings(context: Context) {
         workStart = prefs.getInt("workStart", -1).takeIf { it >= 0 },
         workEnd = prefs.getInt("workEnd", -1).takeIf { it >= 0 },
         secondZone = prefs.getString("secondZone", null),
+        appZone = prefs.getString("appZone", null),
         hourHeight = prefs.getInt("hourHeight", DEFAULT_HOUR_HEIGHT).coerceIn(HOUR_HEIGHTS),
         quietStart = prefs.getInt("quietStart", -1).takeIf { it >= 0 },
         quietEnd = prefs.getInt("quietEnd", -1).takeIf { it >= 0 },
@@ -204,6 +212,7 @@ class AppSettings(context: Context) {
             .putInt("workStart", s.workStart ?: -1)
             .putInt("workEnd", s.workEnd ?: -1)
             .putString("secondZone", s.secondZone)
+            .putString("appZone", s.appZone)
             .putInt("hourHeight", s.hourHeight)
             .putInt("quietStart", s.quietStart ?: -1)
             .putInt("quietEnd", s.quietEnd ?: -1)
@@ -259,6 +268,11 @@ class AppSettings(context: Context) {
     fun setCalendarDone(value: Boolean) = update { it.copy(calendarDone = value) }
     fun setWorkHours(start: Int?, end: Int?) = update { it.copy(workStart = start, workEnd = end) }
     fun setSecondZone(id: String?) = update { it.copy(secondZone = id) }
+    fun setAppZone(id: String?) {
+        // First the zone, then the setting: whoever reacts to the setting must already see the new zone.
+        AppZone.apply(id)
+        update { it.copy(appZone = id) }
+    }
     fun setHourHeight(value: Int) {
         val v = value.coerceIn(HOUR_HEIGHTS)
         if (v != current.hourHeight) update { it.copy(hourHeight = v) }

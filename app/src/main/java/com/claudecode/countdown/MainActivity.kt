@@ -1,5 +1,7 @@
 package com.claudecode.countdown
 
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -110,7 +112,7 @@ class MainActivity : AppCompatActivity() {
         setContent {
             val p = palette ?: return@setContent
             TikTakTheme(p) {
-                val tasksVm: TasksViewModel = viewModel { TasksViewModel(container.tasks, container.undo) }
+                val tasksVm: TasksViewModel = viewModel { TasksViewModel(container.tasks, container.undo, container.settings.state.map { it.appZone }.distinctUntilChanged()) }
                 val nav = rememberNavController()
                 LaunchedEffect(pendingTaskId) {
                     pendingTaskId?.let { id ->
@@ -157,6 +159,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The phone's zone may have changed meanwhile, which resets the app's own one.
+        com.claudecode.countdown.data.AppZone.apply(container.settings.current.appZone)
         // The system dark mode may have changed while the app was in the background.
         onThemeChanged()
         // Pick up what was changed on other devices meanwhile.

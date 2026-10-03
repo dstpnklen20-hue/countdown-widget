@@ -54,6 +54,7 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZoneOffset
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -69,35 +70,53 @@ data class EventTime(
     val endDate: LocalDate,
     val end: LocalTime,
     val allDay: Boolean,
+    /** Zones the start and the end are given in (a flight: Moscow → Dubai); null is the app's zone. */
+    val startZone: String? = null,
+    val endZone: String? = null,
 ) {
-    private val from: LocalDateTime get() = startDate.atTime(start)
-    private val to: LocalDateTime get() = endDate.atTime(end)
+    private val startZoneId: ZoneId get() = zoneOf(startZone) ?: ZoneId.systemDefault()
+    private val endZoneId: ZoneId get() = zoneOf(endZone) ?: startZoneId
+    private val from: ZonedDateTime get() = startDate.atTime(start).atZone(startZoneId)
+    private val to: ZonedDateTime get() = endDate.atTime(end).atZone(endZoneId)
 
-    /** Moving the start keeps the length, like calendar apps do. */
+    /** Moving the start keeps the length (in real time, across zones), like calendar apps do. */
     fun withStart(date: LocalDate, time: LocalTime): EventTime {
         val length = Duration.between(from, to).coerceAtLeast(Duration.ZERO)
-        val newFrom = date.atTime(time)
-        val newTo = newFrom.plus(length)
+        val newFrom = date.atTime(time).atZone(startZoneId)
+        val newTo = newFrom.plus(length).withZoneSameInstant(endZoneId)
         return copy(startDate = date, start = time, endDate = newTo.toLocalDate(), end = newTo.toLocalTime())
     }
 
     /** An end time before the start on the same day means the next morning (sleep 23:00–6:00). */
     fun withEnd(date: LocalDate, time: LocalTime): EventTime {
-        var newTo = date.atTime(time)
-        if (newTo <= from && date == startDate && !allDay) newTo = newTo.plusDays(1)
-        if (newTo < from) newTo = from
+        var newTo = date.atTime(time).atZone(endZoneId)
+        if (!newTo.isAfter(from) && date == startDate && !allDay) newTo = newTo.plusDays(1)
+        if (newTo.isBefore(from)) newTo = from.withZoneSameInstant(endZoneId)
         return copy(endDate = newTo.toLocalDate(), end = newTo.toLocalTime())
     }
+
+    /** Other zones for the start and end: the clock times stay as they are, as in Google Calendar. */
+    fun withZones(start: String?, end: String?): EventTime = copy(startZone = start, endZone = end?.takeIf { it != start })
+
+    val hasZones: Boolean get() = startZone != null || endZone != null
 
     fun applyTo(task: Task, zone: ZoneId = ZoneId.systemDefault()): Task =
         if (allDay) {
             val last = if (endDate < startDate) startDate else endDate
-            task.copy(startAt = allDayDue(startDate, zone).at, dueAt = allDayDue(last, zone).at, isAllDay = true, timeZone = zone.id)
+            task.copy(
+                startAt = allDayDue(startDate, zone).at, dueAt = allDayDue(last, zone).at, isAllDay = true, timeZone = zone.id,
+                startZone = null, endZone = null,
+            )
         } else {
-            task.copy(startAt = timedDue(startDate, start, zone).at, dueAt = timedDue(endDate, end, zone).at, isAllDay = false, timeZone = zone.id)
+            task.copy(
+                startAt = from.toInstant().toEpochMilli(), dueAt = to.toInstant().toEpochMilli(), isAllDay = false,
+                timeZone = startZoneId.id, startZone = startZone, endZone = endZone,
+            )
         }
 
     companion object {
+        private fun zoneOf(id: String?): ZoneId? = id?.let { runCatching { ZoneId.of(it) }.getOrNull() }
+
         /** An hour from [time] (9:00 when there is none). */
         fun at(date: LocalDate, time: LocalTime?): EventTime {
             val from = date.atTime(time ?: LocalTime.of(9, 0))
@@ -105,6 +124,7 @@ data class EventTime(
             return EventTime(date, from.toLocalTime(), to.toLocalDate(), to.toLocalTime(), allDay = false)
         }
 
+        /** The task's time; an event with zones of its own is shown in them. */
         fun of(task: Task, zone: ZoneId = ZoneId.systemDefault()): EventTime {
             val due = task.dueAt ?: return at(LocalDate.now(zone), null)
             if (task.isAllDay) {
@@ -112,8 +132,13 @@ data class EventTime(
                 val first = task.startAt?.let { task.copy(dueAt = it).dueDay(zone) }?.takeIf { it <= last } ?: last
                 return EventTime(first, LocalTime.of(9, 0), last, LocalTime.of(10, 0), allDay = true)
             }
+            val startZone = zoneOf(task.startZone) ?: zone
+            val endZone = zoneOf(task.endZone) ?: startZone
             val start = task.startAt?.takeIf { it <= due } ?: due
-            return EventTime(localDateOf(start, zone), localTimeOf(start, zone), localDateOf(due, zone), localTimeOf(due, zone), allDay = false)
+            return EventTime(
+                localDateOf(start, startZone), localTimeOf(start, startZone), localDateOf(due, endZone), localTimeOf(due, endZone),
+                allDay = false, startZone = task.startZone, endZone = task.endZone,
+            )
         }
     }
 }

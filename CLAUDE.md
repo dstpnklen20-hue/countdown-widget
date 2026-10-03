@@ -2,7 +2,7 @@
 
 Android-приложение «Tik Tak» — клон TickTick, выросший из «Обратного отсчёта».
 Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContainer`), Glance-виджеты.
-Статус на 2026-10-03: в `tasks` готов календарь как Google Календарь (база v6, BACKLOG A6), не выпущен.
+Статус на 2026-10-03: в `tasks` готов календарь как Google Календарь (база v7, BACKLOG A6), не выпущен.
 Выпущен `build-33` (Tik Tak 2.4): события отдельно от задач (база v5), календарь
 в стиле Google, виджет «Расписание», объединение дублей при синхронизации, ускорение (BACKLOG A5).
 Ранее 2.3 (`build-29`): новый логотип и выбор цвета значка,
@@ -66,7 +66,7 @@ Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContaine
 - `core/` (чистый Kotlin, быстрые тесты): `RepeatRule` (RRULE: FREQ/INTERVAL/BYDAY/BYMONTHDAY/COUNT/UNTIL),
   `RepeatText` (описания по-русски), `QuickAddParser` (RU/EN: даты, время, повторы, `!приоритет`, `#тег`, `~список`).
 - `app/.../data/db/`: `Entities.kt` (у синхронизируемых сущностей id UUID, createdAt, updatedAt, deleted),
-  `Daos.kt`, `AppDatabase.kt` (версия 6), `Migrations.kt`, `DatabaseSeeder.kt` (Inbox + импорт отсчётов 1.x).
+  `Daos.kt`, `AppDatabase.kt` (версия 7), `Migrations.kt`, `DatabaseSeeder.kt` (Inbox + импорт отсчётов 1.x).
 - `app/.../data/`: `TaskRepository` (единая точка записи задач; `onChanged` → виджеты и будильник),
   `HabitRepository`/`FocusRepository`, `CountdownRepository` (мост для старых View-экранов).
 - `app/.../domain/`: умные списки и группировка, повторы задач, напоминания, проекция календаря, статистика привычек.
@@ -79,6 +79,9 @@ Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContaine
   v6: место, календарь (`calendars`, `CalendarLayer.PERSONAL_ID`), исключения серии (`exDates`, `seriesId`,
   логика в `domain/Series.kt`: «только это / последующие / все»), `eventType`, `Reminder.kind` (будильник →
   `reminders/AlarmActivity`). Праздники и дни рождения — не хранятся (`domain/Holidays.kt`, id `virtual:`).
+  v7: `startZone/endZone` — пояса начала и конца события (`EventTime` хранит их). Пояс всего приложения —
+  `AppZone.apply()` (TimeZone.setDefault): при смене пояса телефона Android его сбрасывает, поэтому
+  применяется заново в `BootReceiver`, `MainActivity.onResume` и при чтении настроек.
   Импорт/экспорт `.ics` — `data/Ics.kt`. Отметки правок — `stampAfter` (новее изменяемой версии, против
   расхождения часов телефонов).
 - `app/.../ui/`: Compose-экраны (tasks, detail, calendar, matrix, focus, habits, settings), `Theme.kt`

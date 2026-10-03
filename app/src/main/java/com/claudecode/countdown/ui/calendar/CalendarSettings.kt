@@ -1,5 +1,8 @@
 package com.claudecode.countdown.ui.calendar
 
+import com.claudecode.countdown.ui.zoneLabel
+import com.claudecode.countdown.ui.ZonePickerDialog
+import com.claudecode.countdown.data.AppZone
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -62,21 +65,9 @@ import java.time.DayOfWeek
 import java.time.ZoneId
 import java.time.format.TextStyle
 
-/** Time zones offered as a second zone: Russia's and a few common ones abroad. */
-private val SECOND_ZONES = listOf(
-    "Europe/Kaliningrad", "Europe/Moscow", "Europe/Samara", "Asia/Yekaterinburg", "Asia/Omsk", "Asia/Novosibirsk",
-    "Asia/Krasnoyarsk", "Asia/Irkutsk", "Asia/Yakutsk", "Asia/Vladivostok", "Asia/Magadan", "Asia/Kamchatka",
-    "Europe/London", "Europe/Berlin", "Europe/Istanbul", "Asia/Dubai", "Asia/Tbilisi", "Asia/Almaty", "Asia/Tashkent",
-    "Asia/Shanghai", "Asia/Tokyo", "Asia/Bangkok", "America/New_York", "America/Los_Angeles", "UTC",
-)
 
 private val DURATIONS = listOf(15, 30, 45, 60, 90, 120)
 
-private fun zoneLabel(id: String): String {
-    val zone = runCatching { ZoneId.of(id) }.getOrNull() ?: return id
-    val offset = zone.rules.getOffset(java.time.Instant.now()).id.replace("Z", "+00:00")
-    return zone.getDisplayName(TextStyle.FULL, ru) + " (UTC$offset)"
-}
 
 /** Calendar settings, as Google Calendar has them: the week, new events, working and quiet hours, zones. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -124,7 +115,10 @@ fun CalendarSettingsScreen(onBack: () -> Unit, onOpenCalendars: () -> Unit) {
                     "Тихие часы",
                     if (s.quietStart != null && s.quietEnd != null) "${formatMinuteOfDay(s.quietStart!!)}–${formatMinuteOfDay(s.quietEnd!!)} · напоминания без звука" else "Выключены",
                 ) { dialog = "quiet" }
-                SettingRow("Часовой пояс устройства", zoneLabel(ZoneId.systemDefault().id))
+                SettingRow(
+                    "Часовой пояс приложения",
+                    s.appZone?.let { "${zoneLabel(it)} · на телефоне ${zoneLabel(AppZone.device().id)}" } ?: "Как на телефоне: ${zoneLabel(AppZone.device().id)}",
+                ) { dialog = "appZone" }
             }
         }
     }
@@ -137,7 +131,18 @@ fun CalendarSettingsScreen(onBack: () -> Unit, onOpenCalendars: () -> Unit) {
         ) { dialog = null }
         "duration" -> ChoiceDialog("Длительность события", DURATIONS.map { it to "$it мин" }, s.eventMinutes, app::setEventMinutes) { dialog = null }
         "calendar" -> ChoiceDialog("Календарь по умолчанию", calendars.map { it.id to it.name }, s.defaultCalendarId, app::setDefaultCalendar) { dialog = null }
-        "zone" -> ChoiceDialog("Второй часовой пояс", listOf<Pair<String?, String>>(null to "Нет") + SECOND_ZONES.map { it to zoneLabel(it) }, s.secondZone, app::setSecondZone) { dialog = null }
+        "zone" -> ZonePickerDialog("Второй часовой пояс", s.secondZone, "Нет", app::setSecondZone) { dialog = null }
+        "appZone" -> ZonePickerDialog(
+            "Часовой пояс приложения",
+            s.appZone,
+            "Как на телефоне — ${zoneLabel(AppZone.device().id)}",
+            { id ->
+                app.setAppZone(id)
+                // Reminders and widgets count days and times in the new zone.
+                container.onDataChanged()
+                container.refreshAllWidgets()
+            },
+        ) { dialog = null }
         "work" -> RangeDialog("Рабочие часы", s.workStart ?: 9 * 60, s.workEnd ?: 18 * 60, on = s.workStart != null, onSet = app::setWorkHours) { dialog = null }
         "quiet" -> RangeDialog("Тихие часы", s.quietStart ?: 23 * 60, s.quietEnd ?: 7 * 60, on = s.quietStart != null, onSet = app::setQuietHours) { dialog = null }
     }

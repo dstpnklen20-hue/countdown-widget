@@ -119,6 +119,12 @@ data class Task(
     val seriesId: String? = null,
     /** What kind of time an event is: null an ordinary one, else an [EventType] name. */
     val eventType: String? = null,
+    /**
+     * Time zones an event's start and end were set in (v7), e.g. a flight from Moscow to Dubai.
+     * Null: the app's zone, whatever it is at the moment.
+     */
+    val startZone: String? = null,
+    val endZone: String? = null,
 ) {
     val isDone: Boolean get() = status != TaskStatus.OPEN
 }

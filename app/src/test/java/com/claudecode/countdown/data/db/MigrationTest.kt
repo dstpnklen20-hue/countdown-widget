@@ -92,7 +92,10 @@ class MigrationTest {
             assertEquals(ReminderKind.ALARM, db.reminderDao().forTask("t1").single().kind)
             db.calendarDao().upsert(CalendarLayer(id = "work", name = "Работа", color = 0))
             assertEquals(listOf("Работа"), db.calendarDao().all().map { it.name })
-            assertEquals(6, db.openHelper.readableDatabase.version)
+            // v7: an event keeps the zones its start and end were set in.
+            db.taskDao().upsert(db.taskDao().get("t1")!!.copy(startZone = "Europe/Moscow", endZone = "Asia/Dubai"))
+            assertEquals("Asia/Dubai", db.taskDao().get("t1")!!.endZone)
+            assertEquals(7, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }
