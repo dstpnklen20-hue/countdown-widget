@@ -113,6 +113,27 @@ class SyncTest {
     }
 
     @Test
+    fun completionReachesADeviceWhoseClockIsAhead() = runBlocking {
+        // B's clock is five minutes fast: the task it made carries a stamp from A's future.
+        val ahead = System.currentTimeMillis() + 5 * 60_000L
+        val task = b.repo.create(Task(title = "Сдать отчёт", createdAt = ahead))
+        tick(); b.sync(); a.sync()
+
+        a.repo.setDone(a.repo.get(task.id)!!, true)
+        tick(); a.sync(); b.sync()
+        assertTrue(b.repo.get(task.id)!!.isDone)
+
+        // And back: B reopens it, A sees that too.
+        b.repo.setDone(b.repo.get(task.id)!!, false)
+        tick(); b.sync(); a.sync()
+        assertFalse(a.repo.get(task.id)!!.isDone)
+
+        a.repo.delete(task.id)
+        tick(); a.sync(); b.sync()
+        assertTrue(b.repo.get(task.id)!!.deleted)
+    }
+
+    @Test
     fun removedTagDisappearsOnOtherDevice() = runBlocking {
         val task = a.repo.create(Task(title = "t", createdAt = time), tagNames = listOf("работа", "дом"))
         tick(); a.sync(); b.sync()

@@ -60,20 +60,20 @@ interface TaskDao {
     fun observeCompletedCount(): Flow<Int>
 
     // Already deleted rows keep their stamp, so undo does not bring back what was deleted earlier.
-    @Query("UPDATE tasks SET deleted = 1, updatedAt = :at WHERE (id = :id OR parentId = :id) AND deleted = 0")
+    @Query("UPDATE tasks SET deleted = 1, updatedAt = max(:at, updatedAt + 1) WHERE (id = :id OR parentId = :id) AND deleted = 0")
     suspend fun softDelete(id: String, at: Long = now())
 
-    @Query("UPDATE tasks SET deleted = 1, updatedAt = :at WHERE listId = :listId AND deleted = 0")
+    @Query("UPDATE tasks SET deleted = 1, updatedAt = max(:at, updatedAt + 1) WHERE listId = :listId AND deleted = 0")
     suspend fun softDeleteInList(listId: String, at: Long = now())
 
     /** Undoes one deletion: the task plus subtasks deleted with it (ones deleted earlier are stamped before [deletedAt]). */
     @Query(
-        "UPDATE tasks SET deleted = 0, updatedAt = :at " +
+        "UPDATE tasks SET deleted = 0, updatedAt = max(:at, updatedAt + 1) " +
             "WHERE deleted = 1 AND (id = :id OR (parentId = :id AND updatedAt >= :deletedAt))"
     )
     suspend fun restore(id: String, deletedAt: Long, at: Long = now())
 
-    @Query("UPDATE tasks SET deleted = 0, updatedAt = :at WHERE deleted = 1 AND listId = :listId AND updatedAt >= :deletedAt")
+    @Query("UPDATE tasks SET deleted = 0, updatedAt = max(:at, updatedAt + 1) WHERE deleted = 1 AND listId = :listId AND updatedAt >= :deletedAt")
     suspend fun restoreInList(listId: String, deletedAt: Long, at: Long = now())
 
     /** Deleted tasks, newest first; subtasks only while their parent is alive (otherwise they return with it). */
@@ -131,10 +131,10 @@ interface ChecklistDao {
     )
     fun observeProgress(): Flow<List<Progress>>
 
-    @Query("UPDATE checklist_items SET deleted = 1, updatedAt = :at WHERE id = :id")
+    @Query("UPDATE checklist_items SET deleted = 1, updatedAt = max(:at, updatedAt + 1) WHERE id = :id")
     suspend fun softDelete(id: String, at: Long = now())
 
-    @Query("UPDATE checklist_items SET checked = 0, updatedAt = :at WHERE taskId = :taskId AND checked = 1")
+    @Query("UPDATE checklist_items SET checked = 0, updatedAt = max(:at, updatedAt + 1) WHERE taskId = :taskId AND checked = 1")
     suspend fun uncheckAll(taskId: String, at: Long = now())
 }
 
@@ -167,10 +167,10 @@ interface SectionDao {
     @Query("SELECT COALESCE(MAX(sortOrder), 0) FROM sections WHERE listId = :listId")
     suspend fun maxSortOrder(listId: String): Long
 
-    @Query("UPDATE tasks SET sectionId = NULL, updatedAt = :at WHERE sectionId = :id")
+    @Query("UPDATE tasks SET sectionId = NULL, updatedAt = max(:at, updatedAt + 1) WHERE sectionId = :id")
     suspend fun detachTasks(id: String, at: Long = now())
 
-    @Query("UPDATE sections SET deleted = 1, updatedAt = :at WHERE id = :id")
+    @Query("UPDATE sections SET deleted = 1, updatedAt = max(:at, updatedAt + 1) WHERE id = :id")
     suspend fun softDelete(id: String, at: Long = now())
 }
 
@@ -182,10 +182,10 @@ interface FolderDao {
     @Query("SELECT * FROM folders WHERE deleted = 0 ORDER BY sortOrder, createdAt")
     fun observeAll(): Flow<List<Folder>>
 
-    @Query("UPDATE task_lists SET folderId = NULL, updatedAt = :at WHERE folderId = :id")
+    @Query("UPDATE task_lists SET folderId = NULL, updatedAt = max(:at, updatedAt + 1) WHERE folderId = :id")
     suspend fun detachLists(id: String, at: Long = now())
 
-    @Query("UPDATE folders SET deleted = 1, updatedAt = :at WHERE id = :id")
+    @Query("UPDATE folders SET deleted = 1, updatedAt = max(:at, updatedAt + 1) WHERE id = :id")
     suspend fun softDelete(id: String, at: Long = now())
 }
 
@@ -226,12 +226,12 @@ interface TagDao {
     suspend fun setTaskTags(taskId: String, tagIds: Collection<String>, at: Long = now()) {
         val keep = tagIds.toSet()
         val current = linksFor(taskId).associateBy { it.tagId }
-        val changes = current.values.filter { !it.deleted && it.tagId !in keep }.map { it.copy(deleted = true, updatedAt = at) } +
-            keep.filter { current[it]?.deleted != false }.map { TaskTag(taskId, it, updatedAt = at) }
+        val changes = current.values.filter { !it.deleted && it.tagId !in keep }.map { it.copy(deleted = true, updatedAt = maxOf(at, it.updatedAt + 1)) } +
+            keep.filter { current[it]?.deleted != false }.map { TaskTag(taskId, it, updatedAt = maxOf(at, (current[it]?.updatedAt ?: 0) + 1)) }
         if (changes.isNotEmpty()) upsertTaskTags(changes)
     }
 
-    @Query("UPDATE tags SET deleted = 1, updatedAt = :at WHERE id = :id")
+    @Query("UPDATE tags SET deleted = 1, updatedAt = max(:at, updatedAt + 1) WHERE id = :id")
     suspend fun softDelete(id: String, at: Long = now())
 }
 
@@ -258,7 +258,7 @@ interface ReminderDao {
     )
     suspend fun tasksWithReminders(): List<Task>
 
-    @Query("UPDATE reminders SET deleted = 1, updatedAt = :at WHERE id = :id")
+    @Query("UPDATE reminders SET deleted = 1, updatedAt = max(:at, updatedAt + 1) WHERE id = :id")
     suspend fun softDelete(id: String, at: Long = now())
 }
 
@@ -315,6 +315,6 @@ interface HabitDao {
     @Upsert
     suspend fun upsertCheckIn(checkIn: HabitCheckIn)
 
-    @Query("UPDATE habits SET deleted = 1, updatedAt = :at WHERE id = :id")
+    @Query("UPDATE habits SET deleted = 1, updatedAt = max(:at, updatedAt + 1) WHERE id = :id")
     suspend fun softDelete(id: String, at: Long = now())
 }

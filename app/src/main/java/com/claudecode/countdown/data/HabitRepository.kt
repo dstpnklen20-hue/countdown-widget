@@ -1,5 +1,6 @@
 package com.claudecode.countdown.data
 
+import com.claudecode.countdown.data.db.stampAfter
 import com.claudecode.countdown.data.db.AppDatabase
 import com.claudecode.countdown.data.db.FocusSession
 import com.claudecode.countdown.data.db.Habit
@@ -21,12 +22,12 @@ class HabitRepository(
     suspend fun active() = dao.active()
 
     suspend fun save(habit: Habit, isNew: Boolean) {
-        dao.upsert(if (isNew) habit.copy(sortOrder = dao.maxSortOrder() + 1) else habit.copy(updatedAt = now()))
+        dao.upsert(if (isNew) habit.copy(sortOrder = dao.maxSortOrder() + 1) else habit.copy(updatedAt = stampAfter(habit.updatedAt)))
         onChanged()
     }
 
     suspend fun setArchived(habit: Habit, archived: Boolean) {
-        dao.upsert(habit.copy(archived = archived, updatedAt = now()))
+        dao.upsert(habit.copy(archived = archived, updatedAt = stampAfter(habit.updatedAt)))
         if (archived) onClosed(habit.id)
         onChanged()
     }
@@ -39,14 +40,14 @@ class HabitRepository(
 
     /** Undo for [delete]: [habit] is the state it had before deletion. */
     suspend fun restore(habit: Habit) {
-        dao.upsert(habit.copy(deleted = false, updatedAt = now()))
+        dao.upsert(habit.copy(deleted = false, updatedAt = stampAfter(habit.updatedAt)))
         onChanged()
     }
 
     suspend fun setCount(habitId: String, day: LocalDate, count: Int) {
         val existing = dao.checkIn(habitId, day.toEpochDay())
         dao.upsertCheckIn(
-            existing?.copy(count = count, deleted = false, updatedAt = now())
+            existing?.copy(count = count, deleted = false, updatedAt = stampAfter(existing.updatedAt))
                 ?: HabitCheckIn(habitId = habitId, day = day.toEpochDay(), count = count)
         )
         if (day == LocalDate.now() && count >= (dao.active().firstOrNull { it.id == habitId }?.goal ?: 1)) onClosed(habitId)

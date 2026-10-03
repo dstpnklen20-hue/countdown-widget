@@ -1,5 +1,6 @@
 package com.claudecode.countdown.data
 
+import com.claudecode.countdown.data.db.stampAfter
 import android.content.Context
 import com.claudecode.countdown.container
 import com.claudecode.countdown.data.db.DisplayMode
@@ -30,7 +31,7 @@ object CountdownRepository {
     fun save(context: Context, id: String?, title: String, targetMillis: Long): String = io {
         val dao = context.container.database.taskDao()
         val existing = id?.let { dao.get(it) }
-        val task = existing?.copy(title = title, dueAt = targetMillis, updatedAt = now())
+        val task = existing?.copy(title = title, dueAt = targetMillis, updatedAt = stampAfter(existing.updatedAt))
             ?: Task(
                 title = title,
                 dueAt = targetMillis,

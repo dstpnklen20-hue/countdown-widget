@@ -26,6 +26,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -65,6 +70,7 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_TASK_ID = "task_id"
         /** A Tool name to open on start (after the icon change restarts the app on Settings). */
         const val EXTRA_OPEN_TOOL = "open_tool"
+        private const val LIVE_SYNC_MS = 30_000L
 
         /**
          * Opens the app. Always through the enabled launcher component: with another icon chosen,
@@ -110,6 +116,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (savedInstanceState == null) Updater.checkForUpdates(this, manual = false)
+
+        // While the app is on screen, changes made on other devices show up within half a minute.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (true) {
+                    delay(LIVE_SYNC_MS)
+                    if (SyncManager.isSignedIn(this@MainActivity)) container.sync.requestSync(delayMs = 0)
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

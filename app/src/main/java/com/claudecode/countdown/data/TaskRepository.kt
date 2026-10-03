@@ -1,5 +1,6 @@
 package com.claudecode.countdown.data
 
+import com.claudecode.countdown.data.db.stampAfter
 import com.claudecode.countdown.data.db.AppDatabase
 import com.claudecode.countdown.data.db.ChecklistItem
 import com.claudecode.countdown.data.db.Folder
@@ -118,7 +119,8 @@ class TaskRepository(
     }
 
     suspend fun update(task: Task) {
-        tasks.upsert(task.copy(updatedAt = now()))
+        val stored = tasks.get(task.id)?.updatedAt ?: 0
+        tasks.upsert(task.copy(updatedAt = stampAfter(maxOf(task.updatedAt, stored))))
         onChanged()
     }
 
@@ -150,7 +152,7 @@ class TaskRepository(
                     updatedAt = at,
                 )
             )
-            tasks.upsert(next.copy(updatedAt = at))
+            tasks.upsert(next.copy(updatedAt = maxOf(at, task.updatedAt + 1)))
             checklist.uncheckAll(task.id, at)
         }
         onChanged()
@@ -179,7 +181,7 @@ class TaskRepository(
             val list = lists.get(task.listId)
             if (list == null || list.deleted) {
                 val moved = tasks.idsWithSubtasks(task.id).mapNotNull { tasks.get(it) }.filter { !it.deleted }
-                for (t in moved) tasks.upsert(t.copy(listId = TaskList.INBOX_ID, sectionId = null, updatedAt = now()))
+                for (t in moved) tasks.upsert(t.copy(listId = TaskList.INBOX_ID, sectionId = null, updatedAt = stampAfter(t.updatedAt)))
             }
         }
         onChanged()
@@ -206,7 +208,7 @@ class TaskRepository(
     }
 
     suspend fun updateChecklistItem(item: ChecklistItem) {
-        checklist.upsert(item.copy(updatedAt = now()))
+        checklist.upsert(item.copy(updatedAt = stampAfter(item.updatedAt)))
         touch(item.taskId)
     }
 
@@ -231,7 +233,7 @@ class TaskRepository(
     /** Pushes every reminder of the task to fire again in [minutes]. */
     suspend fun snooze(taskId: String, minutes: Int) {
         val until = now() + minutes * 60_000L
-        for (r in reminders.forTask(taskId)) reminders.upsert(r.copy(snoozedUntil = until, updatedAt = now()))
+        for (r in reminders.forTask(taskId)) reminders.upsert(r.copy(snoozedUntil = until, updatedAt = stampAfter(r.updatedAt)))
         onChanged()
     }
 
@@ -249,7 +251,7 @@ class TaskRepository(
 
     /** Bumps updatedAt so a future sync notices changes made to the task's children. */
     private suspend fun touch(taskId: String) {
-        tasks.get(taskId)?.let { tasks.upsert(it.copy(updatedAt = now())) }
+        tasks.get(taskId)?.let { tasks.upsert(it.copy(updatedAt = stampAfter(it.updatedAt))) }
         onChanged()
     }
 
@@ -261,7 +263,7 @@ class TaskRepository(
         return list
     }
 
-    suspend fun updateList(list: TaskList) = lists.upsert(list.copy(updatedAt = now()))
+    suspend fun updateList(list: TaskList) = lists.upsert(list.copy(updatedAt = stampAfter(list.updatedAt)))
 
     /** Deletes the list with its tasks; returns the stamp for [restoreList], or null for Inbox. */
     suspend fun deleteList(list: TaskList): Long? {
@@ -269,7 +271,7 @@ class TaskRepository(
         val at = now()
         db.withTransaction {
             tasks.softDeleteInList(list.id, at)
-            lists.upsert(list.copy(deleted = true, updatedAt = at))
+            lists.upsert(list.copy(deleted = true, updatedAt = maxOf(at, list.updatedAt + 1)))
         }
         onChanged()
         return at
@@ -277,7 +279,7 @@ class TaskRepository(
 
     suspend fun restoreList(list: TaskList, deletedAt: Long) {
         db.withTransaction {
-            lists.upsert(list.copy(deleted = false, updatedAt = now()))
+            lists.upsert(list.copy(deleted = false, updatedAt = stampAfter(list.updatedAt)))
             tasks.restoreInList(list.id, deletedAt)
         }
         onChanged()
@@ -288,7 +290,7 @@ class TaskRepository(
     suspend fun createSection(listId: String, name: String): Section =
         Section(listId = listId, name = name, sortOrder = sections.maxSortOrder(listId) + 1).also { sections.upsert(it) }
 
-    suspend fun updateSection(section: Section) = sections.upsert(section.copy(updatedAt = now()))
+    suspend fun updateSection(section: Section) = sections.upsert(section.copy(updatedAt = stampAfter(section.updatedAt)))
 
     suspend fun deleteSection(section: Section) {
         db.withTransaction {
@@ -300,14 +302,14 @@ class TaskRepository(
 
     suspend fun createFolder(name: String): Folder = Folder(name = name).also { folders.upsert(it) }
 
-    suspend fun updateFolder(folder: Folder) = folders.upsert(folder.copy(updatedAt = now()))
+    suspend fun updateFolder(folder: Folder) = folders.upsert(folder.copy(updatedAt = stampAfter(folder.updatedAt)))
 
     suspend fun deleteFolder(folder: Folder) = db.withTransaction {
         folders.detachLists(folder.id)
         folders.softDelete(folder.id)
     }
 
-    suspend fun updateTag(tag: Tag) = tags.upsert(tag.copy(updatedAt = now()))
+    suspend fun updateTag(tag: Tag) = tags.upsert(tag.copy(updatedAt = stampAfter(tag.updatedAt)))
 
     suspend fun deleteTag(tag: Tag) {
         tags.softDelete(tag.id)

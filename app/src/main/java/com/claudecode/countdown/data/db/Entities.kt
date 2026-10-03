@@ -9,6 +9,13 @@ import java.util.UUID
 fun newId(): String = UUID.randomUUID().toString()
 fun now(): Long = System.currentTimeMillis()
 
+/**
+ * The stamp for an edit of a row stamped [previous]: now, but always later than [previous]. Sync
+ * keeps the newer version of a row, so an edit must beat the one it changes even when this
+ * device's clock is behind the device that wrote that version.
+ */
+fun stampAfter(previous: Long): Long = maxOf(now(), previous + 1)
+
 enum class TaskStatus { OPEN, DONE, WONT_DO }
 enum class DisplayMode { NORMAL, COUNTDOWN }
 enum class RepeatFrom { DUE, COMPLETION }
