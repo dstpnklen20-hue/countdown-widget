@@ -577,7 +577,7 @@ private fun DayColumn(
 }
 
 /** When the entry's occurrence ends (for fading past ones). */
-private fun entryEnd(e: CalendarEntry): Long {
+internal fun entryEnd(e: CalendarEntry): Long {
     val zone = ZoneId.systemDefault()
     val end = e.end ?: MINUTES_PER_DAY
     return e.date.atStartOfDay(zone).plusMinutes(end.toLong()).toInstant().toEpochMilli()

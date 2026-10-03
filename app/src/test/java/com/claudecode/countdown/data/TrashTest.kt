@@ -31,6 +31,18 @@ class TrashTest {
     private fun tick() = Thread.sleep(3)
 
     @Test
+    fun trashKeepsThingsForThirtyDays() = runBlocking {
+        val longAgo = System.currentTimeMillis() - 31 * 86_400_000L
+        val old = repo.create(Task(title = "Старое", createdAt = longAgo - 1000))
+        val recent = repo.create(Task(title = "Недавнее"))
+        db.taskDao().softDelete(old.id, at = longAgo)
+        repo.delete(recent.id)
+        repo.purgeExpired()
+        assertNull(repo.get(old.id))
+        assertTrue(repo.get(recent.id)!!.deleted)
+    }
+
+    @Test
     fun undoBringsBackTaskWithSubtasksDeletedTogether() = runBlocking {
         val parent = repo.create(Task(title = "Переезд"))
         val kept = repo.create(Task(title = "Коробки", parentId = parent.id))

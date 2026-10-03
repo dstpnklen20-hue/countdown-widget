@@ -1,5 +1,6 @@
 package com.claudecode.countdown.ui.calendar
 
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -226,6 +227,7 @@ private fun EntryCard(e: CalendarEntry, vm: TasksViewModel, onOpen: (CalendarEnt
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 52.dp)
+                .alpha(if (LocalDimPast.current && entryEnd(e) < System.currentTimeMillis()) 0.55f else 1f)
                 .clip(RoundedCornerShape(12.dp))
                 .background(color)
                 .clickable { onOpen(e) }

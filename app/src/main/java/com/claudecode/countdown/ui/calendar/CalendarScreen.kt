@@ -174,6 +174,9 @@ private val LocalColorOf = staticCompositionLocalOf<(Task) -> Int?> { { it.color
 /** Ids of overdue tasks shown on today (their own day has passed); provided by [CalendarScreen]. */
 internal val LocalOverdue = staticCompositionLocalOf<Set<String>> { emptySet() }
 
+/** Whether past events are drawn faded (a setting); provided by [CalendarScreen]. */
+internal val LocalDimPast = staticCompositionLocalOf { true }
+
 /** Events and countdowns are things that happen; the rest are tasks to do. */
 internal val Task.happens: Boolean get() = isEvent || displayMode == DisplayMode.COUNTDOWN
 
@@ -424,7 +427,7 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
         { t -> t.color ?: if (t.isEvent) calendarColors[t.calendarId ?: CalendarLayer.PERSONAL_ID] else snapshot.colorOf(t) }
     }
 
-    CompositionLocalProvider(LocalColorOf provides colorOf, LocalOverdue provides overdueIds) {
+    CompositionLocalProvider(LocalColorOf provides colorOf, LocalOverdue provides overdueIds, LocalDimPast provides settings.dimPast) {
         ModalNavigationDrawer(
             drawerState = drawer,
             // Swipes belong to the pages; the menu opens with its button and closes with a swipe.

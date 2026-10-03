@@ -133,8 +133,38 @@ fun repeatPresets(date: LocalDate): List<Pair<String, String?>> {
         "По будням (пн–пт)" to "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
         "Каждую неделю ($weekday)" to "FREQ=WEEKLY;BYDAY=$day",
         "Каждый месяц (${date.dayOfMonth}-го)" to "FREQ=MONTHLY;BYMONTHDAY=${date.dayOfMonth}",
+        monthlyByWeekday(date),
         "Каждый год" to "FREQ=YEARLY",
+    ) + listOfNotNull(
+        ("Каждый месяц в последний день" to "FREQ=MONTHLY;BYMONTHDAY=-1").takeIf { date.dayOfMonth == date.lengthOfMonth() },
     )
+}
+
+/**
+ * "Каждый месяц во 2-ю субботу", or "в последнюю субботу" when this is the month's last one
+ * (as Google Calendar offers for 31 October).
+ */
+private fun monthlyByWeekday(date: LocalDate): Pair<String, String> {
+    val last = date.dayOfMonth + 7 > date.lengthOfMonth()
+    val n = (date.dayOfMonth - 1) / 7 + 1
+    // Accusative form and the gender ending of the ordinal for each weekday.
+    val (name, ending) = when (date.dayOfWeek) {
+        java.time.DayOfWeek.MONDAY -> "понедельник" to "й"
+        java.time.DayOfWeek.TUESDAY -> "вторник" to "й"
+        java.time.DayOfWeek.WEDNESDAY -> "среду" to "ю"
+        java.time.DayOfWeek.THURSDAY -> "четверг" to "й"
+        java.time.DayOfWeek.FRIDAY -> "пятницу" to "ю"
+        java.time.DayOfWeek.SATURDAY -> "субботу" to "ю"
+        java.time.DayOfWeek.SUNDAY -> "воскресенье" to "е"
+    }
+    val code = date.dayOfWeek.name.take(2)
+    return if (last) {
+        val word = when (ending) { "й" -> "последний"; "ю" -> "последнюю"; else -> "последнее" }
+        "Каждый месяц в $word $name" to "FREQ=MONTHLY;BYDAY=-1$code"
+    } else {
+        // "во 2-ю": the ordinal "второй" takes "во".
+        "Каждый месяц ${if (n == 2) "во" else "в"} $n-$ending $name" to "FREQ=MONTHLY;BYDAY=$n$code"
+    }
 }
 
 /** Start and end rows with date and time buttons, and the "all day" switch. */

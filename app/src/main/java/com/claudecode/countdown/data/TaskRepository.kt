@@ -41,6 +41,9 @@ import kotlinx.coroutines.flow.combine
  * completed or deleted. [onPurged] gets the ids of tasks removed for good, so sync removes them
  * from the account too.
  */
+/** How long deleted tasks and events stay in the trash. */
+const val TRASH_DAYS = 30
+
 class TaskRepository(
     private val db: AppDatabase,
     private val onClosed: (taskId: String) -> Unit = {},
@@ -200,6 +203,14 @@ class TaskRepository(
         tasks.purge(ids)
         onPurged(ids)
         onChanged()
+    }
+
+    /** Removes for good what has been in the trash for over [days] days, as Google Calendar does. */
+    suspend fun purgeExpired(days: Int = TRASH_DAYS) {
+        val ids = tasks.deletedBefore(now() - days * 86_400_000L)
+        if (ids.isEmpty()) return
+        tasks.purge(ids)
+        onPurged(ids)
     }
 
     suspend fun emptyTrash() {

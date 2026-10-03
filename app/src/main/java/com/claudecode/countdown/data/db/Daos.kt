@@ -90,6 +90,9 @@ interface TaskDao {
     @Query("SELECT id FROM tasks WHERE id = :id OR parentId = :id")
     suspend fun idsWithSubtasks(id: String): List<String>
 
+    @Query("SELECT id FROM tasks WHERE deleted = 1 AND updatedAt < :before")
+    suspend fun deletedBefore(before: Long): List<String>
+
     @Query("SELECT id FROM tasks WHERE deleted = 1")
     suspend fun deletedIds(): List<String>
 

@@ -126,7 +126,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (savedInstanceState == null) Updater.checkForUpdates(this, manual = false)
+        if (savedInstanceState == null) {
+            Updater.checkForUpdates(this, manual = false)
+            container.appScope.launch { container.tasks.purgeExpired() }
+        }
 
         // While the app is on screen, changes made on other devices show up within half a minute.
         lifecycleScope.launch {
