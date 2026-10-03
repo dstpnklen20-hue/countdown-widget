@@ -122,7 +122,8 @@ class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Snapshot())
 
-    fun toggleDone(task: Task) = viewModelScope.launch { repo.setDone(task, !task.isDone) }
+    // The stored version: what is shown may be a projection (an overdue task drawn on today).
+    fun toggleDone(task: Task) = viewModelScope.launch { (repo.get(task.id) ?: task).let { repo.setDone(it, !it.isDone) } }
 
     fun delete(task: Task) = viewModelScope.launch {
         val at = repo.delete(task.id)

@@ -45,25 +45,37 @@ import com.claudecode.countdown.ui.PickTime
 import com.claudecode.countdown.ui.formatClock
 import com.claudecode.countdown.ui.formatPickerDate
 import kotlinx.coroutines.android.awaitFrame
+import com.claudecode.tiktak.core.QuickAddParser
 import java.time.LocalDate
 import java.time.LocalTime
 
 /**
  * What is being created in the calendar: an event over [time], or a task on its start day (at
- * its start time when [timed]). The time grid draws it as a block while the card is open.
+ * its start time when [timed]). [picked] is the time chosen by tapping or with the pickers; what
+ * the title says ("завтра в 15 на 2 часа") wins over it, as in TickTick. The time grid draws
+ * the draft as a block while the card is open.
  */
 data class QuickDraft(
-    val time: EventTime,
+    val picked: EventTime,
     val event: Boolean,
     val title: String = "",
     /** A task without a time sits on its day as an all-day entry. */
-    val timed: Boolean = true,
+    val pickedTimed: Boolean = true,
 ) {
+    private val parsed: NaturalText = naturalText(picked, title)
+
+    val time: EventTime get() = parsed.time
+    val timed: Boolean get() = pickedTimed || parsed.timeGiven
+    /** The title without the recognized date, time and length. */
+    val cleanTitle: String get() = parsed.title.ifBlank { title.trim() }
+    val repeat: String? get() = parsed.repeat
+    val recognized: List<String> get() = parsed.recognized
+
     companion object {
         fun at(date: LocalDate, time: LocalTime?, minutes: Int, event: Boolean): QuickDraft {
             val start = date.atTime(time ?: LocalTime.of(9, 0))
             val end = start.plusMinutes(minutes.toLong())
-            return QuickDraft(EventTime(date, start.toLocalTime(), end.toLocalDate(), end.toLocalTime(), allDay = false), event, timed = time != null || event)
+            return QuickDraft(EventTime(date, start.toLocalTime(), end.toLocalDate(), end.toLocalTime(), allDay = false), event, pickedTimed = time != null || event)
         }
     }
 
@@ -77,6 +89,34 @@ data class QuickDraft(
     }
 }
 
+/** What a typed title says about when: the time it gives, the rest of the title, a repeat. */
+data class NaturalText(val time: EventTime, val title: String, val repeat: String?, val recognized: List<String>, val timeGiven: Boolean)
+
+/**
+ * Reads dates, times, ranges and lengths out of [text] ("Встреча завтра в 15:00 2 часа") and
+ * applies them to [picked]: a named day replaces its day, a time its start, a range or a length
+ * its end (otherwise the picked length is kept).
+ */
+fun naturalText(picked: EventTime, text: String, today: LocalDate = LocalDate.now(), now: LocalTime = LocalTime.now()): NaturalText {
+    val r = QuickAddParser(today, now).parse(text)
+    if (r.recognized.isEmpty()) return NaturalText(picked, text.trim(), null, emptyList(), false)
+    val day = if (r.dateGiven || (r.repeat != null && r.date != null)) r.date!! else picked.startDate
+    val from = day.atTime(r.time ?: picked.start)
+    val length = java.time.Duration.between(picked.startDate.atTime(picked.start), picked.endDate.atTime(picked.end))
+    val to = when {
+        r.endTime != null -> day.atTime(r.endTime).let { if (it <= from) it.plusDays(1) else it }
+        r.durationMinutes != null -> from.plusMinutes(r.durationMinutes!!.toLong())
+        else -> from.plus(length)
+    }
+    val allDay = picked.allDay && r.time == null
+    return NaturalText(
+        EventTime(from.toLocalDate(), from.toLocalTime(), to.toLocalDate(), to.toLocalTime(), allDay),
+        r.title,
+        r.repeat?.toRRule(),
+        r.recognized,
+        r.time != null,
+    )
+}
 /**
  * The card at the bottom of the calendar for a quick new entry, as in Google Calendar: it covers
  * only the bottom of the screen, so the block it makes stays in view above it. "Ещё параметры"
@@ -129,6 +169,15 @@ fun QuickCreateCard(
                 keyboardActions = KeyboardActions(onDone = { if (draft.title.isNotBlank()) onSave() }),
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
+            if (draft.recognized.isNotEmpty()) {
+                // What was read out of the title, so it is clear why the block moved.
+                Text(
+                    "Распознано: " + draft.recognized.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.primary,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val t = draft.time
                 TimeButton(formatPickerDate(t.startDate)) { picking = "date" }
@@ -139,10 +188,10 @@ fun QuickCreateCard(
                         TimeButton(formatClock(t.end)) { picking = "end" }
                     }
                     Spacer(Modifier.weight(1f))
-                    FilterChip(selected = t.allDay, onClick = { onChange(draft.copy(time = t.copy(allDay = !t.allDay))) }, label = { Text("Весь день") })
+                    FilterChip(selected = t.allDay, onClick = { onChange(draft.copy(picked = t.copy(allDay = !t.allDay))) }, label = { Text("Весь день") })
                 } else {
                     TimeButton(if (draft.timed) formatClock(t.start) else "Без времени") { picking = "start" }
-                    if (draft.timed) TextButton(onClick = { onChange(draft.copy(timed = false)) }) { Text("Убрать время") }
+                    if (draft.timed) TextButton(onClick = { onChange(draft.copy(picked = t, pickedTimed = false)) }) { Text("Убрать время") }
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -157,10 +206,10 @@ fun QuickCreateCard(
     }
     val t = draft.time
     when (picking) {
-        "date" -> PickDate(t.startDate, { onChange(draft.copy(time = t.withStart(it, t.start))); picking = null }) { picking = null }
-        "start" -> PickTime(t.start, { onChange(draft.copy(time = t.withStart(t.startDate, it), timed = true)); picking = null }) { picking = null }
+        "date" -> PickDate(t.startDate, { onChange(draft.copy(picked = t.withStart(it, t.start))); picking = null }) { picking = null }
+        "start" -> PickTime(t.start, { onChange(draft.copy(picked = t.withStart(t.startDate, it), pickedTimed = true)); picking = null }) { picking = null }
         "end" -> PickTime(t.end, {
-            onChange(draft.copy(time = t.withEnd(if (t.endDate <= t.startDate.plusDays(1)) t.startDate else t.endDate, it)))
+            onChange(draft.copy(picked = t.withEnd(if (t.endDate <= t.startDate.plusDays(1)) t.startDate else t.endDate, it)))
             picking = null
         }) { picking = null }
     }

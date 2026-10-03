@@ -27,6 +27,43 @@ class QuickAddParserTest {
     }
 
     @Test
+    fun eventWithLengthOrRange() {
+        val r = p("Встреча завтра в 15:00 2 часа")
+        assertEquals("Встреча", r.title)
+        assertEquals(today.plusDays(1), r.date)
+        assertEquals(t(15), r.time)
+        assertEquals(120, r.durationMinutes)
+        assertEquals(true, r.dateGiven)
+
+        val range = p("Планёрка с 10 до 11:30")
+        assertEquals("Планёрка", range.title)
+        assertEquals(t(10), range.time)
+        assertEquals(t(11, 30), range.endTime)
+        assertEquals(false, range.dateGiven)
+
+        val colon = p("Lecture 9:00-10:30 tomorrow")
+        assertEquals("Lecture", colon.title)
+        assertEquals(t(9), colon.time)
+        assertEquals(t(10, 30), colon.endTime)
+
+        assertEquals(30, p("Созвон в 16 на полчаса").durationMinutes)
+        assertEquals(90, p("Тренировка полтора часа").durationMinutes)
+        assertEquals(60, p("Обед на час").durationMinutes)
+        assertEquals(45, p("Run for 45 min").durationMinutes)
+        assertEquals(t(17, 0), p("с 5 до 7 вечера кино").time)
+    }
+
+    @Test
+    fun hoursWordAfterTimeIsNotLeftInTitle() {
+        val r = p("в 2 часа дня врач")
+        assertEquals("врач", r.title)
+        assertEquals(t(14), r.time)
+        assertNull(r.durationMinutes)
+        // "через 2 часа" is a moment, not a length.
+        assertNull(p("через 2 часа позвонить").durationMinutes)
+    }
+
+    @Test
     fun englishExample() {
         val r = p("call mom tomorrow at 5pm !high #family ~Home")
         assertEquals("call mom", r.title)

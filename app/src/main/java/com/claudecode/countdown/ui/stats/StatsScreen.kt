@@ -1,5 +1,10 @@
 package com.claudecode.countdown.ui.stats
 
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Box
+import com.claudecode.countdown.domain.eventMinutesByCalendar
+import com.claudecode.countdown.data.db.CalendarLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -118,6 +123,8 @@ fun StatsScreen(today: LocalDate) {
                 )
             }
 
+            CalendarTime(if (allTime) today.minusDays(364) else from, today)
+
             if (allTime) {
                 // From the first month with anything in it, but never fewer than six bars.
                 val months = remember(completed, sessions, today) {
@@ -148,6 +155,47 @@ fun StatsScreen(today: LocalDate) {
                     ChartTitle("Минуты фокуса")
                     DayBarChart(minutesPerDay, range, today, { "$it мин" })
                 }
+            }
+        }
+    }
+}
+
+/** Hours of events per calendar over the period, each a bar in the calendar's colour. */
+@Composable
+private fun CalendarTime(from: LocalDate, to: LocalDate) {
+    val context = LocalContext.current
+    val repo = remember { context.container.tasks }
+    val all by remember { repo.observeTopLevel() }.collectAsState(initial = emptyList())
+    val calendars by remember { repo.observeCalendars() }.collectAsState(initial = emptyList())
+    val minutes = remember(all, from, to) { eventMinutesByCalendar(all, from, to) }
+    if (minutes.isEmpty()) return
+    val rows = calendars.map { c -> c to (minutes[c.id] ?: 0) + if (c.id == CalendarLayer.PERSONAL_ID) minutes[null] ?: 0 else 0 }
+        .filter { it.second > 0 }
+        .sortedByDescending { it.second }
+    val top = rows.maxOfOrNull { it.second } ?: return
+    Card {
+        ChartTitle("Время по календарям")
+        Text(
+            "Часы событий за период, с повторами",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        for ((c, m) in rows) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(c.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(96.dp), maxLines = 1)
+                Box(Modifier.weight(1f).height(14.dp)) {
+                    Box(
+                        Modifier.fillMaxWidth(m.toFloat() / top).height(14.dp).clip(RoundedCornerShape(4.dp))
+                            .background(androidx.compose.ui.graphics.Color(c.color))
+                    )
+                }
+                Text(
+                    formatDuration(m * 60_000L),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(start = 8.dp).width(64.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                )
             }
         }
     }

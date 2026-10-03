@@ -177,7 +177,7 @@ private fun MonthChip(e: CalendarEntry, faded: Boolean) {
     val scheme = MaterialTheme.colorScheme
     Text(
         // Only the title: in a phone-wide grid a time would leave no room for it.
-        task.title,
+        (if (task.id in LocalOverdue.current) "! " else "") + task.title,
         modifier = Modifier
             .fillMaxWidth()
             .height(CHIP_HEIGHT.dp)

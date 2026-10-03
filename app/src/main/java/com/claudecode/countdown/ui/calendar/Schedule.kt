@@ -263,7 +263,8 @@ private fun EntryCard(e: CalendarEntry, vm: TasksViewModel, onOpen: (CalendarEnt
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(entryTimeText(e), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 1)
+                val overdue = task.id in LocalOverdue.current
+                Text(if (overdue) "Просрочено" else entryTimeText(e), style = MaterialTheme.typography.bodySmall, color = if (overdue) scheme.error else scheme.onSurfaceVariant, maxLines = 1)
             }
         }
     }

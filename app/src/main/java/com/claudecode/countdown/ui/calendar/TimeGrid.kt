@@ -1,5 +1,11 @@
 package com.claudecode.countdown.ui.calendar
 
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -104,6 +110,8 @@ internal class GridActions(
     val onToggleDone: (Task) -> Unit,
     /** The pinch zoom settled on a new hour height (dp). */
     val onZoom: (Int) -> Unit,
+    /** A task from the "Без даты" strip was dropped on [day] at [minute]. */
+    val onDropTask: ((taskId: String, day: LocalDate, minute: Int) -> Unit)? = null,
 )
 
 /** A block being moved ([resize] false) or stretched, with how far it went so far. */
@@ -282,7 +290,7 @@ internal fun TimeGrid(
                                     isToday = day == today,
                                     now = now,
                                     draft = draft?.minutesOn(day),
-                                    draftTitle = draft?.title,
+                                    draftTitle = draft?.cleanTitle,
                                     dragging = drag?.entry,
                                     settings = settings,
                                     compact = compact,
@@ -406,6 +414,7 @@ private fun HourLabels(hourHeight: Dp, second: ZoneId?, day: LocalDate, modifier
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun DayColumn(
     day: LocalDate,
@@ -437,6 +446,20 @@ private fun DayColumn(
     val workStart = settings.workStart
     val workEnd = settings.workEnd
     val addAt by rememberUpdatedState(actions.onAddAt)
+    val dropTask by rememberUpdatedState(actions.onDropTask)
+    var topInRoot by remember { mutableFloatStateOf(0f) }
+    val hourPxHere = with(LocalDensity.current) { hourHeight.toPx() }
+    val dropTarget = remember(day, hourPxHere) {
+        object : DragAndDropTarget {
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                val id = event.taskId() ?: return false
+                val y = event.toAndroidDragEvent().y - topInRoot
+                val minute = snap((y / hourPxHere * 60).roundToInt()).coerceIn(0, MINUTES_PER_DAY - SNAP_MINUTES)
+                dropTask?.invoke(id, day, minute)
+                return true
+            }
+        }
+    }
     BoxWithConstraints(
         modifier
             .drawBehind {
@@ -454,6 +477,14 @@ private fun DayColumn(
                     drawRect(shade, Offset(0f, workEnd * perMinute), Size(size.width, size.height - workEnd * perMinute))
                 }
             }
+            // A task dragged from the "Без даты" strip lands at the quarter hour under the finger.
+            .onGloballyPositioned { topInRoot = it.positionInRoot().y }
+            .then(
+                if (dropTask == null) Modifier else Modifier.dragAndDropTarget(
+                    shouldStartDragAndDrop = { it.carriesTask() },
+                    target = dropTarget,
+                )
+            )
             // Free space: a new entry at that half hour. Blocks take their own taps.
             .pointerInput(day) {
                 detectTapGestures { offset ->
@@ -665,7 +696,7 @@ private fun AllDayChip(entry: CalendarEntry, now: Long, dimPast: Boolean, onOpen
     val scheme = MaterialTheme.colorScheme
     val past = dimPast && entryEnd(entry) < now
     Text(
-        entryTitle(entry),
+        (if (task.id in LocalOverdue.current) "Просрочено: " else "") + entryTitle(entry),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 20.dp)
@@ -688,7 +719,7 @@ private fun AllDayChip(entry: CalendarEntry, now: Long, dimPast: Boolean, onOpen
 private fun DraftChip(draft: QuickDraft) {
     val scheme = MaterialTheme.colorScheme
     Text(
-        draft.title.ifBlank { "(Без названия)" },
+        draft.cleanTitle.ifBlank { "(Без названия)" },
         modifier = Modifier.fillMaxWidth().heightIn(min = 20.dp).clip(RoundedCornerShape(6.dp)).background(scheme.primary).padding(horizontal = 6.dp, vertical = 2.dp),
         style = MaterialTheme.typography.labelSmall,
         color = scheme.onPrimary,

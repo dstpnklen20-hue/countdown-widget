@@ -1,5 +1,7 @@
 package com.claudecode.countdown.ui.calendar
 
+import androidx.compose.material.icons.outlined.Inbox
+import com.claudecode.countdown.domain.dueDay
 import android.Manifest
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -169,6 +171,9 @@ internal const val SCHEDULE_DAYS_AHEAD = 400L
 /** Resolves a task's colour (own, else its calendar's or list's); provided by [CalendarScreen]. */
 private val LocalColorOf = staticCompositionLocalOf<(Task) -> Int?> { { it.color } }
 
+/** Ids of overdue tasks shown on today (their own day has passed); provided by [CalendarScreen]. */
+internal val LocalOverdue = staticCompositionLocalOf<Set<String>> { emptySet() }
+
 /** Events and countdowns are things that happen; the rest are tasks to do. */
 internal val Task.happens: Boolean get() = isEvent || displayMode == DisplayMode.COUNTDOWN
 
@@ -214,6 +219,7 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
     var selectedEpoch by rememberSaveable { mutableStateOf(today.toEpochDay()) }
     val selected = LocalDate.ofEpochDay(selectedEpoch)
     var monthPanel by rememberSaveable { mutableStateOf(false) }
+    var undatedPanel by rememberSaveable { mutableStateOf(false) }
     var viewMenu by remember { mutableStateOf(false) }
     var quick by remember { mutableStateOf<QuickDraft?>(null) }
     var sheet by remember { mutableStateOf<CalendarEntry?>(null) }
@@ -236,13 +242,23 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
 
     // Which calendars and kinds are shown (the side menu).
     val calendarColors = remember(calendars) { calendars.associate { it.id to it.color } }
-    val tasks = remember(snapshot.tasks, settings, birthdays, today.year) {
+    // Open tasks whose day has passed: shown on today, marked overdue.
+    val overdueIds = remember(snapshot.tasks, today) {
+        snapshot.tasks.filter { !it.happens && !it.isDone && it.dueDay()?.let { d -> d < today } == true }.mapTo(HashSet()) { it.id }
+    }
+    val tasks = remember(snapshot.tasks, settings, birthdays, today.year, overdueIds) {
         val stored = snapshot.tasks.filter { t ->
             when {
                 t.isEvent -> settings.calendarEvents && (t.calendarId ?: CalendarLayer.PERSONAL_ID) !in settings.hiddenCalendars
                 t.happens -> settings.calendarEvents
                 else -> settings.calendarTasks && (settings.calendarDone || !t.isDone)
             }
+        }.map { t ->
+            // Open tasks left behind move to today (on top of it, marked overdue), as in Google Calendar.
+            if (t.id in overdueIds) {
+                val due = allDayDue(today)
+                t.copy(dueAt = due.at, startAt = null, isAllDay = true, timeZone = due.timeZone, repeatRule = null)
+            } else t
         }
         val year = today.year - 2
         stored +
@@ -285,7 +301,7 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
     /** A new entry where the user tapped: the draft moves there if one is open already. */
     fun addAt(day: LocalDate, time: LocalTime?) {
         val q = quick
-        quick = if (q != null && time != null) q.copy(time = q.time.withStart(day, time), timed = true)
+        quick = if (q != null && time != null) q.copy(picked = q.time.withStart(day, time), pickedTimed = true)
         else QuickDraft.at(day, time, settings.eventMinutes, event = true)
     }
 
@@ -298,11 +314,11 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
         scope.launch {
             if (q.event) {
                 val calendarId = newEventCalendar()
-                val task = q.time.applyTo(Task(title = q.title.trim(), isEvent = true, calendarId = calendarId))
+                val task = q.time.applyTo(Task(title = q.cleanTitle, isEvent = true, calendarId = calendarId, repeatRule = q.repeat))
                 repo.saveEvent(task, repo.defaultReminders(calendarId, q.time.allDay))
             } else {
                 val due = if (q.timed) timedDue(q.time.startDate, q.time.start) else allDayDue(q.time.startDate)
-                val created = repo.create(Task(title = q.title.trim(), listId = TaskList.INBOX_ID, dueAt = due.at, isAllDay = due.isAllDay, timeZone = due.timeZone))
+                val created = repo.create(Task(title = q.cleanTitle, listId = TaskList.INBOX_ID, repeatRule = q.repeat, dueAt = due.at, isAllDay = due.isAllDay, timeZone = due.timeZone))
                 if (q.timed) repo.addReminder(created.id, 0)
             }
         }
@@ -314,13 +330,27 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
         scope.launch {
             if (q.event) {
                 val calendarId = newEventCalendar()
-                val task = q.time.applyTo(Task(title = q.title.trim(), isEvent = true, calendarId = calendarId))
+                val task = q.time.applyTo(Task(title = q.cleanTitle, isEvent = true, calendarId = calendarId, repeatRule = q.repeat))
                 nav.openEditor(EventDraft(task, repo.defaultReminders(calendarId, q.time.allDay)))
             } else {
                 val due = if (q.timed) timedDue(q.time.startDate, q.time.start) else allDayDue(q.time.startDate)
-                val created = repo.create(Task(title = q.title.trim().ifEmpty { "Новая задача" }, dueAt = due.at, isAllDay = due.isAllDay, timeZone = due.timeZone))
+                val created = repo.create(Task(title = q.cleanTitle.ifEmpty { "Новая задача" }, repeatRule = q.repeat, dueAt = due.at, isAllDay = due.isAllDay, timeZone = due.timeZone))
                 nav.openTask(created.id)
             }
+        }
+    }
+
+    /** Open tasks without a date, for the strip above the time grid. */
+    val undated = remember(snapshot.tasks) { snapshot.tasks.filter { !it.happens && !it.isDone && it.dueAt == null } }
+
+    /** A task dropped on the time grid gets that time and the default length, with a reminder. */
+    fun scheduleTask(id: String, day: LocalDate, minute: Int) {
+        scope.launch {
+            val before = repo.get(id) ?: return@launch
+            val start = timedDue(day, LocalTime.of(minute / 60, minute % 60))
+            repo.update(before.copy(startAt = start.at, dueAt = start.at + settings.eventMinutes * 60_000L, isAllDay = false, timeZone = start.timeZone))
+            if (repo.remindersOf(id).isEmpty()) repo.addReminder(id, 0)
+            container.undo.offer("«${before.title}» — %02d:%02d".format(minute / 60, minute % 60)) { repo.update(before) }
         }
     }
 
@@ -341,6 +371,13 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
         CalendarMode.YEAR -> "${selected.year}"
         else -> shownMonth.format(DateTimeFormatter.ofPattern("LLLL", ru)).replaceFirstChar { it.uppercase() } +
             if (shownMonth.year != today.year) " ${shownMonth.year}" else ""
+    }
+
+    // A draft moved to another day (typed "завтра", picked a date): follow it, so its block stays in view.
+    val draftDay = quick?.time?.startDate
+    LaunchedEffect(draftDay) {
+        val day = draftDay ?: return@LaunchedEffect
+        if (mode in setOf(CalendarMode.DAY, CalendarMode.THREE_DAYS, CalendarMode.WEEK) && day !in page.start..page.end) goTo(day)
     }
 
     // A widget asked for a day: show it in the Day view.
@@ -387,7 +424,7 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
         { t -> t.color ?: if (t.isEvent) calendarColors[t.calendarId ?: CalendarLayer.PERSONAL_ID] else snapshot.colorOf(t) }
     }
 
-    CompositionLocalProvider(LocalColorOf provides colorOf) {
+    CompositionLocalProvider(LocalColorOf provides colorOf, LocalOverdue provides overdueIds) {
         ModalNavigationDrawer(
             drawerState = drawer,
             // Swipes belong to the pages; the menu opens with its button and closes with a swipe.
@@ -431,6 +468,11 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
                         },
                         actions = {
                             IconButton(onClick = nav.openSearch) { Icon(Icons.Outlined.Search, "Поиск") }
+                            if (mode == CalendarMode.DAY || mode == CalendarMode.THREE_DAYS || mode == CalendarMode.WEEK) {
+                                IconButton(onClick = { undatedPanel = !undatedPanel }) {
+                                    Icon(Icons.Outlined.Inbox, "Задачи без даты", tint = if (undatedPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
                             IconButton(onClick = { goTo(today); monthPanel = false }) { CalendarDayIcon(today.dayOfMonth, "К сегодня") }
                             Box {
                                 IconButton(onClick = { viewMenu = true }) { Icon(mode.icon, "Вид: ${mode.label}") }
@@ -458,6 +500,10 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
                                 goTo(day)
                                 monthPanel = false
                             }
+                        }
+                        val gridMode = mode == CalendarMode.DAY || mode == CalendarMode.THREE_DAYS || mode == CalendarMode.WEEK
+                        AnimatedVisibility(visible = undatedPanel && gridMode) {
+                            UndatedTasks(undated, nav.openTask)
                         }
                         val swipeThreshold = with(LocalDensity.current) { 72.dp.toPx() }
                         val currentShift by rememberUpdatedState(::shift)
@@ -545,6 +591,7 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
                                             },
                                             onToggleDone = vm::toggleDone,
                                             onZoom = appSettings::setHourHeight,
+                                            onDropTask = ::scheduleTask,
                                         ),
                                     )
                                 }
