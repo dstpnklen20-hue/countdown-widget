@@ -23,6 +23,8 @@ import com.claudecode.countdown.ui.UndoBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -88,7 +90,12 @@ private val minuteClock = flow {
 }
 
 
-class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus) : ViewModel() {
+class TasksViewModel(
+    private val repo: TaskRepository,
+    private val undo: UndoBus,
+    /** The app's time zone setting: a change rebuilds "today" and the times at once. */
+    zone: Flow<String?> = flowOf(null),
+) : ViewModel() {
 
     private val progress = combine(repo.observeChecklistProgress(), repo.observeSubtaskProgress()) { c, s ->
         c.associateBy { it.taskId } to s.associateBy { it.taskId }
@@ -100,7 +107,7 @@ class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus
     }
 
     val snapshot: StateFlow<Snapshot> = combine(
-        repo.observeTopLevel(), repo.observeTaskTags(), progress, structure, minuteClock,
+        repo.observeTopLevel(), repo.observeTaskTags(), progress, structure, combine(minuteClock, zone) { t, _ -> t },
     ) { tasks, taskTags, (checklist, subtasks), st, clock ->
         val lists = st.lists
         val listIds = lists.mapTo(HashSet()) { it.id }
@@ -122,7 +129,8 @@ class TasksViewModel(private val repo: TaskRepository, private val undo: UndoBus
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Snapshot())
 
-    fun toggleDone(task: Task) = viewModelScope.launch { repo.setDone(task, !task.isDone) }
+    // The stored version: what is shown may be a projection (an overdue task drawn on today).
+    fun toggleDone(task: Task) = viewModelScope.launch { (repo.get(task.id) ?: task).let { repo.setDone(it, !it.isDone) } }
 
     fun delete(task: Task) = viewModelScope.launch {
         val at = repo.delete(task.id)

@@ -23,6 +23,8 @@ data class CalendarEntry(
     val end: Int? = null,
     val part: Int = 1,
     val parts: Int = 1,
+    /** Due day of the occurrence this is part of: which one of a series to change or delete. */
+    val occurrence: LocalDate = date,
 ) {
     val timed: Boolean get() = start != null
 }
@@ -49,7 +51,8 @@ fun calendarEntries(
         fun add(occurrence: LocalDate, projected: Boolean) {
             for (e in occurrenceEntries(task, occurrence, projected, zone)) if (e.date in start..end) out += e
         }
-        if (day <= last) add(day, projected = false)
+        val skipped = task.skippedDays()
+        if (day <= last && day !in skipped) add(day, projected = false)
         if ((task.isDone && !task.isEvent) || task.repeatFrom == RepeatFrom.COMPLETION) continue
         var rule = RepeatRule.parse(task.repeatRule) ?: continue
         var current = day
@@ -59,7 +62,7 @@ fun calendarEntries(
             if (next > last) break
             rule = rule.advanced()
             current = next
-            if (next >= start) add(next, projected = true)
+            if (next >= start && next !in skipped) add(next, projected = true)
         }
     }
     return out.groupBy { it.date }.mapValues { (_, list) ->
@@ -101,7 +104,7 @@ private fun occurrenceEntries(task: Task, day: LocalDate, projected: Boolean, zo
         if (range == null) return listOf(CalendarEntry(task, day, projected))
         val first = range.first.toLocalDate()
         val parts = ChronoUnit.DAYS.between(first, day).toInt() + 1
-        return List(parts) { i -> CalendarEntry(task, first.plusDays(i.toLong()), projected, part = i + 1, parts = parts) }
+        return List(parts) { i -> CalendarEntry(task, first.plusDays(i.toLong()), projected, part = i + 1, parts = parts, occurrence = day) }
     }
     val (from, to) = range!!
     // A block that ends exactly at midnight does not touch the next day.
@@ -112,6 +115,6 @@ private fun occurrenceEntries(task: Task, day: LocalDate, projected: Boolean, zo
         val d = firstDay.plusDays(i.toLong())
         val s = if (d == firstDay) from.hour * 60 + from.minute else 0
         val e = if (d == to.toLocalDate()) to.hour * 60 + to.minute else MINUTES_PER_DAY
-        CalendarEntry(task, d, projected, s, maxOf(e, s), part = i + 1, parts = parts)
+        CalendarEntry(task, d, projected, s, maxOf(e, s), part = i + 1, parts = parts, occurrence = day)
     }
 }

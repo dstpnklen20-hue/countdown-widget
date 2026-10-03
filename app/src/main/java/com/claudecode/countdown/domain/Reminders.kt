@@ -18,28 +18,36 @@ private const val MINUTE = 60_000L
  * never moves on, reminds before its first occurrence that fires after [after].
  */
 fun reminderTrigger(task: Task, reminder: Reminder, allDayMinutes: Int = ALL_DAY_REMINDER_MINUTES, after: Long = Long.MIN_VALUE): Long? {
-    reminder.absoluteAt?.let { return withSnooze(it, reminder) }
+    reminder.absoluteAt?.let { return withSnooze(it, reminder, after) }
     val anchor = (if (task.isEvent) task.startAt?.takeIf { s -> task.dueAt.let { it == null || s <= it } } else null) ?: task.dueAt ?: return null
     val offset = (reminder.offsetMinutes ?: 0) * MINUTE
     fun triggerAt(at: Long) = if (task.isAllDay) at + allDayMinutes * MINUTE - offset else at - offset
     var base = triggerAt(anchor)
-    if (task.isEvent && base <= after) {
-        val first = Instant.ofEpochMilli(anchor).atZone(ZoneId.systemDefault())
-        var rule = RepeatRule.parse(task.repeatRule)
-        var day = first.toLocalDate()
+    val skipped = if (task.isEvent) task.skippedDays() else emptySet()
+    val first = Instant.ofEpochMilli(anchor).atZone(ZoneId.systemDefault())
+    // Occurrences are told apart by their due day; the anchor may be on the day before (sleep).
+    val firstDue = task.dueDay() ?: first.toLocalDate()
+    if (task.isEvent && (base <= after || firstDue in skipped)) {
+        var rule = RepeatRule.parse(task.repeatRule) ?: return if (firstDue in skipped) null else withSnooze(base, reminder, after)
+        var day = firstDue
         var steps = 0
-        while (rule != null && base <= after && steps++ < 2_000) {
-            day = rule.nextAfter(day) ?: break
+        while ((base <= after || day in skipped) && steps++ < 2_000) {
+            day = rule.nextAfter(day) ?: return null
             rule = rule.advanced()
-            base = triggerAt(first.with(day).toInstant().toEpochMilli())
+            base = triggerAt(first.plusDays(java.time.temporal.ChronoUnit.DAYS.between(firstDue, day)).toInstant().toEpochMilli())
         }
     }
-    return withSnooze(base, reminder)
+    return withSnooze(base, reminder, after)
 }
 
-private fun withSnooze(base: Long, reminder: Reminder): Long {
-    val snooze = reminder.snoozedUntil
-    return if (snooze != null && snooze > base) snooze else base
+/**
+ * A snooze later than the base time wins; one still ahead also wins over a later base (a
+ * repeating event snoozed today must not jump to tomorrow's occurrence).
+ */
+private fun withSnooze(base: Long, reminder: Reminder, after: Long): Long {
+    val snooze = reminder.snoozedUntil ?: return base
+    // Without a reference time ([after] left at its default) only the first rule applies.
+    return if (snooze > base || (after != Long.MIN_VALUE && snooze > after)) snooze else base
 }
 
 data class ReminderPreset(val offsetMinutes: Int, val label: String)

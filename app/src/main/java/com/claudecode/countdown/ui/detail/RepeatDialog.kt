@@ -55,6 +55,8 @@ fun RepeatDialog(
     currentFrom: RepeatFrom,
     onConfirm: (String?, RepeatFrom) -> Unit,
     onDismiss: () -> Unit,
+    /** Events have nothing to complete, so they repeat from their dates only. */
+    allowFromCompletion: Boolean = true,
 ) {
     val weekOrdinal = if (anchor.dayOfMonth + 7 > anchor.lengthOfMonth()) -1 else (anchor.dayOfMonth - 1) / 7 + 1
     val presets = listOf(
@@ -178,7 +180,7 @@ fun RepeatDialog(
                     }
                 }
 
-                Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (allowFromCompletion) Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("От даты выполнения")
                         Text(

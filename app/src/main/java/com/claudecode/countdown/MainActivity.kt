@@ -1,5 +1,7 @@
 package com.claudecode.countdown
 
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -26,6 +28,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -40,9 +47,18 @@ import com.claudecode.countdown.ui.MoreToolsSheet
 import com.claudecode.countdown.ui.icon
 import com.claudecode.countdown.ui.LocalSnackbarHost
 import com.claudecode.countdown.ui.TikTakTheme
+import com.claudecode.countdown.ui.rememberKeyboardOpen
 import com.claudecode.countdown.data.Tool
 import com.claudecode.countdown.data.barLayout
+import com.claudecode.countdown.ui.calendar.CalendarNav
 import com.claudecode.countdown.ui.calendar.CalendarScreen
+import com.claudecode.countdown.ui.calendar.CalendarSearchScreen
+import com.claudecode.countdown.ui.calendar.CalendarSettingsScreen
+import com.claudecode.countdown.ui.calendar.CalendarsScreen
+import com.claudecode.countdown.ui.calendar.EventDraft
+import com.claudecode.countdown.ui.calendar.EventEditRoute
+import com.claudecode.countdown.domain.dueDay
+import androidx.compose.runtime.produceState
 import com.claudecode.countdown.ui.detail.TaskDetailScreen
 import com.claudecode.countdown.ui.detail.TaskDetailViewModel
 import com.claudecode.countdown.ui.focus.FocusScreen
@@ -65,6 +81,9 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_TASK_ID = "task_id"
         /** A Tool name to open on start (after the icon change restarts the app on Settings). */
         const val EXTRA_OPEN_TOOL = "open_tool"
+        /** With the calendar tool: the day to show (LocalDate.toEpochDay). */
+        const val EXTRA_CALENDAR_DAY = "calendar_day"
+        private const val LIVE_SYNC_MS = 30_000L
 
         /**
          * Opens the app. Always through the enabled launcher component: with another icon chosen,
@@ -87,13 +106,13 @@ class MainActivity : AppCompatActivity() {
         palette = ThemeManager.palette(this)
         if (savedInstanceState == null) {
             pendingTaskId = intent.getStringExtra(EXTRA_TASK_ID)
-            pendingTool = intent.getStringExtra(EXTRA_OPEN_TOOL)?.let { name -> Tool.entries.firstOrNull { it.name == name } }
+            readToolExtras(intent)
         }
 
         setContent {
             val p = palette ?: return@setContent
             TikTakTheme(p) {
-                val tasksVm: TasksViewModel = viewModel { TasksViewModel(container.tasks, container.undo) }
+                val tasksVm: TasksViewModel = viewModel { TasksViewModel(container.tasks, container.undo, container.settings.state.map { it.appZone }.distinctUntilChanged()) }
                 val nav = rememberNavController()
                 LaunchedEffect(pendingTaskId) {
                     pendingTaskId?.let { id ->
@@ -109,16 +128,39 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (savedInstanceState == null) Updater.checkForUpdates(this, manual = false)
+        if (savedInstanceState == null) {
+            Updater.checkForUpdates(this, manual = false)
+            container.appScope.launch { container.tasks.purgeExpired() }
+        }
+
+        // While the app is on screen, changes made on other devices show up within half a minute.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (true) {
+                    delay(LIVE_SYNC_MS)
+                    if (SyncManager.isSignedIn(this@MainActivity)) container.sync.requestSync(delayMs = 0)
+                }
+            }
+        }
+    }
+
+    private fun readToolExtras(intent: Intent) {
+        intent.getStringExtra(EXTRA_OPEN_TOOL)?.let { name -> Tool.entries.firstOrNull { it.name == name } }?.let { pendingTool = it }
+        if (intent.hasExtra(EXTRA_CALENDAR_DAY)) {
+            container.calendarJump.value = java.time.LocalDate.ofEpochDay(intent.getLongExtra(EXTRA_CALENDAR_DAY, 0))
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_TASK_ID)?.let { pendingTaskId = it }
+        readToolExtras(intent)
     }
 
     override fun onResume() {
         super.onResume()
+        // The phone's zone may have changed meanwhile, which resets the app's own one.
+        com.claudecode.countdown.data.AppZone.apply(container.settings.current.appZone)
         // The system dark mode may have changed while the app was in the background.
         onThemeChanged()
         // Pick up what was changed on other devices meanwhile.
@@ -151,12 +193,22 @@ class MainActivity : AppCompatActivity() {
         val openTask: (String) -> Unit = { nav.navigate("task/$it") }
         val openTrash = { nav.navigate("trash") }
         val openToolbar = { nav.navigate("toolbar") }
+        val calendarNav = remember(nav) {
+            CalendarNav(
+                openTask = { nav.navigate("task/$it") },
+                openEditor = { draft -> container.eventDraft.value = draft; nav.navigate("event") },
+                openCalendars = { nav.navigate("calendars") },
+                openSettings = { nav.navigate("calendar-settings") },
+                openSearch = { nav.navigate("calendar-search") },
+            )
+        }
 
         // Phones get a bottom bar; wider screens a side rail, and from ~720dp the lists panel stays open.
         val width = LocalConfiguration.current.screenWidthDp
         val wide = width >= 600
         val bar = barLayout(settings.tools, settings.barLimit)
         val searchOnBar = !wide && Tool.SEARCH in bar.visible
+        val keyboardOpen by rememberKeyboardOpen()
         // A section opened from the ☰ menu (not pinned) returns to the tasks with Back.
         BackHandler(enabled = !wide && tab != Tool.TASKS && tab !in settings.tools) { tab = Tool.TASKS }
         val sections = listOf(Tool.MATRIX, Tool.FOCUS, Tool.HABITS, Tool.STATS).map { t ->
@@ -178,7 +230,7 @@ class MainActivity : AppCompatActivity() {
             composable("home") {
                 val body = @Composable {
                     AnimatedContent(tab, transitionSpec = { Motion.sectionChange() }, label = "section") { current ->
-                        Section(current, tasksVm, snapshot, filterKey, selectFilter, openTask, openTrash, openToolbar, sections, wide, width, searchOnBar) { tab = it }
+                        Section(current, tasksVm, snapshot, filterKey, selectFilter, openTask, openTrash, openToolbar, sections, wide, width, searchOnBar, calendarNav) { tab = it }
                     }
                 }
                 if (wide) {
@@ -190,7 +242,8 @@ class MainActivity : AppCompatActivity() {
                     Scaffold(
                         bottomBar = {
                             // Search opens full screen, like TickTick, unless it is pinned to the bar.
-                            if (tab != Tool.SEARCH || searchOnBar) {
+                            // Hidden while typing, so what is being typed into sits right above the keyboard.
+                            if ((tab != Tool.SEARCH || searchOnBar) && !keyboardOpen) {
                                 AppBottomBar(bar, tab, snapshot.today.dayOfMonth, onSelect = { tab = it }, onMore = { moreTools = bar.more })
                             }
                         },
@@ -214,11 +267,46 @@ class MainActivity : AppCompatActivity() {
                 val vm: TaskDetailViewModel = viewModel {
                     TaskDetailViewModel(id, container.tasks, container.appScope, container.undo)
                 }
-                TaskDetailScreen(
-                    vm = vm,
-                    onBack = { if (!nav.popBackStack()) finish() },
-                    onOpenTask = { nav.navigate("task/$it") },
-                )
+                val task by vm.task.collectAsStateWithLifecycle()
+                val event = task?.takeIf { it.isEvent && !it.deleted }
+                if (event != null) {
+                    // Events open in the event editor wherever they are opened from (search, widgets, reminders).
+                    val draft by produceState<EventDraft?>(null, event.id) {
+                        value = EventDraft(event, container.tasks.remindersOf(event.id), event, event.dueDay())
+                    }
+                    draft?.let { d ->
+                        EventEditRoute(d, snapshot.tasks.filter { it.isEvent }, onClose = { if (!nav.popBackStack()) finish() }, onTaskInstead = {})
+                    }
+                } else {
+                    TaskDetailScreen(
+                        vm = vm,
+                        onBack = { if (!nav.popBackStack()) finish() },
+                        onOpenTask = { nav.navigate("task/$it") },
+                    )
+                }
+            }
+            composable("event") {
+                val draft by container.eventDraft.collectAsStateWithLifecycle()
+                val d = draft
+                if (d == null) {
+                    LaunchedEffect(Unit) { nav.popBackStack() }
+                } else {
+                    EventEditRoute(
+                        d,
+                        snapshot.tasks.filter { it.isEvent },
+                        onClose = { nav.popBackStack() },
+                        onTaskInstead = { id -> nav.popBackStack(); nav.navigate("task/$id") },
+                    )
+                }
+            }
+            composable("calendars") {
+                CalendarsScreen(onBack = { nav.popBackStack() })
+            }
+            composable("calendar-settings") {
+                CalendarSettingsScreen(onBack = { nav.popBackStack() }, onOpenCalendars = { nav.navigate("calendars") })
+            }
+            composable("calendar-search") {
+                CalendarSearchScreen(snapshot, onOpenTask = openTask, onBack = { nav.popBackStack() })
             }
             composable("trash") {
                 TrashScreen(tasksVm, snapshot, onBack = { nav.popBackStack() })
@@ -243,6 +331,7 @@ class MainActivity : AppCompatActivity() {
         wide: Boolean,
         width: Int,
         searchOnBar: Boolean,
+        calendarNav: CalendarNav,
         onTab: (Tool) -> Unit,
     ) {
         when (tool) {
@@ -263,7 +352,7 @@ class MainActivity : AppCompatActivity() {
                 // Countdowns is a section of its own: it opens without the lists panel.
                 showLists = tool == Tool.TASKS,
             )
-            Tool.CALENDAR -> CalendarScreen(tasksVm, snapshot, openTask)
+            Tool.CALENDAR -> CalendarScreen(tasksVm, snapshot, calendarNav)
             Tool.MATRIX -> MatrixScreen(tasksVm, snapshot, openTask)
             Tool.FOCUS -> FocusScreen(snapshot, onOpenStats = { onTab(Tool.STATS) })
             Tool.HABITS -> HabitsScreen(snapshot.today)
@@ -274,6 +363,7 @@ class MainActivity : AppCompatActivity() {
                 onOpenTrash = openTrash,
                 onOpenToolbar = openToolbar,
                 onThemeChanged = ::onThemeSettingsChanged,
+                onOpenCalendarSettings = calendarNav.openSettings,
             )
         }
     }

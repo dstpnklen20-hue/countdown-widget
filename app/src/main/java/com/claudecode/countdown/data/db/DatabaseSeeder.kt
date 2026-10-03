@@ -20,6 +20,8 @@ class DatabaseSeeder(private val context: Context) : RoomDatabase.Callback() {
         const val LEGACY_WIDGET_PREFS = "countdowns_widget_map"
         private const val FLAG_PREFS = "db_migration"
         private const val KEY_LEGACY_IMPORTED = "legacy_countdowns_imported"
+        /** "Павлин" from the calendar palette. */
+        const val PERSONAL_CALENDAR_COLOR = 0xFF039BE5.toInt()
     }
 
     override fun onOpen(db: SupportSQLiteDatabase) {
@@ -29,6 +31,7 @@ class DatabaseSeeder(private val context: Context) : RoomDatabase.Callback() {
         db.beginTransaction()
         try {
             insertInbox(db)
+            insertPersonalCalendar(db)
             if (importLegacy) importLegacyCountdowns(db)
             db.setTransactionSuccessful()
         } finally {
@@ -49,6 +52,22 @@ class DatabaseSeeder(private val context: Context) : RoomDatabase.Callback() {
             put("isInbox", 1)
             put("createdAt", at)
             put("updatedAt", at)
+            put("deleted", 0)
+        })
+    }
+
+    /** Every device has the same first calendar (same id), so sync keeps one copy of it. */
+    private fun insertPersonalCalendar(db: SupportSQLiteDatabase) {
+        db.insert("calendars", SQLiteDatabase.CONFLICT_IGNORE, ContentValues().apply {
+            put("id", CalendarLayer.PERSONAL_ID)
+            put("name", "Личное")
+            put("color", PERSONAL_CALENDAR_COLOR)
+            put("defaultReminder", 30)
+            put("defaultAllDayReminder", 24 * 60)
+            put("sortOrder", Long.MIN_VALUE)
+            // Stamped at zero: any change the user makes on any device wins over the seed.
+            put("createdAt", 0L)
+            put("updatedAt", 0L)
             put("deleted", 0)
         })
     }

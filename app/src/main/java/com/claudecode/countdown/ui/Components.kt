@@ -302,3 +302,23 @@ fun Dot(color: Color, size: Int = 10) {
 
 @Composable
 fun HSpace(width: Int) = Spacer(Modifier.width(width.dp))
+
+/**
+ * Whether the on-screen keyboard is open. The window resizes for it (adjustResize) rather than
+ * reporting insets, so this compares the visible part of the window with the whole of it.
+ */
+@Composable
+fun rememberKeyboardOpen(): State<Boolean> {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val open = remember { mutableStateOf(false) }
+    androidx.compose.runtime.DisposableEffect(view) {
+        val listener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
+            val visible = android.graphics.Rect().also { view.getWindowVisibleDisplayFrame(it) }
+            val total = view.rootView.height
+            open.value = total > 0 && total - visible.bottom > total * 0.15f
+        }
+        view.viewTreeObserver.addOnGlobalLayoutListener(listener)
+        onDispose { view.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
+    }
+    return open
+}

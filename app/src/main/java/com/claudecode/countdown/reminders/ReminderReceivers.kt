@@ -18,6 +18,7 @@ class ReminderActionReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_DONE = "com.claudecode.countdown.ACTION_REMINDER_DONE"
         const val ACTION_SNOOZE = "com.claudecode.countdown.ACTION_REMINDER_SNOOZE"
+        const val ACTION_DISMISS = "com.claudecode.countdown.ACTION_REMINDER_DISMISS"
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_MINUTES = "minutes"
         const val ACTION_HABIT_DONE = "com.claudecode.countdown.ACTION_HABIT_DONE"

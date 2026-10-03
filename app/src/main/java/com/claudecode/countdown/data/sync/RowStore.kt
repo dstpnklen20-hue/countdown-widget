@@ -15,6 +15,7 @@ enum class SyncTable(val table: String, val key: List<String> = listOf("id")) {
     FOLDERS("folders"),
     LISTS("task_lists"),
     SECTIONS("sections"),
+    CALENDARS("calendars"),
     TASKS("tasks"),
     CHECKLIST("checklist_items"),
     TAGS("tags"),

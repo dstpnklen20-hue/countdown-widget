@@ -18,6 +18,8 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action !in handled) return
         // An update must never leave the app without a launcher entry (see AppIcon).
         if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) AppIcon.ensureLaunchable(context)
+        // A new phone zone resets the process default: put back the app's own zone, if it has one.
+        if (intent.action == Intent.ACTION_TIMEZONE_CHANGED) com.claudecode.countdown.data.AppZone.apply(context.container.settings.current.appZone)
         WidgetUpdateScheduler.schedule(context)
         launchAsync(context) {
             // After an update Glance widgets keep their loading layout until redrawn.

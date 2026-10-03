@@ -24,6 +24,12 @@ data class QuickAddResult(
     val repeat: RepeatRule? = null,
     /** Recognized fragments, in the order they were found, for highlighting. */
     val recognized: List<String> = emptyList(),
+    /** True when the text named a day (not just a time, whose day is guessed). */
+    val dateGiven: Boolean = false,
+    /** End of a range like "с 15 до 17" or "15:00–17:30". */
+    val endTime: LocalTime? = null,
+    /** A length like "2 часа", "на полчаса", "for 45 min". */
+    val durationMinutes: Int? = null,
 )
 
 /**
@@ -70,8 +76,16 @@ class QuickAddParser(private val today: LocalDate, private val now: LocalTime) {
             date = d; time = t
         }
 
+        // A range comes before single times, which would take its first half.
+        var endTime: LocalTime? = null
+        if (time == null) {
+            (s.take(TIME_RANGE) { rangeOf(it) != null } ?: s.take(TIME_RANGE_COLON) { rangeOf(it) != null })
+                ?.let { m -> rangeOf(m)!!.let { (a, b) -> time = a; endTime = b } }
+        }
         if (date == null) date = parseDate(s)
+        val dateGiven = date != null
         if (time == null) time = parseTime(s)
+        val duration = if (endTime == null) parseDuration(s) else null
 
         val repeatStart = repeat?.let { firstOccurrence(it) }
         val finalDate = when {
@@ -96,7 +110,42 @@ class QuickAddParser(private val today: LocalDate, private val now: LocalTime) {
             listName = listName,
             repeat = repeat,
             recognized = s.recognized,
+            dateGiven = dateGiven,
+            endTime = endTime,
+            durationMinutes = duration,
         )
+    }
+
+    // --- Ranges and lengths ---
+
+    /** "с 15 до 17", "from 3pm to 5pm", "15:00-17:30": start and end, or null when not times. */
+    private fun rangeOf(m: MatchResult): Pair<LocalTime, LocalTime>? {
+        val g = m.groupValues
+        val endSuffix = g[6]
+        val a = timeOf(g[1], g[2], g[3].ifEmpty { endSuffix }) ?: return null
+        val b = timeOf(g[4], g[5], endSuffix) ?: return null
+        return a to b
+    }
+
+    private fun timeOf(hour: String, minutes: String, suffix: String): LocalTime? =
+        TIME_SUFFIX_ONLY.find("$hour:${minutes.ifEmpty { "00" }} $suffix")?.let { timeOf(it) }
+
+    private fun parseDuration(s: Scan): Int? {
+        s.take(DURATION_WORD)?.let { m ->
+            val w = m.value.lowercase()
+            return when {
+                "полтор" in w -> 90
+                "пол" in w || "half" in w -> 30
+                else -> 60
+            }
+        }
+        s.take(DURATION) { it.groupValues[1].replace(',', '.').toDoubleOrNull()?.let { n -> n > 0 && n <= 999 } == true }?.let { m ->
+            val n = m.groupValues[1].replace(',', '.').toDouble()
+            val unit = m.groupValues[2].lowercase()
+            val minutes = if (unit.startsWith("м") || unit.startsWith("min") || unit == "m") n else n * 60
+            return minutes.toInt().takeIf { it in 1..24 * 60 }
+        }
+        return null
     }
 
     // --- Repeat ---
@@ -193,7 +242,7 @@ class QuickAddParser(private val today: LocalDate, private val now: LocalTime) {
         s.take(TIME_COLON) { timeOf(it) != null }?.let { return timeOf(it) }
         s.take(TIME_SUFFIX) { timeOf(it) != null }?.let { return timeOf(it) }
         s.take(PART_OF_DAY)?.let { m ->
-            val w = m.groupValues[1].lowercase()
+            val w = m.value.lowercase()
             return when {
                 w.startsWith("утр") || w.startsWith("morning") -> LocalTime.of(9, 0)
                 w.startsWith("дн") || w.startsWith("afternoon") -> LocalTime.of(14, 0)
@@ -292,7 +341,15 @@ class QuickAddParser(private val today: LocalDate, private val now: LocalTime) {
         private val NUMERIC_DATE = rx("$L(\\d{1,2})[./](\\d{1,2})(?:[./](\\d{4}|\\d{2}))?(?![\\p{L}\\p{N}]|[.:/]\\d)")
 
         private val NOON = rx("$L(в полдень|at noon|noon)$R")
-        private val TIME_WITH_PREP = rx("$L(?:в|к|at|@)\\s*(\\d{1,2})(?:[:.](\\d{2}))?(?:\\s*(утра|дня|вечера|ночи|am|pm|a\\.m\\.|p\\.m\\.))?$R")
+        // "в 2 часа дня": the word "часа" belongs to the time.
+        private val TIME_WITH_PREP = rx("$L(?:в|к|at|@)\\s*(\\d{1,2})(?:[:.](\\d{2}))?(?:\\s*час(?:а|ов)?)?(?:\\s*(утра|дня|вечера|ночи|am|pm|a\\.m\\.|p\\.m\\.))?$R")
+        private const val SUFFIX = "(утра|дня|вечера|ночи|am|pm)"
+        /** Six groups: start hour, minutes, suffix; end hour, minutes, suffix. */
+        private val TIME_RANGE = rx("$L(?:с|from)\\s*(\\d{1,2})(?:[:.](\\d{2}))?\\s*$SUFFIX?\\s*(?:до|to|-|–|—)\\s*(\\d{1,2})(?:[:.](\\d{2}))?\\s*$SUFFIX?$R")
+        private val TIME_RANGE_COLON = rx("$L(\\d{1,2}):(\\d{2})()\\s*[-–—]\\s*(\\d{1,2}):(\\d{2})\\s*(am|pm)?$R")
+        private val TIME_SUFFIX_ONLY = rx("(\\d{1,2}):(\\d{2})\\s*$SUFFIX?")
+        private val DURATION = rx("$L(?<!(?:в|к|at|через|in)\\s)(?:на\\s+|for\\s+)?(\\d{1,3}(?:[.,]\\d)?)\\s*(часа|часов|час|ч|минуты|минут|минуту|мин|hours|hour|hrs|hr|h|minutes|minute|mins|min)$R")
+        private val DURATION_WORD = rx("$L(?:(?:на|for)\\s+(?:час|an hour|one hour)|(?:на\\s+)?(?:полтора часа|полчаса)|(?:for\\s+)?half an hour)$R")
         private val TIME_COLON = rx("$L(\\d{1,2}):(\\d{2})(?:\\s*(am|pm))?$R")
         private val TIME_SUFFIX = rx("$L(\\d{1,2})()\\s*(утра|дня|вечера|ночи|am|pm)$R")
         private val PART_OF_DAY = rx("$L(утром|днём|днем|вечером|ночью|in the morning|morning|in the afternoon|afternoon|in the evening|evening|tonight|at night)$R")

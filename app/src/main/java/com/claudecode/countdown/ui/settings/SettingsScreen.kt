@@ -90,6 +90,8 @@ import com.claudecode.countdown.ui.AppSnackbarHost
 import com.claudecode.countdown.widget.CountdownWidgetProvider
 import com.claudecode.countdown.widget.QuickAddWidgetReceiver
 import com.claudecode.countdown.widget.ScheduleWidgetReceiver
+import com.claudecode.countdown.widget.MonthWidgetReceiver
+import com.claudecode.countdown.widget.DateWidgetReceiver
 import com.claudecode.countdown.widget.TodayWidgetReceiver
 import kotlinx.coroutines.launch
 
@@ -99,7 +101,13 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: (() -> Unit)?, onOpenTrash: () -> Unit, onOpenToolbar: () -> Unit, onThemeChanged: () -> Unit) {
+fun SettingsScreen(
+    onBack: (() -> Unit)?,
+    onOpenTrash: () -> Unit,
+    onOpenToolbar: () -> Unit,
+    onThemeChanged: () -> Unit,
+    onOpenCalendarSettings: () -> Unit = {},
+) {
     val context = LocalContext.current
     val appSettings = remember { context.container.settings }
     val settings by appSettings.state.collectAsStateWithLifecycle()
@@ -211,11 +219,17 @@ fun SettingsScreen(onBack: (() -> Unit)?, onOpenTrash: () -> Unit, onOpenToolbar
                 NotificationSettings()
             }
 
+            Section("Календарь") {
+                SettingRow("Настройки календаря", "Первый день недели, рабочие и тихие часы, второй часовой пояс, календари и цвета", onOpenCalendarSettings)
+            }
+
             Section("Виджеты") {
                 val manager = AppWidgetManager.getInstance(context)
                 if (manager.isRequestPinAppWidgetSupported) {
                     for ((label, provider) in listOf(
                         "«Расписание»" to ScheduleWidgetReceiver::class.java,
+                        "«Месяц»" to MonthWidgetReceiver::class.java,
+                        "«Сегодня и следующее событие»" to DateWidgetReceiver::class.java,
                         "«Сегодня»" to TodayWidgetReceiver::class.java,
                         "«Быстро добавить»" to QuickAddWidgetReceiver::class.java,
                         "«Обратный отсчёт»" to CountdownWidgetProvider::class.java,
@@ -289,7 +303,7 @@ internal fun SettingRow(title: String, subtitle: String? = null, onClick: (() ->
 }
 
 @Composable
-private fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -494,7 +508,7 @@ private fun appNotificationSettings(context: Context): Intent =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimeDialog(minutes: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
+internal fun TimeDialog(minutes: Int, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
     val state = rememberTimePickerState(initialHour = minutes / 60, initialMinute = minutes % 60, is24Hour = true)
     AlertDialog(
         onDismissRequest = onDismiss,

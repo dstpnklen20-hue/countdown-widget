@@ -1,5 +1,6 @@
 package com.claudecode.countdown.ui.calendar
 
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -78,7 +79,7 @@ internal fun ScheduleView(
     jump: Int,
     range: ClosedRange<LocalDate>,
     vm: TasksViewModel,
-    onOpenTask: (String) -> Unit,
+    onOpen: (CalendarEntry) -> Unit,
     onOpenDay: (LocalDate) -> Unit,
 ) {
     // A year of repeats is worth computing off the main thread.
@@ -101,7 +102,7 @@ internal fun ScheduleView(
         }) { row ->
             when (row) {
                 is ScheduleRow.Banner -> MonthBanner(row.month, Modifier.padding(horizontal = 8.dp, vertical = 8.dp))
-                is ScheduleRow.Day -> ScheduleDay(row.date, today, row.entries, vm, onOpenTask, onOpenDay)
+                is ScheduleRow.Day -> ScheduleDay(row.date, today, row.entries, vm, onOpen, onOpenDay)
             }
         }
     }
@@ -123,14 +124,6 @@ private fun scheduleRows(entries: Map<LocalDate, List<CalendarEntry>>, range: Cl
     return rows
 }
 
-/** The selected day of the Month view, as in the schedule. */
-@Composable
-internal fun DayAgenda(day: LocalDate, today: LocalDate, entries: List<CalendarEntry>, vm: TasksViewModel, onOpenTask: (String) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 88.dp)) {
-        item(key = day.toString()) { ScheduleDay(day, today, entries, vm, onOpenTask, null) }
-    }
-}
-
 /** A day of the schedule: weekday and number on the left (today in a circle), its cards on the right. */
 @Composable
 private fun ScheduleDay(
@@ -138,7 +131,7 @@ private fun ScheduleDay(
     today: LocalDate,
     entries: List<CalendarEntry>,
     vm: TasksViewModel,
-    onOpenTask: (String) -> Unit,
+    onOpen: (CalendarEntry) -> Unit,
     onOpenDay: ((LocalDate) -> Unit)?,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -183,7 +176,7 @@ private fun ScheduleDay(
             val lineAt = if (!isToday) -1 else entries.indexOfFirst { it.timed && it.start!! > nowMinute }.let { if (it < 0) entries.size else it }
             entries.forEachIndexed { i, e ->
                 if (i == lineAt) NowLine()
-                EntryCard(e, vm, onOpenTask)
+                EntryCard(e, vm, onOpen)
             }
             if (isToday && lineAt == entries.size && entries.isNotEmpty()) NowLine()
         }
@@ -224,7 +217,7 @@ internal fun entryTitle(e: CalendarEntry): String =
  * tasks are lighter cards with a checkbox, so the two kinds are told apart at a glance.
  */
 @Composable
-private fun EntryCard(e: CalendarEntry, vm: TasksViewModel, onOpenTask: (String) -> Unit) {
+private fun EntryCard(e: CalendarEntry, vm: TasksViewModel, onOpen: (CalendarEntry) -> Unit) {
     val task = e.task
     val color = entryColor(task)
     val scheme = MaterialTheme.colorScheme
@@ -234,9 +227,10 @@ private fun EntryCard(e: CalendarEntry, vm: TasksViewModel, onOpenTask: (String)
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = 52.dp)
+                .alpha(if (LocalDimPast.current && entryEnd(e) < System.currentTimeMillis()) 0.55f else 1f)
                 .clip(RoundedCornerShape(12.dp))
                 .background(color)
-                .clickable { onOpenTask(task.id) }
+                .clickable { onOpen(e) }
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
             Text(entryTitle(e), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -251,7 +245,7 @@ private fun EntryCard(e: CalendarEntry, vm: TasksViewModel, onOpenTask: (String)
                 .clip(RoundedCornerShape(12.dp))
                 .background(color.copy(alpha = 0.16f))
                 .border(1.dp, color.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
-                .clickable { onOpenTask(task.id) }
+                .clickable { onOpen(e) }
                 .padding(end = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -271,7 +265,8 @@ private fun EntryCard(e: CalendarEntry, vm: TasksViewModel, onOpenTask: (String)
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(entryTimeText(e), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 1)
+                val overdue = task.id in LocalOverdue.current
+                Text(if (overdue) "Просрочено" else entryTimeText(e), style = MaterialTheme.typography.bodySmall, color = if (overdue) scheme.error else scheme.onSurfaceVariant, maxLines = 1)
             }
         }
     }

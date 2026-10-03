@@ -64,7 +64,7 @@ fun TrashScreen(vm: TasksViewModel, snapshot: Snapshot, onBack: () -> Unit) {
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Text(
-                    "Корзина пуста.\nУдалённые задачи попадают сюда, их можно вернуть.",
+                    "Корзина пуста.\nУдалённые задачи и события попадают сюда, их можно вернуть в течение 30 дней.",
                     color = scheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(32.dp),

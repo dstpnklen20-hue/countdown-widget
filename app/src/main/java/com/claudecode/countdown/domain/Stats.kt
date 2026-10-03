@@ -58,3 +58,13 @@ fun focusMinutesPerMonth(sessions: List<FocusSession>, months: List<YearMonth>, 
     for (s in sessions) index[YearMonth.from(Instant.ofEpochMilli(s.startedAt).atZone(zone))]?.let { ms[it] += s.durationMs }
     return ms.map { (it / 60_000).toInt() }
 }
+
+/**
+ * Minutes of timed events per calendar (null key: the default one) over [from]..[to], repeats
+ * included, as Google Calendar's time insights. All-day events take no hours and are left out.
+ */
+fun eventMinutesByCalendar(tasks: List<com.claudecode.countdown.data.db.Task>, from: LocalDate, to: LocalDate): Map<String?, Int> =
+    calendarEntries(tasks.filter { it.isEvent && !it.deleted }, from, to).values.flatten()
+        .filter { it.timed }
+        .groupBy { it.task.calendarId }
+        .mapValues { (_, list) -> list.sumOf { it.end!! - it.start!! } }

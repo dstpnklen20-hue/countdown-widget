@@ -17,6 +17,8 @@ import com.claudecode.countdown.ui.UndoBus
 import com.claudecode.countdown.widget.CountdownWidgetProvider
 import com.claudecode.countdown.widget.QuickAddWidget
 import com.claudecode.countdown.widget.ScheduleWidget
+import com.claudecode.countdown.widget.MonthWidget
+import com.claudecode.countdown.widget.DateWidget
 import com.claudecode.countdown.widget.TodayWidget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,11 +49,19 @@ class AppContainer(private val context: Context) {
     val pomodoro: PomodoroTimer by lazy { PomodoroTimer(context, focus) }
     val undo = UndoBus(appScope)
 
+    /** The event the editor screen works on (handed over from the calendar). */
+    val eventDraft = MutableStateFlow<com.claudecode.countdown.ui.calendar.EventDraft?>(null)
+
+    /** A day to show in the calendar (a widget asked for it); the calendar clears it once shown. */
+    val calendarJump = MutableStateFlow<java.time.LocalDate?>(null)
+
     /** Everything that mirrors task data outside the app: widgets and the reminder alarm. */
     fun onDataChanged() {
         CountdownWidgetProvider.updateAllWidgets(context)
         appScope.launch { TodayWidget.refresh(context) }
         appScope.launch { ScheduleWidget.refresh(context) }
+        appScope.launch { MonthWidget.refresh(context) }
+        appScope.launch { DateWidget.refresh(context) }
         appScope.launch { reminders.reschedule() }
     }
 
@@ -71,6 +81,8 @@ class AppContainer(private val context: Context) {
         CountdownWidgetProvider.updateAllWidgets(context)
         TodayWidget.refresh(context)
         ScheduleWidget.refresh(context)
+        MonthWidget.refresh(context)
+        DateWidget.refresh(context)
         QuickAddWidget.refresh(context)
     }
 }

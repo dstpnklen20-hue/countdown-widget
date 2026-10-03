@@ -84,7 +84,18 @@ class MigrationTest {
             assertEquals(false, db.taskDao().get("t1")!!.isEvent)
             db.taskDao().upsert(db.taskDao().get("t1")!!.copy(isEvent = true))
             assertEquals(true, db.taskDao().get("t1")!!.isEvent)
-            assertEquals(5, db.openHelper.readableDatabase.version)
+            // v6: events get a place and a calendar, reminders a kind, and calendars a table.
+            assertNull(db.taskDao().get("t1")!!.location)
+            db.taskDao().upsert(db.taskDao().get("t1")!!.copy(location = "Кафе", calendarId = "work", exDates = "2026-10-05"))
+            assertEquals("Кафе", db.taskDao().get("t1")!!.location)
+            db.reminderDao().upsert(Reminder(taskId = "t1", kind = ReminderKind.ALARM))
+            assertEquals(ReminderKind.ALARM, db.reminderDao().forTask("t1").single().kind)
+            db.calendarDao().upsert(CalendarLayer(id = "work", name = "Работа", color = 0))
+            assertEquals(listOf("Работа"), db.calendarDao().all().map { it.name })
+            // v7: an event keeps the zones its start and end were set in.
+            db.taskDao().upsert(db.taskDao().get("t1")!!.copy(startZone = "Europe/Moscow", endZone = "Asia/Dubai"))
+            assertEquals("Asia/Dubai", db.taskDao().get("t1")!!.endZone)
+            assertEquals(7, db.openHelper.readableDatabase.version)
         } finally {
             db.close()
         }

@@ -9,6 +9,13 @@ import java.util.UUID
 fun newId(): String = UUID.randomUUID().toString()
 fun now(): Long = System.currentTimeMillis()
 
+/**
+ * The stamp for an edit of a row stamped [previous]: now, but always later than [previous]. Sync
+ * keeps the newer version of a row, so an edit must beat the one it changes even when this
+ * device's clock is behind the device that wrote that version.
+ */
+fun stampAfter(previous: Long): Long = maxOf(now(), previous + 1)
+
 enum class TaskStatus { OPEN, DONE, WONT_DO }
 enum class DisplayMode { NORMAL, COUNTDOWN }
 enum class RepeatFrom { DUE, COMPLETION }
@@ -99,8 +106,59 @@ data class Task(
     val createdAt: Long = now(),
     val updatedAt: Long = createdAt,
     val deleted: Boolean = false,
+    /** Where an event happens (v6). */
+    val location: String? = null,
+    /** The calendar (layer) an event belongs to; null is [CalendarLayer.PERSONAL_ID]. */
+    val calendarId: String? = null,
+    /**
+     * Occurrences a repeating event skips, as ISO dates of their due days separated by commas:
+     * deleted on their own, or moved out as an entry of their own (which points back in [seriesId]).
+     */
+    val exDates: String? = null,
+    /** For one occurrence changed on its own: the repeating event it was taken out of. */
+    val seriesId: String? = null,
+    /** What kind of time an event is: null an ordinary one, else an [EventType] name. */
+    val eventType: String? = null,
+    /**
+     * Time zones an event's start and end were set in (v7), e.g. a flight from Moscow to Dubai.
+     * Null: the app's zone, whatever it is at the moment.
+     */
+    val startZone: String? = null,
+    val endZone: String? = null,
 ) {
     val isDone: Boolean get() = status != TaskStatus.OPEN
+}
+
+/** Special kinds of event blocks, as Google Calendar has them. */
+enum class EventType(val label: String) {
+    /** Time to work: reminders that fall into it come silently. */
+    FOCUS("Время для работы"),
+    /** Out of office: a hatched block, usually over several days. */
+    AWAY("Нет на месте"),
+}
+
+/**
+ * A calendar of events ("Личное", "Работа", "Учёба"), each with its colour, as in Google
+ * Calendar. Whether it is shown is a setting of the device (AppSettings.hiddenCalendars).
+ */
+@Entity(tableName = "calendars")
+data class CalendarLayer(
+    @PrimaryKey val id: String = newId(),
+    val name: String,
+    val color: Int,
+    /** Minutes before a timed event that its new reminder fires; null for no reminder. */
+    val defaultReminder: Int? = 30,
+    /** For all-day events: days ahead in minutes, at the all-day reminder time (1440 = the day before). */
+    val defaultAllDayReminder: Int? = 24 * 60,
+    val sortOrder: Long = 0,
+    val createdAt: Long = now(),
+    val updatedAt: Long = createdAt,
+    val deleted: Boolean = false,
+) {
+    companion object {
+        /** The calendar every device has from the start (like Inbox); events without one belong here. */
+        const val PERSONAL_ID = "personal"
+    }
 }
 
 @Entity(tableName = "checklist_items", indices = [Index("taskId")])
@@ -147,7 +205,11 @@ data class Reminder(
     val createdAt: Long = now(),
     val updatedAt: Long = createdAt,
     val deleted: Boolean = false,
+    /** A notification, or an alarm that rings full screen (v6). */
+    @ColumnInfo(defaultValue = "NOTIFY") val kind: ReminderKind = ReminderKind.NOTIFY,
 )
+
+enum class ReminderKind { NOTIFY, ALARM }
 
 /** Local-only: which home-screen widget shows what. Not synced. */
 @Entity(tableName = "widget_bindings")
