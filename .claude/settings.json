@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|MultiEdit|Grep|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 -I C:/Users/LEONID/.claude/hooks/block_secrets.py"
+          }
+        ]
+      }
+    ]
+  }
+}
