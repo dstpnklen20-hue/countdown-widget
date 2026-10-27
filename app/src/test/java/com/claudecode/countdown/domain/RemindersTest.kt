@@ -23,6 +23,19 @@ class RemindersTest {
     }
 
     @Test
+    fun taskThatLastsRemindsAtItsStart() {
+        val start = timedDue(day, LocalTime.of(10, 0), zone).at
+        val task = Task(title = "t", startAt = start, dueAt = start + 90 * min, timeZone = zone.id)
+        assertEquals(90, task.durationMinutes)
+        assertEquals(start, reminderTrigger(task, Reminder(taskId = task.id, offsetMinutes = 0)))
+        assertEquals(start - 15 * min, reminderTrigger(task, Reminder(taskId = task.id, offsetMinutes = 15)))
+        // A start left far before the end (a multi-day event made a task) is no length: the due time counts.
+        val stretched = task.copy(startAt = start - 3 * 24 * 60 * min)
+        assertEquals(null, stretched.durationMinutes)
+        assertEquals(stretched.dueAt, reminderTrigger(stretched, Reminder(taskId = task.id, offsetMinutes = 0)))
+    }
+
+    @Test
     fun allDayRemindsAtNine() {
         val due = allDayDue(day, zone)
         val task = Task(title = "t", dueAt = due.at, isAllDay = true, timeZone = due.timeZone)

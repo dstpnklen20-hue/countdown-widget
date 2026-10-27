@@ -33,6 +33,8 @@ object Motion {
     const val MEDIUM = 320
 
     fun <T> gentleSpring(): SpringSpec<T> = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+    /** Brings something let go mid-way (a swiped page) to rest, keeping the speed of the finger. */
+    fun <T> settle(): SpringSpec<T> = spring(stiffness = Spring.StiffnessMediumLow)
     fun <T> soft(duration: Int = MEDIUM): FiniteAnimationSpec<T> = tween(duration, easing = Soft)
     fun <T> softOut(duration: Int = SHORT): FiniteAnimationSpec<T> = tween(duration, easing = SoftOut)
 

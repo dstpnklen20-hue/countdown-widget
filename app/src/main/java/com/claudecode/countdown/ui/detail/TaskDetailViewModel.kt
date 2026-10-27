@@ -13,6 +13,7 @@ import com.claudecode.countdown.data.db.RepeatFrom
 import com.claudecode.countdown.data.db.Reminder
 import com.claudecode.countdown.domain.Due
 import com.claudecode.countdown.domain.allDayDue
+import com.claudecode.countdown.domain.durationMinutes
 import com.claudecode.countdown.domain.today
 import com.claudecode.countdown.ui.EventTime
 import com.claudecode.countdown.ui.UndoBus
@@ -97,8 +98,17 @@ class TaskDetailViewModel(
         repo.get(taskId)?.let { repo.setDone(it, !it.isDone) }
     }
 
+    /** A new date and time; a task that lasts a while starts then and keeps its length. */
     fun setDue(due: Due?) = viewModelScope.launch {
-        mutateNow { it.copy(dueAt = due?.at, isAllDay = due?.isAllDay ?: false, timeZone = due?.timeZone) }
+        mutateNow {
+            val length = it.durationMinutes
+            if (due != null && !due.isAllDay && length != null) {
+                it.copy(startAt = due.at, dueAt = due.at + length * 60_000L, isAllDay = false, timeZone = due.timeZone)
+            } else {
+                // A start left from before (an event made a task) would stretch the task over days.
+                it.copy(startAt = null, dueAt = due?.at, isAllDay = due?.isAllDay ?: false, timeZone = due?.timeZone)
+            }
+        }
         // Like TickTick: giving a task a time switches on an "at time" reminder by default.
         if (due != null && !due.isAllDay && reminders.value.isEmpty()) repo.addReminder(taskId, 0)
     }
@@ -123,6 +133,15 @@ class TaskDetailViewModel(
     fun setList(listId: String) = mutate { it.copy(listId = listId, sectionId = null) }
 
     fun setEventTime(time: EventTime) = mutate { time.applyTo(it) }
+
+    /** How long a task with a time lasts (null: just a moment); its start stays where it is. */
+    fun setDuration(minutes: Int?) = mutate {
+        val due = it.dueAt
+        if (due == null || it.isAllDay) return@mutate it
+        val start = if (it.durationMinutes != null) it.startAt!! else due
+        if (minutes == null) it.copy(startAt = null, dueAt = start)
+        else it.copy(startAt = start, dueAt = start + minutes * 60_000L)
+    }
 
     /**
      * Turns a task into an event or back. A task with a time but no start becomes an hour from that

@@ -132,6 +132,7 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.sign
 
 internal enum class CalendarMode(val label: String, val icon: ImageVector) {
     SCHEDULE("Расписание", Icons.Outlined.ViewAgenda),
@@ -142,8 +143,11 @@ internal enum class CalendarMode(val label: String, val icon: ImageVector) {
     YEAR("Год", Icons.Outlined.DateRange),
 }
 
-/** What the calendar shows: a mode and the dates it covers. Moving within a page keeps it equal. */
-private data class CalendarPage(val mode: CalendarMode, val start: LocalDate, val end: LocalDate, val month: YearMonth? = null) {
+/**
+ * What the calendar shows: a mode and the dates it covers. Moving within a page keeps it equal.
+ * [jump] counts jumps in the time grid, whose swipes move the days without a new page.
+ */
+private data class CalendarPage(val mode: CalendarMode, val start: LocalDate, val end: LocalDate, val month: YearMonth? = null, val jump: Int = 0) {
     companion object {
         fun of(mode: CalendarMode, selected: LocalDate, today: LocalDate, first: DayOfWeek): CalendarPage = when (mode) {
             // The schedule is one long list around today; the selected day only sets where it scrolls.
@@ -164,6 +168,22 @@ private data class CalendarPage(val mode: CalendarMode, val start: LocalDate, va
         }
     }
 }
+
+/** The days the time grid draws for [page] (the shown ones and those a swipe brings in) and how it pages. */
+private fun gridDays(page: CalendarPage, weekends: Boolean): Pair<List<LocalDate>, GridPaging> = when (page.mode) {
+    CalendarMode.WEEK -> {
+        fun week(start: LocalDate) = dayRange(start, 7).filter {
+            weekends || (it.dayOfWeek != DayOfWeek.SATURDAY && it.dayOfWeek != DayOfWeek.SUNDAY)
+        }
+        val shown = week(page.start)
+        (week(page.start.minusWeeks(1)) + shown + week(page.start.plusWeeks(1))) to GridPaging(shown.size, shown.size, shown.size, 1)
+    }
+    // As in Google Calendar, "3 дня" moves by a day, up to three in one fling.
+    CalendarMode.THREE_DAYS -> dayRange(page.start.minusDays(3), 9) to GridPaging(3, 3, 1, 3)
+    else -> dayRange(page.start.minusDays(1), 3) to GridPaging(1, 1, 1, 1)
+}
+
+private val GRID_MODES = setOf(CalendarMode.DAY, CalendarMode.THREE_DAYS, CalendarMode.WEEK)
 
 internal const val SCHEDULE_DAYS_BACK = 366L
 internal const val SCHEDULE_DAYS_AHEAD = 400L
@@ -232,6 +252,8 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
     var direction by remember { mutableStateOf(0) }
     // Counts "go to" requests, so the schedule scrolls back even when the day stays the same.
     var jumps by remember { mutableStateOf(0) }
+    // Counts jumps to another page of the time grid (its own swipes do not count).
+    var gridJumps by remember { mutableStateOf(0) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val now by rememberNow(60_000)
 
@@ -275,20 +297,25 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
         appSettings.setCalendarMode(m.name)
     }
 
-    fun shift(sign: Long) {
-        direction = sign.toInt()
-        selectedEpoch = when (mode) {
-            CalendarMode.YEAR -> selected.plusYears(sign)
-            CalendarMode.MONTH -> selected.plusMonths(sign)
-            CalendarMode.WEEK -> selected.plusWeeks(sign)
-            CalendarMode.THREE_DAYS -> selected.plusDays(3 * sign)
-            CalendarMode.DAY, CalendarMode.SCHEDULE -> selected.plusDays(sign)
+    // Gesture handlers outlive this composition: they read the mode and the day from here, not a copy.
+    val modeNow by rememberUpdatedState(mode)
+
+    /** Moves [steps] pages (days in "3 дня") forward, or back if negative. */
+    fun shift(steps: Long) {
+        val from = LocalDate.ofEpochDay(selectedEpoch)
+        direction = steps.sign
+        selectedEpoch = when (modeNow) {
+            CalendarMode.YEAR -> from.plusYears(steps)
+            CalendarMode.MONTH -> from.plusMonths(steps)
+            CalendarMode.WEEK -> from.plusWeeks(steps)
+            CalendarMode.THREE_DAYS, CalendarMode.DAY, CalendarMode.SCHEDULE -> from.plusDays(steps)
         }.toEpochDay()
     }
 
     fun goTo(day: LocalDate) {
         direction = day.compareTo(selected).coerceIn(-1, 1)
         jumps++
+        if (CalendarPage.of(mode, day, today, first) != page) gridJumps++
         selectedEpoch = day.toEpochDay()
     }
 
@@ -509,9 +536,10 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
                             UndatedTasks(undated, nav.openTask)
                         }
                         val swipeThreshold = with(LocalDensity.current) { 72.dp.toPx() }
-                        val currentShift by rememberUpdatedState(::shift)
                         AnimatedContent(
-                            targetState = page,
+                            targetState = if (gridMode) page.copy(jump = gridJumps) else page,
+                            // The time grid moves its days itself: a new page only for a jump or another view.
+                            contentKey = { if (it.mode in GRID_MODES) it.mode to it.jump else it },
                             transitionSpec = {
                                 when {
                                     direction > 0 -> slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
@@ -522,13 +550,13 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
                             label = "calendar",
                             modifier = Modifier
                                 .fillMaxSize()
-                                // Swipe left/right moves to the next/previous day, week, month or year.
+                                // Swipe left/right moves to the next/previous month or year (the time grid swipes itself).
                                 .then(
-                                    if (mode == CalendarMode.SCHEDULE) Modifier else Modifier.pointerInput(mode) {
+                                    if (mode == CalendarMode.SCHEDULE || gridMode) Modifier else Modifier.pointerInput(mode) {
                                         var dragged = 0f
                                         detectHorizontalDragGestures(
                                             onDragStart = { dragged = 0f },
-                                            onDragEnd = { if (abs(dragged) > swipeThreshold) currentShift(if (dragged < 0) 1L else -1L) },
+                                            onDragEnd = { if (abs(dragged) > swipeThreshold) shift(if (dragged < 0) 1L else -1L) },
                                         ) { _, dx -> dragged += dx }
                                     }
                                 ),
@@ -565,16 +593,11 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
                                     )
                                 }
                                 CalendarMode.WEEK, CalendarMode.THREE_DAYS, CalendarMode.DAY -> {
-                                    val entries = remember(tasks, shownPage) { calendarEntries(tasks, shownPage.start, shownPage.end) }
-                                    val days = when (shownPage.mode) {
-                                        CalendarMode.DAY -> listOf(selectedHere)
-                                        CalendarMode.WEEK -> dayRange(shownPage.start, 7).filter {
-                                            settings.showWeekends || (it.dayOfWeek != DayOfWeek.SATURDAY && it.dayOfWeek != DayOfWeek.SUNDAY)
-                                        }
-                                        else -> dayRange(shownPage.start, 3)
-                                    }
+                                    val (days, paging) = gridDays(shownPage, settings.showWeekends)
+                                    val entries = remember(tasks, days.first(), days.last()) { calendarEntries(tasks, days.first(), days.last()) }
                                     TimeGrid(
                                         days = days,
+                                        paging = paging,
                                         today = today,
                                         entries = entries,
                                         draft = quick,
@@ -595,6 +618,7 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
                                             onToggleDone = vm::toggleDone,
                                             onZoom = appSettings::setHourHeight,
                                             onDropTask = ::scheduleTask,
+                                            onSwipe = { steps -> shift(steps.toLong()) },
                                         ),
                                     )
                                 }

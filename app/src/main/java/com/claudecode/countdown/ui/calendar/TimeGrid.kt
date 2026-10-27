@@ -14,7 +14,9 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.animation.core.animate
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +34,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,6 +48,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -52,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
@@ -63,6 +68,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -70,6 +76,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudecode.countdown.data.Settings
@@ -80,6 +87,7 @@ import com.claudecode.countdown.domain.MINUTES_PER_DAY
 import com.claudecode.countdown.domain.TimeBlock
 import com.claudecode.countdown.domain.layoutBlocks
 import com.claudecode.countdown.domain.localTimeOf
+import com.claudecode.countdown.ui.Motion
 import com.claudecode.countdown.ui.PriorityCheckbox
 import com.claudecode.countdown.ui.rememberNow
 import java.time.LocalDate
@@ -89,6 +97,8 @@ import java.time.format.TextStyle
 import java.time.temporal.IsoFields
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 private val MIN_BLOCK_HEIGHT = 20.dp
 private val HOUR_LABEL_WIDTH = 50.dp
@@ -99,6 +109,23 @@ private val NEST_INDENT = 10.dp
 private const val SNAP_MINUTES = 15
 /** Pressing this close to a block's bottom edge stretches it instead of moving it. */
 private val RESIZE_EDGE = 16.dp
+/** A swipe let go faster than this turns at least one step. */
+private val FLING_SPEED = 400.dp
+/** How far a fling carries on (seconds of its speed) when choosing the day to stop at. */
+private const val FLING_REACH = 0.15f
+
+/**
+ * Which of the drawn days are on screen and how a swipe moves them: [lead] days wait off screen
+ * on the left, the [visible] ones follow, then the rest on the right.
+ */
+internal data class GridPaging(
+    val lead: Int,
+    val visible: Int,
+    /** Days one step moves by: one in "День" and "3 дня", the whole week in "Неделя". */
+    val step: Int,
+    /** Most steps one swipe can go (as many as there are drawn days to bring in). */
+    val maxSteps: Int,
+)
 
 /** What the time grid can ask for. */
 internal class GridActions(
@@ -112,6 +139,8 @@ internal class GridActions(
     val onZoom: (Int) -> Unit,
     /** A task from the "Без даты" strip was dropped on [day] at [minute]. */
     val onDropTask: ((taskId: String, day: LocalDate, minute: Int) -> Unit)? = null,
+    /** A swipe settled this many steps forward (negative: back), see [GridPaging.step]. */
+    val onSwipe: (steps: Int) -> Unit = {},
 )
 
 /** A block being moved ([resize] false) or stretched, with how far it went so far. */
@@ -133,12 +162,14 @@ private data class Drag(
  * hour a rounded tile, events as blocks filled with their colour (one that starts later than an
  * overlapping one is drawn over it, moved in), tasks as lighter blocks with a checkbox, all-day
  * entries in a strip above and a line at the current time. Tapping free space adds an entry at
- * that half hour; a long press moves a block (or stretches it from its bottom edge) in steps of
- * 15 minutes; two fingers zoom the hours.
+ * the quarter hour tapped; a swipe moves the days along with the finger; a long press moves a
+ * block (or stretches it from its bottom edge) in steps of 15 minutes; two fingers zoom the hours.
  */
 @Composable
 internal fun TimeGrid(
+    /** All drawn days: the visible ones and, around them, the ones a swipe brings in (see [paging]). */
     days: List<LocalDate>,
+    paging: GridPaging,
     today: LocalDate,
     entries: Map<LocalDate, List<CalendarEntry>>,
     draft: QuickDraft?,
@@ -150,6 +181,7 @@ internal fun TimeGrid(
     val scheme = MaterialTheme.colorScheme
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
+    val shown = days.subList(paging.lead, paging.lead + paging.visible)
     val allDay = days.map { d -> entries[d].orEmpty().filter { !it.timed } }
     val timed = days.map { d -> entries[d].orEmpty().filter { it.timed } }
     val scroll = rememberScrollState()
@@ -168,15 +200,16 @@ internal fun TimeGrid(
         zoomScroll = null
     }
 
-    LaunchedEffect(days.first(), days.size) {
+    LaunchedEffect(Unit) {
         // Open at the current hour on today's page, else at the first entry or the morning, an hour above.
-        val first = timed.flatten().minOfOrNull { it.start!! }?.div(60)
-        val hour = if (today in days) LocalTime.now().hour else first ?: 8
+        // Swiping to other days keeps the hour the user scrolled to.
+        val first = timed.subList(paging.lead, paging.lead + paging.visible).flatten().minOfOrNull { it.start!! }?.div(60)
+        val hour = if (today in shown) LocalTime.now().hour else first ?: 8
         scroll.scrollTo(((hour - 1).coerceAtLeast(0) * hourPx).toInt())
     }
     // Keep a new entry in view above the card that is creating it.
     var viewport by remember { mutableIntStateOf(0) }
-    val draftStart = draft?.let { d -> days.firstNotNullOfOrNull { d.minutesOn(it) }?.first }
+    val draftStart = draft?.let { d -> shown.firstNotNullOfOrNull { d.minutesOn(it) }?.first }
     LaunchedEffect(draftStart, viewport) {
         val start = draftStart ?: return@LaunchedEffect
         val top = (start / 60f * hourPx).toInt()
@@ -187,7 +220,7 @@ internal fun TimeGrid(
 
     val now by rememberNow(60_000)
     val nowMinute = localTimeOf(now).let { it.hour * 60 + it.minute }
-    val compact = days.size > 3
+    val compact = paging.visible > 3
     val secondZone = settings.secondZone?.let { runCatching { ZoneId.of(it) }.getOrNull() }
     val labelWidth = HOUR_LABEL_WIDTH + if (secondZone != null) ZONE_LABEL_WIDTH else 0.dp
 
@@ -205,143 +238,209 @@ internal fun TimeGrid(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(end = 6.dp)) {
-        // Day captions: weekday over a big number, today's in a filled circle.
-        Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
-            Box(Modifier.width(labelWidth), contentAlignment = Alignment.BottomCenter) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (settings.weekNumbers) {
-                        Text("Н${days.first().get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)}", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
-                    }
-                    if (secondZone != null) {
-                        Text(zoneShort(secondZone) + " · " + zoneShort(ZoneId.systemDefault()), style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, maxLines = 1)
-                    }
-                }
-            }
-            for (d in days) {
-                val isToday = d == today
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .then(if (actions.onOpenDay != null) Modifier.clickable { actions.onOpenDay.invoke(d) } else Modifier)
-                        .padding(vertical = 2.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(WEEK_DAYS[d.dayOfWeek.value - 1], style = MaterialTheme.typography.labelMedium, color = if (isToday) scheme.primary else scheme.onSurfaceVariant)
-                    Box(
-                        Modifier.size(40.dp).clip(CircleShape).background(if (isToday) scheme.primary else Color.Transparent),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("${d.dayOfMonth}", fontSize = 22.sp, color = if (isToday) scheme.onPrimary else scheme.onSurface)
-                    }
-                }
-            }
-        }
-        val draftAllDay = draft != null && (draft.time.allDay || !draft.timed)
-        if (allDay.any { it.isNotEmpty() } || draftAllDay) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-                Text(
-                    "весь\nдень",
-                    modifier = Modifier.width(labelWidth).padding(start = 8.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = scheme.onSurfaceVariant,
-                )
-                val shown = if (days.size == 1) 4 else 2
-                days.forEachIndexed { i, day ->
-                    val list = allDay[i]
-                    Column(Modifier.weight(1f).padding(horizontal = 1.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        if (draftAllDay && day in draft!!.time.startDate..maxOf(draft.time.startDate, draft.time.endDate)) DraftChip(draft)
-                        for (e in list.take(shown)) AllDayChip(e, now, settings.dimPast, actions.onOpen)
-                        if (list.size > shown) Text("+${list.size - shown}", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
-                    }
+    // Swipe: the days follow the finger and, let go, settle on a whole day (a whole week in "Неделя"),
+    // as in Google Calendar. Only the drawing moves; the shown days change once it stops.
+    val scope = rememberCoroutineScope()
+    var swipePx by remember { mutableFloatStateOf(0f) }
+    var settling by remember { mutableStateOf<Job?>(null) }
+    val onSwipe by rememberUpdatedState(actions.onSwipe)
+    val pagingNow by rememberUpdatedState(paging)
+    val flingPx = with(density) { FLING_SPEED.toPx() }
+
+    BoxWithConstraints(Modifier.fillMaxSize().padding(end = 6.dp)) {
+        val columnWidth = (maxWidth - labelWidth) / paging.visible
+        val columnPx = with(density) { columnWidth.toPx() }
+        val columnPxNow by rememberUpdatedState(columnPx)
+        val stripWidth = columnWidth * days.size
+        val leadPx = columnPx * paging.lead
+
+        fun settle(velocity: Float) {
+            val p = pagingNow
+            val unit = p.step * columnPxNow
+            var steps = (-(swipePx + velocity * FLING_REACH) / unit).roundToInt()
+            // A quick flick turns at least one step, however short.
+            if (steps == 0 && abs(velocity) > flingPx) steps = if (velocity < 0) 1 else -1
+            steps = steps.coerceIn(-p.maxSteps, p.maxSteps)
+            settling = scope.launch {
+                animate(swipePx, -steps * unit, velocity, Motion.settle()) { value, _ -> swipePx = value }
+                if (steps != 0) {
+                    // The new days are drawn where the moved ones stopped, in the same frame.
+                    swipePx = 0f
+                    onSwipe(steps)
                 }
             }
         }
-        Box(Modifier.fillMaxWidth().weight(1f).onSizeChanged { viewport = it.height }) {
-            Row(
-                Modifier
-                    .fillMaxSize()
-                    .pinchToZoom(
-                        scroll = scroll,
-                        hourDp = { hourDp },
-                        onZoom = { height, target ->
-                            hourDp = height
-                            zoomScroll = target
-                        },
-                        onEnd = { actions.onZoom(hourDp.roundToInt()) },
-                    )
-                    .verticalScroll(scroll, enabled = drag == null),
-            ) {
-                Row(Modifier.fillMaxWidth().height(hourHeight * 24)) {
-                    HourLabels(hourHeight, secondZone, days.first(), Modifier.width(labelWidth).fillMaxHeight())
-                    val todayShown = today in days
-                    BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
-                        val columnWidth = maxWidth / days.size
-                        val columnPx = with(density) { columnWidth.toPx() }
-                        Row(Modifier.fillMaxSize()) {
-                            days.forEachIndexed { i, day ->
-                                DayColumn(
-                                    day = day,
-                                    dayIndex = i,
-                                    entries = timed[i],
-                                    hourHeight = hourHeight,
-                                    nowMinute = if (todayShown) nowMinute else null,
-                                    isToday = day == today,
-                                    now = now,
-                                    draft = draft?.minutesOn(day),
-                                    draftTitle = draft?.cleanTitle,
-                                    dragging = drag?.entry,
-                                    settings = settings,
-                                    compact = compact,
-                                    actions = actions,
-                                    onDragStart = { entry, resize ->
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        drag = Drag(entry, resize, i)
-                                    },
-                                    onDrag = { dx, dy, yInGrid ->
-                                        drag = drag?.let { d ->
-                                            val dxPx = if (d.resize) 0f else d.dxPx + dx
-                                            d.copy(
-                                                minutes = d.minutes + dy / hourPx * 60f,
-                                                dxPx = dxPx,
-                                                days = (dxPx / columnPx).roundToInt().coerceIn(-i, days.size - 1 - i),
-                                            )
-                                        }
-                                        val edge = with(density) { 56.dp.toPx() }
-                                        val y = yInGrid - scroll.value
-                                        edgeSpeed = when {
-                                            y < edge -> -12f
-                                            y > viewport - edge -> 12f
-                                            else -> 0f
-                                        }
-                                    },
-                                    onDragEnd = { commit ->
-                                        val d = drag
-                                        drag = null
-                                        edgeSpeed = 0f
-                                        if (commit && d != null) {
-                                            val minutes = d.snapped.toLong()
-                                            val shiftDays = d.days.toLong() * MINUTES_PER_DAY
-                                            if (minutes != 0L || d.days != 0) {
-                                                if (d.resize) actions.onShift(d.entry, 0, minutes)
-                                                else actions.onShift(d.entry, shiftDays + minutes, shiftDays + minutes)
-                                            }
-                                        }
-                                    },
-                                    onSnapStep = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) },
-                                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                                )
+
+        Column(
+            Modifier.fillMaxSize().pointerInput(Unit) {
+                val tracker = VelocityTracker()
+                detectHorizontalDragGestures(
+                    onDragStart = {
+                        tracker.resetTracking()
+                        settling?.cancel()
+                    },
+                    onDragEnd = { settle(tracker.calculateVelocity().x) },
+                    onDragCancel = { settle(0f) },
+                ) { change, dx ->
+                    tracker.addPosition(change.uptimeMillis, change.position)
+                    change.consume()
+                    val limit = pagingNow.maxSteps * pagingNow.step * columnPxNow
+                    swipePx = (swipePx + dx).coerceIn(-limit, limit)
+                }
+            },
+        ) {
+            // Day captions: weekday over a big number, today's in a filled circle.
+            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                Box(Modifier.width(labelWidth), contentAlignment = Alignment.BottomCenter) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (settings.weekNumbers) {
+                            Text("Н${shown.first().get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)}", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
+                        }
+                        if (secondZone != null) {
+                            Text(zoneShort(secondZone) + " · " + zoneShort(ZoneId.systemDefault()), style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, maxLines = 1)
+                        }
+                    }
+                }
+                Box(Modifier.weight(1f).clipToBounds()) {
+                    Row(Modifier.dayStrip(stripWidth, leadPx) { swipePx }) {
+                        for (d in days) {
+                            val isToday = d == today
+                            Column(
+                                Modifier
+                                    .width(columnWidth)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .then(if (actions.onOpenDay != null) Modifier.clickable { actions.onOpenDay.invoke(d) } else Modifier)
+                                    .padding(vertical = 2.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(WEEK_DAYS[d.dayOfWeek.value - 1], style = MaterialTheme.typography.labelMedium, color = if (isToday) scheme.primary else scheme.onSurfaceVariant)
+                                Box(
+                                    Modifier.size(40.dp).clip(CircleShape).background(if (isToday) scheme.primary else Color.Transparent),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text("${d.dayOfMonth}", fontSize = 22.sp, color = if (isToday) scheme.onPrimary else scheme.onSurface)
+                                }
                             }
                         }
-                        // The block being dragged, drawn where it would land, with its new time.
-                        drag?.let { d -> DragPreview(d, hourHeight, columnWidth) }
+                    }
+                }
+            }
+            val draftAllDay = draft != null && (draft.time.allDay || !draft.timed)
+            if (allDay.any { it.isNotEmpty() } || draftAllDay) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                    Text(
+                        "весь\nдень",
+                        modifier = Modifier.width(labelWidth).padding(start = 8.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                    val fits = if (paging.visible == 1) 4 else 2
+                    Box(Modifier.weight(1f).clipToBounds()) {
+                        Row(Modifier.dayStrip(stripWidth, leadPx) { swipePx }) {
+                            days.forEachIndexed { i, day ->
+                                val list = allDay[i]
+                                Column(Modifier.width(columnWidth).padding(horizontal = 1.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    if (draftAllDay && day in draft!!.time.startDate..maxOf(draft.time.startDate, draft.time.endDate)) DraftChip(draft)
+                                    for (e in list.take(fits)) AllDayChip(e, now, settings.dimPast, actions.onOpen)
+                                    if (list.size > fits) Text("+${list.size - fits}", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().weight(1f).onSizeChanged { viewport = it.height }) {
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .pinchToZoom(
+                            scroll = scroll,
+                            hourDp = { hourDp },
+                            onZoom = { height, target ->
+                                hourDp = height
+                                zoomScroll = target
+                            },
+                            onEnd = { actions.onZoom(hourDp.roundToInt()) },
+                        )
+                        .verticalScroll(scroll, enabled = drag == null),
+                ) {
+                    Row(Modifier.fillMaxWidth().height(hourHeight * 24)) {
+                        HourLabels(hourHeight, secondZone, shown.first(), Modifier.width(labelWidth).fillMaxHeight())
+                        val todayShown = today in shown
+                        Box(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
+                            Box(Modifier.dayStrip(stripWidth, leadPx) { swipePx }.fillMaxHeight()) {
+                                Row(Modifier.fillMaxSize()) {
+                                    days.forEachIndexed { i, day ->
+                                        DayColumn(
+                                            day = day,
+                                            dayIndex = i,
+                                            entries = timed[i],
+                                            hourHeight = hourHeight,
+                                            nowMinute = if (todayShown) nowMinute else null,
+                                            isToday = day == today,
+                                            now = now,
+                                            draft = draft?.minutesOn(day),
+                                            draftTitle = draft?.cleanTitle,
+                                            dragging = drag?.entry,
+                                            settings = settings,
+                                            compact = compact,
+                                            actions = actions,
+                                            onDragStart = { entry, resize ->
+                                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                drag = Drag(entry, resize, i)
+                                            },
+                                            onDrag = { dx, dy, yInGrid ->
+                                                drag = drag?.let { d ->
+                                                    val dxPx = if (d.resize) 0f else d.dxPx + dx
+                                                    d.copy(
+                                                        minutes = d.minutes + dy / hourPx * 60f,
+                                                        dxPx = dxPx,
+                                                        // Only onto the days in sight.
+                                                        days = (dxPx / columnPx).roundToInt().coerceIn(paging.lead - i, paging.lead + paging.visible - 1 - i),
+                                                    )
+                                                }
+                                                val edge = with(density) { 56.dp.toPx() }
+                                                val y = yInGrid - scroll.value
+                                                edgeSpeed = when {
+                                                    y < edge -> -12f
+                                                    y > viewport - edge -> 12f
+                                                    else -> 0f
+                                                }
+                                            },
+                                            onDragEnd = { commit ->
+                                                val d = drag
+                                                drag = null
+                                                edgeSpeed = 0f
+                                                if (commit && d != null) {
+                                                    val minutes = d.snapped.toLong()
+                                                    val shiftDays = d.days.toLong() * MINUTES_PER_DAY
+                                                    if (minutes != 0L || d.days != 0) {
+                                                        if (d.resize) actions.onShift(d.entry, 0, minutes)
+                                                        else actions.onShift(d.entry, shiftDays + minutes, shiftDays + minutes)
+                                                    }
+                                                }
+                                            },
+                                            onSnapStep = { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) },
+                                            modifier = Modifier.width(columnWidth).fillMaxHeight(),
+                                        )
+                                    }
+                                }
+                                // The block being dragged, drawn where it would land, with its new time.
+                                drag?.let { d -> DragPreview(d, hourHeight, columnWidth) }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+
+/** All drawn days side by side, wider than the box that shows them, moved by the swipe. */
+private fun Modifier.dayStrip(width: Dp, leadPx: Float, swipe: () -> Float): Modifier =
+    wrapContentWidth(Alignment.Start, unbounded = true)
+        .width(width)
+        .offset { IntOffset((swipe() - leadPx).roundToInt(), 0) }
 
 private fun snap(minutes: Int): Int = (minutes.toFloat() / SNAP_MINUTES).roundToInt() * SNAP_MINUTES
 
@@ -485,10 +584,10 @@ private fun DayColumn(
                     target = dropTarget,
                 )
             )
-            // Free space: a new entry at that half hour. Blocks take their own taps.
+            // Free space: a new entry starting at the quarter hour under the finger. Blocks take their own taps.
             .pointerInput(day) {
                 detectTapGestures { offset ->
-                    val minute = ((offset.y / (size.height / 24f)) * 60).toInt().coerceIn(0, MINUTES_PER_DAY - 1) / 30 * 30
+                    val minute = ((offset.y / (size.height / 24f)) * 60).toInt().coerceIn(0, MINUTES_PER_DAY - 1) / SNAP_MINUTES * SNAP_MINUTES
                     addAt(day, LocalTime.of(minute / 60, minute % 60))
                 }
             },

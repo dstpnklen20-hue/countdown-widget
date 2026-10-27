@@ -1,5 +1,6 @@
 package com.claudecode.countdown.domain
 
+import com.claudecode.countdown.data.db.Task
 import java.time.ZoneId
 
 const val MINUTES_PER_DAY = 24 * 60
@@ -15,6 +16,22 @@ data class TimeBlock<T>(val item: T, val start: Int, val end: Int)
  * [depth] blocks of the same lane it is drawn over (see [layoutBlocks]).
  */
 data class PlacedBlock<T>(val item: T, val start: Int, val end: Int, val lane: Int, val lanes: Int, val depth: Int = 0)
+
+/**
+ * How long a task with a time lasts (minutes), when it has a start before its end on the same
+ * day or overnight; null for a moment in time, an all-day task or a span of a day or more.
+ * Such a task's time is its start: lists show "10:00–11:00", it reminds at 10:00.
+ */
+val Task.durationMinutes: Int?
+    get() {
+        val due = dueAt ?: return null
+        val start = startAt ?: return null
+        if (isAllDay || start >= due || due - start >= 24 * 3_600_000L) return null
+        return ((due - start) / 60_000L).toInt()
+    }
+
+/** When a task with a time begins: its start when it lasts a while, else its due time. */
+val Task.timeStart: Long? get() = if (durationMinutes != null) startAt else dueAt
 
 /** Where a timed entry sits: from its start time if it has one, else from its due time. */
 fun blockMinutes(dueAt: Long, startAt: Long?, zone: ZoneId = ZoneId.systemDefault()): Pair<Int, Int> {

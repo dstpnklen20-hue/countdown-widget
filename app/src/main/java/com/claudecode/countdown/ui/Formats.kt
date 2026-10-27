@@ -6,6 +6,7 @@ import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.domain.GroupKind
 import com.claudecode.countdown.domain.TaskGroup
 import com.claudecode.countdown.domain.dueDay
+import com.claudecode.countdown.domain.durationMinutes
 import com.claudecode.countdown.domain.localTimeOf
 import com.claudecode.countdown.pluralRu
 import java.time.LocalDate
@@ -30,10 +31,19 @@ fun formatDay(day: LocalDate, today: LocalDate): String = when (day) {
     }
 }
 
+/** "Сегодня, 18:00"; a task that lasts a while shows its span, "Сегодня, 10:00–11:00". */
 fun formatDue(task: Task, today: LocalDate): String? {
+    if (task.durationMinutes != null) return formatEventSpan(task, today)
     val day = task.dueDay() ?: return null
     val date = formatDay(day, today)
     return if (task.isAllDay) date else "$date, ${localTimeOf(task.dueAt!!).format(timeFmt)}"
+}
+
+/** "45 мин", "1 ч", "1 ч 30 мин". */
+fun formatDuration(minutes: Int): String = when {
+    minutes < 60 -> "$minutes мин"
+    minutes % 60 == 0 -> "${minutes / 60} ч"
+    else -> "${minutes / 60} ч ${minutes % 60} мин"
 }
 
 fun formatTime(millis: Long): String = localTimeOf(millis).format(timeFmt)
