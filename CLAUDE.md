@@ -2,9 +2,9 @@
 
 Android-приложение «Tik Tak» — клон TickTick, выросший из «Обратного отсчёта».
 Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContainer`), Glance-виджеты.
-Статус на 2026-10-27: Tik Tak 2.6 (BACKLOG A8, пункты 51–54) — плавное листание дней в календаре
+Статус на 2026-10-27: выпущен `build-47` (Tik Tak 2.6, BACKLOG A8, пункты 51–54) — плавное листание дней в календаре
 (`GridPaging` в `TimeGrid`), задачи со временем и длительностью (`Task.durationMinutes`), «Сделать событием»
-в меню задачи. Релиз запускает пользователь (merge `tasks` → `main`). Дальше — веб-версия (BACKLOG A7).
+в меню задачи. `tasks` = `main`. Дальше — веб-версия (BACKLOG A7).
 Ранее 2.5 (`build-42`): календарь как Google Календарь, часовые пояса (база v7, BACKLOG A6);
 2.4 (`build-33`): события отдельно от задач (база v5), календарь
 в стиле Google, виджет «Расписание», объединение дублей при синхронизации, ускорение (BACKLOG A5).
@@ -106,6 +106,26 @@ Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContaine
 - `reminders/` (один точный будильник + «водяной знак» доставленного), `pomodoro/` (состояние в prefs + будильник),
   `widget/` (RemoteViews-отсчёт, Glance «Сегодня», «Расписание» и «Быстро добавить»), `BootReceiver` (перезагрузка/время/обновление).
 - Всё ещё на старом View: `EditCountdownActivity`, `widget/WidgetConfigureActivity` (`SettingsActivity` удалён).
+
+## Веб-версия (`web/`, BACKLOG A7)
+
+- React 18 + TypeScript + Vite, даты — Luxon. Сборка/тесты: `cd web && npm ci && npm test && npm run build`;
+  разработка: `npx vite --port 5173`. Публикация — GitHub Pages из `main` (`.github/workflows/web.yml`);
+  изменения только в `web/` и `*.md` не запускают сборку APK (paths-ignore в `build-apk.yml`).
+- Данные — та же таблица Supabase `sync_records` прямо из браузера (`data/supabase.ts`, `data/store.ts`:
+  pull по `server_updated_at` с перекрытием 60 с, слияние «новее updatedAt побеждает», правки уходят сразу,
+  копия и неотправленное — в IndexedDB). Каждая запись — полная строка таблицы приложения: телефон
+  заменяет строку целиком (`RowStore.merge`), поэтому правки начинаются с хранимой строки, новые — с `blank`
+  в `data/model.ts`. **Новая колонка в приложении = добавить её в `model.ts` (тип и `blank`).**
+- Правки ставят `stampAfter` (как в приложении); «Входящие» и «Личное» сайт создаёт, только если их нет,
+  с отметкой 0 (`Actions.ensureBasics`, как `DatabaseSeeder`).
+- Ядро перенесено с тестами слово в слово: `web/src/core` ↔ `core/` (RepeatRule, RepeatText, QuickAddParser),
+  `web/src/domain` ↔ `domain/` (SmartLists, Repeats, CalendarProjection, Timeline, Habits). Меняя одно — менять другое.
+- Не умеет (пока): изменить один повтор серии событий (только всю серию; удалить один — умеет), разделы
+  списков, папки, статистику, напоминания (их показывает телефон).
+- Проверка в браузере: headless Chrome через DevTools-протокол (скрипт-помощник в scratchpad прошлой сессии
+  не сохраняется — проще написать заново); тестовый аккаунт сайта `web-test@example.org` (пароль не в репозитории).
+  Эмулятор сейчас вошёл в этот же аккаунт.
 
 ## Изменение схемы БД
 

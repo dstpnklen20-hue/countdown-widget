@@ -2,6 +2,11 @@ name: Build APK
 
 on:
   push:
+    # The website and notes do not change the app: no new build (and no update offered to phones).
+    paths-ignore:
+      - "web/**"
+      - "**/*.md"
+      - ".github/workflows/web.yml"
   workflow_dispatch:
 
 permissions:
