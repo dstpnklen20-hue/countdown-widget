@@ -90,6 +90,14 @@ import com.claudecode.countdown.ui.DueDateDialog
 import com.claudecode.countdown.ui.EventTimeDialog
 import com.claudecode.countdown.ui.formatEventSpan
 import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.ui.unit.DpOffset
+import com.claudecode.countdown.domain.durationMinutes
+import com.claudecode.countdown.domain.timeStart
+import com.claudecode.countdown.domain.localTimeOf
+import com.claudecode.countdown.ui.PickTime
+import com.claudecode.countdown.ui.formatDuration
 import com.claudecode.countdown.ui.PriorityCheckbox
 import com.claudecode.countdown.ui.PriorityMenu
 import com.claudecode.countdown.ui.formatCountdown
@@ -99,6 +107,9 @@ import com.claudecode.countdown.ui.formatTime
 import com.claudecode.countdown.ui.priorityColor
 import com.claudecode.countdown.ui.priorityName
 import com.claudecode.countdown.ui.rememberNow
+
+/** Lengths offered for a task at a time (null: just a moment). */
+private val DURATION_PRESETS = listOf(null, 15, 30, 45, 60, 90, 120, 180, 240)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -122,6 +133,8 @@ fun TaskDetailScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var pickRepeat by remember { mutableStateOf(false) }
     var reminderMenu by remember { mutableStateOf(false) }
+    var durationMenu by remember { mutableStateOf(false) }
+    var pickEnd by remember { mutableStateOf(false) }
     val reminders by vm.reminders.collectAsStateWithLifecycle()
     val allDayMinutes = LocalContext.current.container.settings.state.collectAsStateWithLifecycle().value.allDayReminderMinutes
 
@@ -186,6 +199,12 @@ fun TaskDetailScreen(
                     Box {
                         IconButton(onClick = { overflow = true }) { Icon(Icons.Filled.MoreVert, "Ещё") }
                         DropdownMenu(overflow, { overflow = false }) {
+                            // Back to an event (one made a task from the calendar): the event editor opens in place.
+                            if (!t.isEvent) DropdownMenuItem(
+                                text = { Text("Сделать событием") },
+                                leadingIcon = { Icon(Icons.Outlined.Event, null) },
+                                onClick = { overflow = false; vm.setEvent(true) },
+                            )
                             DropdownMenuItem(text = { Text("Удалить") }, onClick = { overflow = false; confirmDelete = true })
                         }
                     }
@@ -251,6 +270,34 @@ fun TaskDetailScreen(
                     color = color,
                     style = MaterialTheme.typography.bodyMedium,
                 )
+            }
+
+            // A task at a time can take a while (a block in the calendar): 10:00–11:00.
+            if (!t.isEvent && t.dueAt != null && !t.isAllDay) Box {
+                Row(
+                    Modifier
+                        .padding(start = 56.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { durationMenu = true }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val minutes = t.durationMinutes
+                    val color = if (minutes != null) scheme.primary else scheme.onSurfaceVariant
+                    Icon(Icons.Outlined.AccessTime, null, tint = color, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text(minutes?.let { "Длительность: " + formatDuration(it) } ?: "Без длительности", color = color, style = MaterialTheme.typography.bodyMedium)
+                }
+                DropdownMenu(durationMenu, { durationMenu = false }, offset = DpOffset(56.dp, 0.dp)) {
+                    for (m in DURATION_PRESETS) {
+                        DropdownMenuItem(
+                            text = { Text(m?.let(::formatDuration) ?: "Без длительности") },
+                            trailingIcon = { if (m == t.durationMinutes) Icon(Icons.Filled.Check, "Выбрано", tint = scheme.primary) },
+                            onClick = { durationMenu = false; vm.setDuration(m) },
+                        )
+                    }
+                    DropdownMenuItem(text = { Text("До…") }, onClick = { durationMenu = false; pickEnd = true })
+                }
             }
 
             PlainField(
@@ -409,11 +456,23 @@ fun TaskDetailScreen(
 
     if (pickDate) {
         DueDateDialog(
-            initialAt = t.dueAt,
+            initialAt = t.timeStart,
             initialAllDay = t.isAllDay,
             onConfirm = { vm.setDue(it); pickDate = false },
             onDismiss = { pickDate = false },
         )
+    }
+    if (pickEnd) {
+        val start = t.timeStart
+        val initial = (t.dueAt ?: start)?.let { localTimeOf(if (t.durationMinutes != null) it else it + 3_600_000L) }
+        if (start == null || initial == null) pickEnd = false
+        else PickTime(initial, onPick = { end ->
+            pickEnd = false
+            // An end before the start is the next morning, as with events.
+            val from = localTimeOf(start).let { it.hour * 60 + it.minute }
+            val minutes = ((end.hour * 60 + end.minute - from) + 24 * 60) % (24 * 60)
+            vm.setDuration(minutes.takeIf { it > 0 })
+        }, onDismiss = { pickEnd = false })
     }
     if (pickEventTime) {
         EventTimeDialog(t, onConfirm = { vm.setEventTime(it); pickEventTime = false }, onDismiss = { pickEventTime = false })

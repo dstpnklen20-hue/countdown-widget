@@ -13,13 +13,13 @@ private const val MINUTE = 60_000L
 
 /**
  * When [reminder] should fire for [task]; a later snooze wins over the base time. All-day tasks
- * remind at [allDayMinutes] after midnight of the due day (minus the offset). Events remind
- * before they start rather than end, and a repeating event, which is never ticked off and so
+ * remind at [allDayMinutes] after midnight of the due day (minus the offset). Events and tasks
+ * that last a while remind before they start rather than end, and a repeating event, which is never ticked off and so
  * never moves on, reminds before its first occurrence that fires after [after].
  */
 fun reminderTrigger(task: Task, reminder: Reminder, allDayMinutes: Int = ALL_DAY_REMINDER_MINUTES, after: Long = Long.MIN_VALUE): Long? {
     reminder.absoluteAt?.let { return withSnooze(it, reminder, after) }
-    val anchor = (if (task.isEvent) task.startAt?.takeIf { s -> task.dueAt.let { it == null || s <= it } } else null) ?: task.dueAt ?: return null
+    val anchor = (if (task.isEvent) task.startAt?.takeIf { s -> task.dueAt.let { it == null || s <= it } } else task.timeStart) ?: task.dueAt ?: return null
     val offset = (reminder.offsetMinutes ?: 0) * MINUTE
     fun triggerAt(at: Long) = if (task.isAllDay) at + allDayMinutes * MINUTE - offset else at - offset
     var base = triggerAt(anchor)
