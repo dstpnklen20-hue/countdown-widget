@@ -116,6 +116,19 @@ export class Store {
     return out;
   }
 
+  /**
+   * Stores a row only if there is none with its id, keeping its own stamp: the starting rows every
+   * device makes alike (Inbox, the personal calendar) are stamped 0, so any real edit wins.
+   */
+  seed<K extends Kind>(kind: K, row: Tables[K]): void {
+    const id = idOf(kind, row);
+    if (this.rows[kind].has(id)) return;
+    this.rows[kind].set(id, row);
+    this.pending.set(`${kind}|${id}`, { kind, id, updatedAt: row.updatedAt, deleted: false, data: row as unknown as Record<string, unknown> });
+    this.setStatus({});
+    this.scheduleFlush(300);
+  }
+
   /** Removes rows for good, here and on the server (phones keep theirs until they purge them). */
   async purge(kind: Kind, ids: string[]): Promise<void> {
     for (const id of ids) {
@@ -133,10 +146,12 @@ export class Store {
 
   // --- Sync ---
 
-  async start(): Promise<void> {
+  /** [onReady] runs once the first sync went through (what is on the server is known by then). */
+  async start(onReady?: () => void): Promise<void> {
     await this.loadCache();
     this.emit();
     await this.sync();
+    if (this.status.state === "idle") onReady?.();
     this.timer = setInterval(() => void this.sync(), POLL_MS);
     document.addEventListener("visibilitychange", this.onVisible);
     window.addEventListener("online", this.onVisible);

@@ -8,6 +8,9 @@ import {
   type CalendarLayer, type ChecklistItem, type Habit, INBOX_ID, PERSONAL_CALENDAR_ID, type Reminder, type Task, type TaskList,
   blank, newId, now,
 } from "./model";
+
+/** Colour of the "Личное" calendar the app seeds (DatabaseSeeder.PERSONAL_CALENDAR_COLOR). */
+const PERSONAL_CALENDAR_COLOR = 0xff039be5 | 0;
 import type { Store } from "./store";
 
 /**
@@ -21,6 +24,19 @@ export class Actions {
     let max = 0;
     for (const r of this.store.all(kind)) if (filter(r)) max = Math.max(max, (r as { sortOrder: number }).sortOrder);
     return max;
+  }
+
+  /**
+   * The rows the app seeds on every device with the same ids (DatabaseSeeder.kt): an account used
+   * on the web first gets them here.
+   */
+  ensureBasics(): void {
+    this.store.seed("task_lists", blank.list({
+      id: INBOX_ID, name: "Входящие", isInbox: 1, sortOrder: Number.MIN_SAFE_INTEGER, createdAt: 0, updatedAt: 0,
+    }));
+    this.store.seed("calendars", blank.calendar({
+      id: PERSONAL_CALENDAR_ID, name: "Личное", color: PERSONAL_CALENDAR_COLOR, sortOrder: Number.MIN_SAFE_INTEGER, createdAt: 0, updatedAt: 0,
+    }));
   }
 
   // --- Tasks ---
@@ -85,22 +101,29 @@ export class Actions {
    * Completing a repeating task keeps it open and moves it to the next occurrence; a completed copy
    * is stored for history (TaskRepository.setDone).
    */
-  setDone(task: Task, done: boolean): void {
+  setDone(task: Task, done: boolean): () => void {
     const at = now();
+    const back = () => this.update(task);
     if (!done) {
       this.update({ ...task, status: "OPEN", completedAt: null });
-      return;
+      return back;
     }
     const next = nextOccurrence(task, at);
     if (!next) {
       this.update({ ...task, status: "DONE", completedAt: at });
-      return;
+      return back;
     }
-    this.store.put("tasks",
+    const [copy] = this.store.put("tasks",
       { ...task, id: newId(), status: "DONE", completedAt: at, repeatRule: null, displayMode: "NORMAL", createdAt: at, updatedAt: at },
       next);
     const checked = this.checklist(task.id).filter((c) => c.checked);
     if (checked.length) this.store.put("checklist_items", ...checked.map((c) => ({ ...c, checked: 0 as const })));
+    // Undo: the series goes back to this occurrence and the completed copy goes away.
+    return () => {
+      back();
+      void this.store.purge("tasks", [copy.id]);
+      if (checked.length) this.store.put("checklist_items", ...checked);
+    };
   }
 
   /** Moves the task and its subtasks to the trash. */
