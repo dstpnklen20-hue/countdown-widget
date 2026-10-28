@@ -102,7 +102,9 @@ label.row { display: flex; align-items: center; gap: 8px; }
 .rail {
   width: 60px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 12px 0; background: var(--surface); border-right: 1px solid var(--line);
+  transition: margin-left 0.25s ease;
 }
+.app.rail-hidden .rail { margin-left: -60px; }
 .rail .logo { width: 34px; height: 34px; border-radius: 10px; margin-bottom: 10px; }
 .rail .icon-btn { width: 42px; height: 42px; border-radius: 12px; }
 .rail .icon-btn.active { background: var(--primary-soft); }
@@ -147,6 +149,9 @@ label.row { display: flex; align-items: center; gap: 8px; }
   .main-body { padding: 0 16px 80px; }
   .detail { position: fixed; inset: 0; width: auto; z-index: 40; border: none; }
   .mobile-only { display: inline-grid; }
+  /* Phones keep the bottom bar in the calendar too. */
+  .app.rail-hidden .rail { margin-left: 0; }
+  .desktop-only { display: none; }
 }
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 25; }
 

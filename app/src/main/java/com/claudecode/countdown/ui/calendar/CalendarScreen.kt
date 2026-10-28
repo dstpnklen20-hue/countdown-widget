@@ -96,6 +96,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.claudecode.countdown.container
 import com.claudecode.countdown.data.ContactBirthdays
+import com.claudecode.countdown.data.Tool
 import com.claudecode.countdown.data.db.CalendarLayer
 import com.claudecode.countdown.data.db.DisplayMode
 import com.claudecode.countdown.data.db.Task
@@ -228,7 +229,13 @@ class CalendarNav(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
+fun CalendarScreen(
+    vm: TasksViewModel,
+    snapshot: Snapshot,
+    nav: CalendarNav,
+    tools: List<Tool> = emptyList(),
+    onTool: (Tool) -> Unit = {},
+) {
     val today = snapshot.today
     val context = LocalContext.current
     val container = context.container
@@ -477,6 +484,8 @@ fun CalendarScreen(vm: TasksViewModel, snapshot: Snapshot, nav: CalendarNav) {
                         onExport = { exporter.launch("tiktak-$today.ics") },
                         onSettings = { scope.launch { drawer.close() }; nav.openSettings() },
                     ),
+                    tools = tools,
+                    onTool = { scope.launch { drawer.close() }; onTool(it) },
                 )
             },
         ) {

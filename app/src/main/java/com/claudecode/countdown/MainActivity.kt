@@ -6,6 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.ui.Alignment
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
@@ -43,6 +47,7 @@ import com.claudecode.countdown.domain.TaskFilter
 import com.claudecode.countdown.ui.AppBottomBar
 import com.claudecode.countdown.ui.AppRail
 import com.claudecode.countdown.ui.Motion
+import com.claudecode.countdown.ui.railTools
 import com.claudecode.countdown.ui.MoreToolsSheet
 import com.claudecode.countdown.ui.icon
 import com.claudecode.countdown.ui.LocalSnackbarHost
@@ -208,6 +213,7 @@ class MainActivity : AppCompatActivity() {
         val wide = width >= 600
         val bar = barLayout(settings.tools, settings.barLimit)
         val searchOnBar = !wide && Tool.SEARCH in bar.visible
+        val calendarTools = if (wide) railTools(settings.tools) - Tool.CALENDAR else emptyList()
         val keyboardOpen by rememberKeyboardOpen()
         // A section opened from the ☰ menu (not pinned) returns to the tasks with Back.
         BackHandler(enabled = !wide && tab != Tool.TASKS && tab !in settings.tools) { tab = Tool.TASKS }
@@ -230,12 +236,19 @@ class MainActivity : AppCompatActivity() {
             composable("home") {
                 val body = @Composable {
                     AnimatedContent(tab, transitionSpec = { Motion.sectionChange() }, label = "section") { current ->
-                        Section(current, tasksVm, snapshot, filterKey, selectFilter, openTask, openTrash, openToolbar, sections, wide, width, searchOnBar, calendarNav) { tab = it }
+                        Section(current, tasksVm, snapshot, filterKey, selectFilter, openTask, openTrash, openToolbar, sections, wide, width, searchOnBar, calendarNav, calendarTools) { tab = it }
                     }
                 }
                 if (wide) {
                     Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                        AppRail(settings.tools, tab, snapshot.today.dayOfMonth, onSelect = { tab = it }, onMore = { moreTools = it })
+                        // The calendar takes the whole width: the rail slides away, its ☰ menu lists the sections.
+                        AnimatedVisibility(
+                            tab != Tool.CALENDAR,
+                            enter = expandHorizontally(Motion.soft(), expandFrom = Alignment.Start),
+                            exit = shrinkHorizontally(Motion.soft(), shrinkTowards = Alignment.Start),
+                        ) {
+                            AppRail(settings.tools, tab, snapshot.today.dayOfMonth, onSelect = { tab = it }, onMore = { moreTools = it })
+                        }
                         Box(Modifier.weight(1f)) { body() }
                     }
                 } else {
@@ -332,6 +345,7 @@ class MainActivity : AppCompatActivity() {
         width: Int,
         searchOnBar: Boolean,
         calendarNav: CalendarNav,
+        calendarTools: List<Tool>,
         onTab: (Tool) -> Unit,
     ) {
         when (tool) {
@@ -352,7 +366,7 @@ class MainActivity : AppCompatActivity() {
                 // Countdowns is a section of its own: it opens without the lists panel.
                 showLists = tool == Tool.TASKS,
             )
-            Tool.CALENDAR -> CalendarScreen(tasksVm, snapshot, calendarNav)
+            Tool.CALENDAR -> CalendarScreen(tasksVm, snapshot, calendarNav, calendarTools, onTab)
             Tool.MATRIX -> MatrixScreen(tasksVm, snapshot, openTask)
             Tool.FOCUS -> FocusScreen(snapshot, onOpenStats = { onTab(Tool.STATS) })
             Tool.HABITS -> HabitsScreen(snapshot.today)

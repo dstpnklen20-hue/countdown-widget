@@ -140,6 +140,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [event, setEvent] = useState<EventDraft | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  /** The calendar takes the whole width: the rail slides away until its ☰ button calls it back. */
+  const [railShown, setRailShown] = useState(false);
 
   /** Tasks open in the side panel, events in their editor. */
   const open = (task: Task, occurrence?: string) => {
@@ -150,6 +152,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     setSection(s);
     setSelected(null);
     setMenuOpen(false);
+    setRailShown(false);
   };
   const selectedTask = store.get("tasks", selected);
   // A task turned into an event moves to the event editor.
@@ -166,7 +169,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${section === "calendar" && !railShown ? "rail-hidden" : ""}`}>
       <nav className="rail" aria-label="Разделы">
         <img className="logo" src="./icon.svg" alt="Tik Tak" />
         {SECTIONS.map((s) => (
@@ -194,7 +197,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 
       <main className="main">
         {section === "tasks" && <TaskListView filter={filter} selected={selected} onOpen={open} onMenu={() => setMenuOpen(true)} />}
-        {section === "calendar" && <CalendarView onOpen={open} onNewEvent={(d) => setEvent(d)} />}
+        {section === "calendar" && <CalendarView onOpen={open} onNewEvent={(d) => setEvent(d)} onMenu={() => setRailShown((v) => !v)} />}
         {section === "matrix" && <MatrixView selected={selected} onOpen={open} />}
         {section === "habits" && <HabitsView />}
         {section === "focus" && <FocusView />}
