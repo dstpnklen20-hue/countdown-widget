@@ -145,6 +145,11 @@ object SupabaseAuth {
  */
 class SupabaseApi(private val session: suspend (forceRefresh: Boolean) -> Session) : SyncApi {
 
+    private companion object {
+        /** The server sends at most 1000 rows per request. */
+        const val STAMPS_PAGE = 1000
+    }
+
     private val base = "${SupabaseConfig.URL}/rest/v1/${SupabaseConfig.TABLE}"
 
     /** Retries once with a fresh token when the server says the old one expired. */
@@ -202,6 +207,23 @@ class SupabaseApi(private val session: suspend (forceRefresh: Boolean) -> Sessio
                 data = o.getJSONObject("data"),
                 serverAt = OffsetDateTime.parse(o.getString("server_updated_at")).toInstant(),
             )
+        }
+    }
+
+    override suspend fun stamps(): List<RemoteStamp> {
+        val userId = session(false).userId
+        val out = ArrayList<RemoteStamp>()
+        while (true) {
+            val r = call(
+                "GET",
+                "$base?select=kind,id,updated_at&user_id=eq.$userId&order=kind.asc,id.asc&limit=$STAMPS_PAGE&offset=${out.size}",
+            )
+            val rows = JSONArray(r.body)
+            for (i in 0 until rows.length()) {
+                val o = rows.getJSONObject(i)
+                out += RemoteStamp(o.getString("kind"), o.getString("id"), o.getLong("updated_at"))
+            }
+            if (rows.length() < STAMPS_PAGE) return out
         }
     }
 

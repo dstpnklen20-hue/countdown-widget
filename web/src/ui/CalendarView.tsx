@@ -19,7 +19,9 @@ const HOUR_PX = 48;
 /** Taps on the grid land on the quarter hour under the pointer, as in the app. */
 const SNAP = 15;
 
-export function CalendarView({ onOpen, onNewEvent }: { onOpen: (t: Task, occurrence?: string) => void; onNewEvent: (d: EventDraft) => void }) {
+export function CalendarView({ onOpen, onNewEvent, onMenu }: {
+  onOpen: (t: Task, occurrence?: string) => void; onNewEvent: (d: EventDraft) => void; onMenu: () => void;
+}) {
   const { store } = useData();
   const today = useToday();
   const [mode, setMode] = useLocal<Mode>("calendarMode", "week");
@@ -89,6 +91,7 @@ export function CalendarView({ onOpen, onNewEvent }: { onOpen: (t: Task, occurre
   return (
     <>
       <div className="main-head cal-toolbar">
+        <button className="icon-btn desktop-only" title="Разделы" aria-label="Разделы" onClick={onMenu}><Icon name="menu" /></button>
         <h1 style={{ marginRight: 8 }}>{mode === "month" ? monthTitle(withDayOfMonth(anchor, 1), today) : monthTitle(range[0], today)}</h1>
         <button className="icon-btn" aria-label="Назад" onClick={() => shift(-1)}><Icon name="left" /></button>
         <button className="btn" onClick={() => setAnchor(today)}>Сегодня</button>

@@ -14,6 +14,9 @@ data class RemoteRecord(
     val serverAt: Instant? = null,
 )
 
+/** Which version of a record the server has, for [SyncEngine.run] with `reconcile`. */
+data class RemoteStamp(val kind: String, val id: String, val updatedAt: Long)
+
 /** The server side of sync; [SupabaseApi] talks to Supabase, tests use an in-memory fake. */
 interface SyncApi {
     /** Stores records; the server keeps an existing record when it is as new or newer. */
@@ -24,6 +27,9 @@ interface SyncApi {
 
     /** Records stored after [since] (all when null), oldest first, at most [limit]. */
     suspend fun pull(since: Instant?, limit: Int): List<RemoteRecord>
+
+    /** Key and version of every record of the account (no data, so it stays small). */
+    suspend fun stamps(): List<RemoteStamp>
 }
 
 /** What a device remembers between runs. */
@@ -57,10 +63,12 @@ class SyncEngine(
     /**
      * Returns how many records changed on this device. Copies of one thing made on two devices
      * are merged after the pull (see [Deduplicator]); [dedupeAll] merges every such group, not
-     * only those with a newly arrived row.
+     * only those with a newly arrived row. [reconcile] also compares every row with the server's
+     * version and sends what the server lacks (see [pushMissing]).
      */
-    suspend fun run(dedupeAll: Boolean = false): Int {
+    suspend fun run(dedupeAll: Boolean = false, reconcile: Boolean = false): Int {
         push()
+        if (reconcile) pushMissing()
         val pulled = pull()
         if (pulled.superseded.isNotEmpty()) {
             marks.pendingDeletes = marks.pendingDeletes + pulled.superseded.map { "${it.table.table}|${it.id}" }
@@ -81,15 +89,7 @@ class SyncEngine(
         val mark = clock()
         val since = marks.pushedUpTo
         for (table in SyncTable.entries) {
-            val records = store.changedSince(table, since).map { row ->
-                RemoteRecord(
-                    kind = table.table,
-                    id = table.idOf(row),
-                    updatedAt = row.optLong("updatedAt"),
-                    deleted = row.optLong("deleted") != 0L,
-                    data = row,
-                )
-            }
+            val records = store.changedSince(table, since).map { table.record(it) }
             for (chunk in records.chunked(BATCH)) api.upsert(chunk)
         }
         pushDeletes()
@@ -97,6 +97,30 @@ class SyncEngine(
         // sends such rows again next time (the server ignores versions it already has).
         marks.pushedUpTo = mark - PUSH_MARGIN_MS
     }
+
+    /**
+     * A safety net for rows a push skipped (a row stamped long before it was written, as new events
+     * were until 2.7): sends every row the server has an older version of, or none at all. A deleted
+     * row missing on the server was removed for good on another device, so it stays away.
+     */
+    private suspend fun pushMissing() {
+        val server = api.stamps().associate { (it.kind to it.id) to it.updatedAt }
+        for (table in SyncTable.entries) {
+            val records = store.all(table).filter { row ->
+                val known = server[table.table to table.idOf(row)]
+                if (known == null) row.optLong("deleted") == 0L else row.optLong("updatedAt") > known
+            }.map { table.record(it) }
+            for (chunk in records.chunked(BATCH)) api.upsert(chunk)
+        }
+    }
+
+    private fun SyncTable.record(row: JSONObject) = RemoteRecord(
+        kind = table,
+        id = idOf(row),
+        updatedAt = row.optLong("updatedAt"),
+        deleted = row.optLong("deleted") != 0L,
+        data = row,
+    )
 
     private suspend fun pushDeletes() {
         val pending = marks.pendingDeletes

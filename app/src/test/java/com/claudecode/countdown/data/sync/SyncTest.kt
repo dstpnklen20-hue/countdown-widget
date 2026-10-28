@@ -41,6 +41,8 @@ private class FakeServer : SyncApi {
 
     override suspend fun pull(since: Instant?, limit: Int): List<RemoteRecord> =
         records.values.filter { since == null || it.serverAt!! > since }.sortedBy { it.serverAt }.take(limit)
+
+    override suspend fun stamps(): List<RemoteStamp> = records.values.map { RemoteStamp(it.kind, it.id, it.updatedAt) }
 }
 
 private class MemoryMarks : SyncMarks {
@@ -54,7 +56,7 @@ private class Device(context: Context, server: SyncApi, clock: () -> Long) {
     val store = RowStore(db)
     val repo = TaskRepository(db) {}
     val engine = SyncEngine(store, server, MemoryMarks(), clock)
-    suspend fun sync(dedupeAll: Boolean = false) = withContext(Dispatchers.IO) { engine.run(dedupeAll) }
+    suspend fun sync(dedupeAll: Boolean = false, reconcile: Boolean = false) = withContext(Dispatchers.IO) { engine.run(dedupeAll, reconcile) }
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -94,6 +96,45 @@ class SyncTest {
         tick()
         a.sync(); b.sync()
         assertTrue(b.repo.get(task.id)!!.deleted)
+    }
+
+    @Test
+    fun rowStampedBeforeTheLastPushIsSentByReconcile() = runBlocking {
+        a.repo.create(Task(title = "first", createdAt = time))
+        tick(); a.sync()
+        // Written after the push, but stamped well before it (an editor opened long ago).
+        tick()
+        val late = Task(title = "late", createdAt = time - 60_000)
+        a.db.taskDao().upsert(late)
+        tick(); a.sync(); b.sync()
+        assertNull(b.repo.get(late.id))
+
+        a.sync(reconcile = true)
+        b.sync()
+        assertEquals("late", b.repo.get(late.id)!!.title)
+    }
+
+    @Test
+    fun reconcileDoesNotBringBackRowsRemovedForGood() = runBlocking {
+        val task = a.repo.create(Task(title = "в корзину", createdAt = time))
+        tick(); a.sync(); b.sync()
+        a.repo.delete(task.id)
+        tick(); a.sync(); b.sync()
+        // B's next push resends what it just pulled (inside the push margin); later ones don't.
+        time += 60_000; b.sync()
+        // A empties its trash: the record leaves the server, B still has its deleted copy.
+        server.delete("tasks", listOf(task.id))
+        time += 60_000; b.sync(reconcile = true)
+        assertTrue(server.records.keys.none { it.second == task.id })
+    }
+
+    @Test
+    fun newEventIsStampedWhenSavedNotWhenTheEditorOpened() = runBlocking {
+        val opened = System.currentTimeMillis() - 5 * 60_000L
+        val id = a.repo.saveEvent(Task(title = "Информатика", isEvent = true, createdAt = opened), emptyList())
+        assertTrue(a.repo.get(id)!!.updatedAt > opened)
+        val task = a.repo.create(Task(title = "Задача", createdAt = opened))
+        assertTrue(a.repo.get(task.id)!!.updatedAt > opened)
     }
 
     @Test

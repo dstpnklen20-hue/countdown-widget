@@ -33,7 +33,8 @@ class TrashTest {
     @Test
     fun trashKeepsThingsForThirtyDays() = runBlocking {
         val longAgo = System.currentTimeMillis() - 31 * 86_400_000L
-        val old = repo.create(Task(title = "Старое", createdAt = longAgo - 1000))
+        // Written straight to the table: the repository would stamp it now.
+        val old = Task(title = "Старое", createdAt = longAgo - 1000).also { db.taskDao().upsert(it) }
         val recent = repo.create(Task(title = "Недавнее"))
         db.taskDao().softDelete(old.id, at = longAgo)
         repo.delete(recent.id)

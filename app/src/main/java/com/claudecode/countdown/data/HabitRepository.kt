@@ -22,7 +22,7 @@ class HabitRepository(
     suspend fun active() = dao.active()
 
     suspend fun save(habit: Habit, isNew: Boolean) {
-        dao.upsert(if (isNew) habit.copy(sortOrder = dao.maxSortOrder() + 1) else habit.copy(updatedAt = stampAfter(habit.updatedAt)))
+        dao.upsert(if (isNew) habit.copy(sortOrder = dao.maxSortOrder() + 1, updatedAt = stampAfter(habit.updatedAt)) else habit.copy(updatedAt = stampAfter(habit.updatedAt)))
         onChanged()
     }
 

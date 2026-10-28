@@ -75,7 +75,8 @@ class TaskRepository(
     fun observeCompletedCount() = tasks.observeCompletedCount()
 
     suspend fun create(task: Task, tagNames: Collection<String> = emptyList()): Task {
-        val created = task.copy(sortOrder = tasks.maxSortOrder() + 1)
+        // Stamped now, not when the editor opened: a sync run in between would skip an older stamp.
+        val created = task.copy(sortOrder = tasks.maxSortOrder() + 1, updatedAt = stampAfter(task.updatedAt))
         db.withTransaction {
             tasks.upsert(created)
             if (tagNames.isNotEmpty()) tags.setTaskTags(created.id, tagNames.map { ensureTag(it).id })
@@ -398,7 +399,8 @@ class TaskRepository(
         var resultId = edited.id
         db.withTransaction {
             if (master == null) {
-                val created = edited.copy(sortOrder = tasks.maxSortOrder() + 1)
+                // Stamped now, not when the editor opened (see [create]).
+                val created = edited.copy(sortOrder = tasks.maxSortOrder() + 1, updatedAt = stampAfter(edited.updatedAt))
                 tasks.upsert(created)
                 setReminders(created.id, reminderSpecs)
                 resultId = created.id
@@ -407,7 +409,7 @@ class TaskRepository(
                 for (row in change.save) {
                     val stored = tasks.get(row.id)
                     if (stored == null) {
-                        tasks.upsert(row.copy(sortOrder = tasks.maxSortOrder() + 1))
+                        tasks.upsert(row.copy(sortOrder = tasks.maxSortOrder() + 1, updatedAt = stampAfter(row.updatedAt)))
                         setReminders(row.id, reminderSpecs)
                         resultId = row.id
                     } else {

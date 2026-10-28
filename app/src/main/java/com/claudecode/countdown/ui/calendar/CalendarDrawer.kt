@@ -30,6 +30,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.claudecode.countdown.data.Settings
+import com.claudecode.countdown.data.Tool
+import com.claudecode.countdown.ui.icon
 import com.claudecode.countdown.data.db.CalendarLayer
 
 /** What the calendar's side menu can ask for. */
@@ -48,10 +50,18 @@ internal class DrawerActions(
 
 /**
  * The calendar's side menu, as in Google Calendar: the views, then every calendar with a
- * checkbox in its colour (hiding one keeps its events), tasks, holidays and birthdays.
+ * checkbox in its colour (hiding one keeps its events), tasks, holidays and birthdays; on tablets
+ * also the app's other [tools].
  */
 @Composable
-internal fun CalendarDrawer(mode: CalendarMode, settings: Settings, calendars: List<CalendarLayer>, actions: DrawerActions) {
+internal fun CalendarDrawer(
+    mode: CalendarMode,
+    settings: Settings,
+    calendars: List<CalendarLayer>,
+    actions: DrawerActions,
+    tools: List<Tool> = emptyList(),
+    onTool: (Tool) -> Unit = {},
+) {
     val scheme = MaterialTheme.colorScheme
     ModalDrawerSheet(Modifier.width(300.dp)) {
         Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -83,6 +93,12 @@ internal fun CalendarDrawer(mode: CalendarMode, settings: Settings, calendars: L
             DrawerLink("Импорт из .ics", Icons.Outlined.FileDownload, actions.onImport)
             DrawerLink("Экспорт в .ics", Icons.Outlined.FileUpload, actions.onExport)
             DrawerLink("Настройки календаря", Icons.Outlined.Settings, actions.onSettings)
+            // Tablets: the side rail hides in the calendar, the other sections are reached from here.
+            if (tools.isNotEmpty()) {
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                SectionLabel("Разделы")
+                for (t in tools) DrawerLink(t.label, t.icon ?: continue) { onTool(t) }
+            }
         }
     }
 }
