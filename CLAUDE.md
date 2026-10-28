@@ -2,7 +2,10 @@
 
 Android-приложение «Tik Tak» — клон TickTick, выросший из «Обратного отсчёта».
 Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContainer`), Glance-виджеты.
-Статус на 2026-10-27: выпущен `build-47` (Tik Tak 2.6, BACKLOG A8, пункты 51–54) — плавное листание дней в календаре
+Статус на 2026-10-28: выпущен `build-52` (Tik Tak 2.7, BACKLOG A9, пункты 55–56) — новые записи больше не теряются
+при синхронизации (отметка в момент сохранения + сверка с сервером раз в сутки, `SyncEngine.pushMissing`),
+календарь на планшете и сайте без колонки разделов (разделы — в меню ☰).
+Ранее `build-47` (Tik Tak 2.6, BACKLOG A8, пункты 51–54) — плавное листание дней в календаре
 (`GridPaging` в `TimeGrid`), задачи со временем и длительностью (`Task.durationMinutes`), «Сделать событием»
 в меню задачи. Веб-версия (`web/`, BACKLOG A7) опубликована 2026-10-27 вместе с `build-50`:
 https://dstpnklen20-hue.github.io/countdown-widget/ . `tasks` = `main`.
