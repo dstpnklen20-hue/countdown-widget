@@ -41,6 +41,18 @@ node "F:\Tik Tak app\mcp\dist\tiktak-mcp.mjs" login
 
 ## Подключение к Claude
 
+Проще всего одной командой. Сначала **полностью закройте Claude Desktop** (значок у часов → Quit), потом:
+
+```powershell
+node "F:\Tik Tak app\mcp\dist\tiktak-mcp.mjs" install
+```
+
+Команда добавит коннектор и в Claude Code, и в чат Claude Desktop, а копии прежних настроек сохранит рядом
+с ними (`*.before-tiktak`). Закрывать Claude нужно потому, что при выходе он записывает свои настройки
+поверх файла и убирает из него всё, что добавлено, пока он работал.
+
+Вручную:
+
 **Claude Code** (вкладка Code в приложении Claude): добавьте в файл `C:\Users\<вы>\.claude.json`, в раздел
 `"mcpServers"` (если раздела нет, создайте его на верхнем уровне):
 
