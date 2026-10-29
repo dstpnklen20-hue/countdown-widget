@@ -53,7 +53,8 @@ node "F:\Tik Tak app\mcp\dist\tiktak-mcp.mjs" login
 ```
 
 **Чат Claude Desktop**: Settings → Developer → Edit Config. В открывшийся `claude_desktop_config.json`
-добавьте то же самое внутрь `"mcpServers": { ... }` (без строки `"type"`) и перезапустите приложение.
+добавьте то же самое внутрь `"mcpServers": { ... }` (без строки `"type"`) и полностью перезапустите приложение.
+Если `node` не находится, укажите в `"command"` полный путь: `"C:\\Program Files\\nodejs\\node.exe"`.
 
 После перезапуска спросите Claude: «что у меня сегодня в Tik Tak?»
 
