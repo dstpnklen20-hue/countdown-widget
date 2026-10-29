@@ -33,7 +33,17 @@ function normalize(data: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-export class Store {
+/** What [Actions] needs from a copy of the records: this page's Store or the Claude connector's (mcp/). */
+export interface Rows {
+  get<K extends Kind>(kind: K, id: string | null | undefined): Tables[K] | undefined;
+  all<K extends Kind>(kind: K): Tables[K][];
+  live<K extends Kind>(kind: K): Tables[K][];
+  put<K extends Kind>(kind: K, ...rows: Tables[K][]): Tables[K][];
+  seed<K extends Kind>(kind: K, row: Tables[K]): void;
+  purge(kind: Kind, ids: string[]): Promise<void>;
+}
+
+export class Store implements Rows {
   private rows: RowMaps = emptyMaps();
   private pending = new Map<string, RemoteRecord>();
   private pulledUpTo: string | null = null;

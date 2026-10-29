@@ -131,6 +131,19 @@ https://dstpnklen20-hue.github.io/countdown-widget/ . `tasks` = `main`.
   не сохраняется — проще написать заново); тестовый аккаунт сайта `web-test@example.org` (пароль не в репозитории).
   Эмулятор сейчас вошёл в этот же аккаунт.
 
+## Коннектор для Claude (`mcp/`, BACKLOG A10)
+
+- Локальный MCP-сервер (stdio): Claude работает с задачами и событиями аккаунта. TypeScript, сборка esbuild
+  в один файл `mcp/dist/tiktak-mcp.mjs` вместе с кодом сайта (`web/src/core`, `domain`, `data/actions.ts`,
+  `model.ts`, `supabase.ts`) — правки там сразу касаются и коннектора. Сборка/тесты:
+  `cd mcp && npm ci && npm run build && npm test` (тест — поддельный Supabase в памяти + MCP-клиент).
+- Запись — только через `Actions` сайта (он принимает интерфейс `Rows` из `store.ts`; у коннектора свой
+  `NodeStore`). Каждый вызов инструмента: pull → действие → push до ответа.
+- Вход: `node mcp/dist/tiktak-mcp.mjs login` в терминале (пароль вводит пользователь, хранятся только
+  токены в `%APPDATA%\tiktak-mcp\session.json`, путь меняет `TIKTAK_SESSION_FILE`). Claude не вводит пароли
+  на рабочем сервере — проверка на настоящем аккаунте делается руками пользователя.
+- В stdout в режиме сервера писать нельзя (там протокол), только `console.error`.
+
 ## Изменение схемы БД
 
 Поднять `version`, собрать (`kspDebugKotlin`) → появится `app/schemas/.../N.json`; скопировать оттуда

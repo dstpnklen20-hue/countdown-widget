@@ -11,14 +11,14 @@ import {
 
 /** Colour of the "Личное" calendar the app seeds (DatabaseSeeder.PERSONAL_CALENDAR_COLOR). */
 const PERSONAL_CALENDAR_COLOR = 0xff039be5 | 0;
-import type { Store } from "./store";
+import type { Rows } from "./store";
 
 /**
  * Everything the page changes, written the way the app's repositories write it
  * (data/TaskRepository.kt, HabitRepository.kt), so phones see the same rows they would make.
  */
 export class Actions {
-  constructor(private store: Store) {}
+  constructor(private store: Rows) {}
 
   private maxSort(kind: "tasks" | "task_lists" | "habits" | "checklist_items", filter: (r: any) => boolean = () => true): number {
     let max = 0;
