@@ -53,6 +53,7 @@ export function TaskDetail({ task, onClose, onOpen }: { task: Task; onClose: () 
   useEffect(() => () => { flushTitle(); flushContent(); }, [task.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lists = store.live("task_lists").sort((a, b) => Number(b.isInbox) - Number(a.isInbox) || a.sortOrder - b.sortOrder);
+  const sections = actions.sections(task.listId);
   const day = dueDay(task);
   const start = timeStart(task);
   const time = start != null && !task.isAllDay ? localTimeOf(start) : null;
@@ -89,6 +90,13 @@ export function TaskDetail({ task, onClose, onOpen }: { task: Task; onClose: () 
           onChange={(e) => actions.update({ ...task, listId: e.target.value, sectionId: null })}>
           {lists.map((l) => <option key={l.id} value={l.id}>{l.isInbox || l.id === INBOX_ID ? "Входящие" : l.name}</option>)}
         </select>
+        {sections.length > 0 && (
+          <select className="field" style={{ width: "auto", maxWidth: 160 }} value={task.sectionId ?? ""} aria-label="Раздел"
+            onChange={(e) => actions.moveToSection(task, e.target.value || null)}>
+            <option value="">Без раздела</option>
+            {sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
         <div className="spacer" />
         <MenuButton label="Ещё" items={[
           { label: "Сделать событием", icon: "event", onClick: () => actions.update(asEvent(task)) },

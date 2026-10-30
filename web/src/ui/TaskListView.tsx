@@ -11,6 +11,7 @@ import { useData, useLocal, useNow, useToday } from "./context";
 import { PRIORITY_NAMES, daysLeft, formatDay, formatDue } from "./format";
 import { Icon } from "./icons";
 import { filterTitle } from "./Sidebar";
+import { KanbanBoard } from "./KanbanBoard";
 
 const GROUP_TITLES: Record<string, string> = {
   OVERDUE: "Просрочено", TODAY: "Сегодня", TOMORROW: "Завтра", LATER: "Позже", NO_DATE: "Без даты", DONE: "Выполнено", ALL: "Задачи",
@@ -45,6 +46,8 @@ export function TaskListView({ filter, selected, onOpen, onMenu }: {
   const [shown, setShown] = useState<Record<string, number>>({});
 
   const title = filterTitle(store, filter);
+  const list = filter.startsWith("list:") ? store.get("task_lists", filter.slice(5)) : undefined;
+  const kanban = list?.viewMode === "KANBAN";
   const groupTitle = (g: TaskGroup) => {
     if (g.kind === "DAY" && g.date) return formatDay(g.date, today);
     if (g.kind === "PRIORITY") return g.priority ? `${PRIORITY_NAMES[g.priority!]} приоритет` : PRIORITY_NAMES[0];
@@ -58,8 +61,13 @@ export function TaskListView({ filter, selected, onOpen, onMenu }: {
         <button className="icon-btn mobile-only" aria-label="Списки" onClick={onMenu}><Icon name="menu" /></button>
         <h1>{title}</h1>
         <div className="spacer" />
-        <MenuButton label="Сортировка" icon="all" items={SORTS.map((s) => ({ label: (s.key === sort ? "✓ " : "") + s.label, onClick: () => setSort(s.key) }))} />
+        {list && (
+          <button className={`icon-btn ${kanban ? "active" : ""}`} title={kanban ? "Обычный список" : "Канбан: колонки по разделам"} aria-label={kanban ? "Обычный список" : "Канбан"}
+            onClick={() => actions.updateList({ ...list, viewMode: kanban ? "LIST" : "KANBAN" })}><Icon name={kanban ? "all" : "kanban"} /></button>
+        )}
+        {!kanban && <MenuButton label="Сортировка" icon="all" items={SORTS.map((s) => ({ label: (s.key === sort ? "✓ " : "") + s.label, onClick: () => setSort(s.key) }))} />}
       </div>
+      {kanban && list ? <KanbanBoard list={list} selected={selected} onOpen={open} onToggle={toggle} /> : (
       <div className="main-body">
         {filter !== "completed" && <QuickAdd filter={filter} onAdded={(t) => toast({ text: `Добавлено: ${t.title}${t.dueAt ? " · " + formatDue(t, today) : ""}` })} />}
         {groups.length === 0 && (
@@ -89,6 +97,7 @@ export function TaskListView({ filter, selected, onOpen, onMenu }: {
           );
         })}
       </div>
+      )}
     </>
   );
 }

@@ -6,7 +6,7 @@ import { type Due, allDayDue, dueDay, nowMinute, timedDue, todayDate } from "../
 import { type SeriesScope, atOccurrence, deleteFromSeries, editSeries } from "../domain/series";
 import { type FilterKey, nextOccurrence } from "../domain/tasks";
 import {
-  type CalendarLayer, type ChecklistItem, type Habit, INBOX_ID, PERSONAL_CALENDAR_ID, type Reminder, type Task, type TaskList,
+  type CalendarLayer, type ChecklistItem, type Folder, type Section, type Habit, INBOX_ID, PERSONAL_CALENDAR_ID, type Reminder, type Task, type TaskList,
   blank, newId, now,
 } from "./model";
 
@@ -56,7 +56,7 @@ export class Actions {
    * Quick add with natural-language parsing; tasks inherit list or date from the view they are
    * added in (TaskRepository.quickAdd).
    */
-  quickAdd(text: string, filter: FilterKey): Task | null {
+  quickAdd(text: string, filter: FilterKey, sectionId: string | null = null): Task | null {
     if (!text.trim()) return null;
     const parsed = new QuickAddParser(todayDate(), nowMinute()).parse(text);
     const lists = this.store.live("task_lists");
@@ -72,6 +72,7 @@ export class Actions {
       {
         title: parsed.title || text.trim(),
         listId,
+        sectionId: sectionId && this.store.get("sections", sectionId)?.listId === listId ? sectionId : null,
         priority: parsed.priority ?? 0,
         dueAt: due?.at ?? null,
         isAllDay: due?.isAllDay ? 1 : 0,
@@ -223,20 +224,67 @@ export class Actions {
 
   // --- Lists ---
 
-  createList(name: string, color: number | null): TaskList {
-    return this.store.put("task_lists", blank.list({ name, color, sortOrder: this.maxSort("task_lists") + 1 }))[0];
+  createList(name: string, color: number | null, folderId: string | null = null): TaskList {
+    return this.store.put("task_lists", blank.list({ name, color, folderId, sortOrder: this.maxSort("task_lists") + 1 }))[0];
   }
 
   updateList(list: TaskList): void {
     this.store.put("task_lists", list);
   }
 
-  /** Deletes the list with its tasks (Inbox stays). */
-  deleteList(list: TaskList): void {
-    if (list.isInbox) return;
+  /** Deletes the list with its tasks (Inbox stays); returns how to undo it (TaskRepository.restoreList). */
+  deleteList(list: TaskList): () => void {
+    if (list.isInbox) return () => {};
     const tasks = this.store.all("tasks").filter((t) => t.listId === list.id && !t.deleted);
-    this.store.put("tasks", ...tasks.map((t) => ({ ...t, deleted: 1 as const })));
+    if (tasks.length) this.store.put("tasks", ...tasks.map((t) => ({ ...t, deleted: 1 as const })));
     this.store.put("task_lists", { ...list, deleted: 1 });
+    return () => {
+      this.store.put("task_lists", { ...(this.store.get("task_lists", list.id) ?? list), deleted: 0 });
+      const back = tasks.map((t) => ({ ...(this.store.get("tasks", t.id) ?? t), deleted: 0 as const }));
+      if (back.length) this.store.put("tasks", ...back);
+    };
+  }
+
+  // --- Sections (Kanban columns) and folders ---
+
+  sections(listId: string): Section[] {
+    return this.store.live("sections").filter((s) => s.listId === listId).sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  createSection(listId: string, name: string): Section {
+    const max = Math.max(0, ...this.sections(listId).map((s) => s.sortOrder));
+    return this.store.put("sections", blank.section({ listId, name, sortOrder: max + 1 }))[0];
+  }
+
+  updateSection(section: Section): void {
+    this.store.put("sections", section);
+  }
+
+  /** The section goes; its tasks stay in the list without a section. */
+  deleteSection(section: Section): void {
+    const tasks = this.store.all("tasks").filter((t) => t.sectionId === section.id && !t.deleted);
+    if (tasks.length) this.store.put("tasks", ...tasks.map((t) => ({ ...t, sectionId: null })));
+    this.store.put("sections", { ...section, deleted: 1 });
+  }
+
+  moveToSection(task: Task, sectionId: string | null): void {
+    if (task.sectionId !== sectionId) this.update({ ...task, sectionId });
+  }
+
+  createFolder(name: string): Folder {
+    const max = Math.max(0, ...this.store.all("folders").map((f) => f.sortOrder));
+    return this.store.put("folders", blank.folder({ name, sortOrder: max + 1 }))[0];
+  }
+
+  updateFolder(folder: Folder): void {
+    this.store.put("folders", folder);
+  }
+
+  /** The folder goes; its lists stay, outside any folder. */
+  deleteFolder(folder: Folder): void {
+    const lists = this.store.all("task_lists").filter((l) => l.folderId === folder.id && !l.deleted);
+    if (lists.length) this.store.put("task_lists", ...lists.map((l) => ({ ...l, folderId: null })));
+    this.store.put("folders", { ...folder, deleted: 1 });
   }
 
   // --- Events ---
