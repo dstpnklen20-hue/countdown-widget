@@ -1,8 +1,9 @@
 import { DateTime } from "luxon";
-import { daysBetween } from "../core/date";
+import { type LocalDate, daysBetween, plusDays } from "../core/date";
 import { advanced, nextAfter, parseRule } from "../core/repeatRule";
-import type { Reminder, Task } from "../data/model";
-import { dueDay, localDateOf, zone } from "./dates";
+import type { Habit, Reminder, Task } from "../data/model";
+import { dueDay, epochAt, localDateOf, zone } from "./dates";
+import { isScheduled } from "./habits";
 import { skippedDays, timeStart } from "./tasks";
 
 /** Port of domain/Reminders.kt. */
@@ -59,6 +60,22 @@ export function dueReminders(tasks: Map<string, Task>, reminders: Reminder[], fr
     if (!task) continue;
     const at = reminderTrigger(task, r, ALL_DAY_REMINDER_MINUTES, from);
     if (at != null && at > from && at <= to) out.push({ task, reminder: r, at });
+  }
+  return out;
+}
+
+/** Daily habit reminders on planned days that fall into (from, to] (ReminderScheduler.habitTriggers). */
+export function habitTriggers(habits: Habit[], from: number, to: number): { habit: Habit; at: number; day: LocalDate }[] {
+  const out: { habit: Habit; at: number; day: LocalDate }[] = [];
+  const today = localDateOf(to);
+  for (const h of habits) {
+    if (h.reminderMinute == null || h.archived || h.deleted) continue;
+    for (let i = -1; i <= 1; i++) {
+      const day = plusDays(today, i);
+      if (!isScheduled(h, day)) continue;
+      const at = epochAt(day, h.reminderMinute);
+      if (at > from && at <= to) out.push({ habit: h, at, day });
+    }
   }
   return out;
 }

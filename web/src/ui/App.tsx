@@ -18,6 +18,7 @@ import { TaskListView } from "./TaskListView";
 import { TrashView } from "./TrashView";
 import { SearchView } from "./SearchView";
 import { StatsView } from "./StatsView";
+import { useTabReminders } from "./TabReminders";
 
 const SESSION_KEY = "tiktak.session";
 
@@ -162,6 +163,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     setMenuOpen(false);
     setRailShown(false);
   };
+  useTabReminders((t) => { setSection(t.isEvent ? "calendar" : "tasks"); open(t); });
   const selectedTask = store.get("tasks", selected);
   // A task turned into an event moves to the event editor.
   useEffect(() => {
