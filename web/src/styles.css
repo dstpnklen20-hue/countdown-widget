@@ -363,3 +363,13 @@ mark { background: color-mix(in srgb, var(--primary) 30%, transparent); color: i
 .kcard .task-row .meta { display: none; }
 .kcol.knew { border: 2px dashed var(--line); background: transparent; align-items: center; justify-content: center; flex-direction: row; min-height: 60px; color: var(--muted); }
 @media (max-width: 760px) { .kanban { padding: 4px 16px 80px; } .kcol { width: 82vw; } }
+.habit-month { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; font-size: 12px; }
+.habit-month .w { color: var(--faint); }
+.habit-month button { aspect-ratio: 1; border-radius: 50%; border: none; background: transparent; padding: 0; }
+.habit-month button.on { color: #fff; font-weight: 600; }
+.habit-month button.off { opacity: 0.4; }
+.habit-month button:not(:disabled):hover { outline: 1px solid var(--line); }
+.quad { border: 2px solid transparent; }
+.quad.over { border-color: var(--primary); }
+.quad .kcard { background: transparent; }
+.quad .kcard .task-row .meta { display: flex; }

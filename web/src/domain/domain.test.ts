@@ -64,3 +64,15 @@ test("overlapping blocks share lanes; a much later one nests", () => {
 function dueOf(d: { at: number; isAllDay: boolean; timeZone: string }) {
   return { dueAt: d.at, isAllDay: (d.isAllDay ? 1 : 0) as 0 | 1, timeZone: d.timeZone };
 }
+
+test("habit streaks skip days it is not planned for", async () => {
+  const { habitStats } = await import("./habits");
+  const { toEpochDay } = await import("../core/date");
+  // Mon, Wed, Fri; done on 3 planned days in a row, then a missed Friday, then Monday.
+  const h = blank.habit({ name: "Зарядка", days: "MO,WE,FR", createdAt: Date.parse("2026-09-01T00:00:00Z") });
+  const counts = new Map(["2026-10-05", "2026-10-07", "2026-10-09", "2026-10-19"].map((d) => [toEpochDay(d), 1]));
+  const s = habitStats(h, counts, "2026-10-20");
+  expect(s.current).toBe(1);
+  expect(s.best).toBe(3);
+  expect(s.total).toBe(4);
+});
