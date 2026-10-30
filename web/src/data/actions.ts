@@ -15,6 +15,7 @@ export interface ReminderSpec { offsetMinutes: number; kind: Reminder["kind"] }
 
 /** Colour of the "Личное" calendar the app seeds (DatabaseSeeder.PERSONAL_CALENDAR_COLOR). */
 const PERSONAL_CALENDAR_COLOR = 0xff039be5 | 0;
+import type { IcsItem } from "./ics";
 import type { Rows } from "./store";
 
 /**
@@ -245,6 +246,28 @@ export class Actions {
     return c && !c.deleted ? c : undefined;
   }
 
+  createCalendar(name: string, color: number, defaultReminder: number | null = 30, defaultAllDayReminder: number | null = 24 * 60): CalendarLayer {
+    const max = Math.max(0, ...this.store.all("calendars").map((c) => c.sortOrder));
+    return this.store.put("calendars", blank.calendar({ name, color, defaultReminder, defaultAllDayReminder, sortOrder: max + 1 }))[0];
+  }
+
+  updateCalendar(calendar: CalendarLayer): void {
+    this.store.put("calendars", calendar);
+  }
+
+  /** Removes a calendar with its events (they go to the trash; TaskRepository.deleteCalendar). Returns how to undo it. */
+  deleteCalendar(calendar: CalendarLayer): () => void {
+    if (calendar.id === PERSONAL_CALENDAR_ID) return () => {};
+    const events = this.store.all("tasks").filter((t) => t.isEvent && t.calendarId === calendar.id && !t.deleted);
+    if (events.length) this.store.put("tasks", ...events.map((t) => ({ ...t, deleted: 1 as const })));
+    this.store.put("calendars", { ...calendar, deleted: 1 });
+    return () => {
+      this.store.put("calendars", { ...(this.store.get("calendars", calendar.id) ?? calendar), deleted: 0 });
+      const back = events.map((t) => ({ ...(this.store.get("tasks", t.id) ?? t), deleted: 0 as const }));
+      if (back.length) this.store.put("tasks", ...back);
+    };
+  }
+
   /** Reminders a new event gets from its calendar: before the start, or at the all-day time. */
   defaultReminders(calendarId: string | null, allDay: boolean): ReminderSpec[] {
     const cal = this.calendar(calendarId);
@@ -312,6 +335,24 @@ export class Actions {
       if (back.length) this.store.put("tasks", ...back);
       if (change.save.length) this.store.put("tasks", { ...master, updatedAt: this.store.get("tasks", master.id)?.updatedAt ?? master.updatedAt });
     };
+  }
+
+  /** Stores what an .ics file holds; an entry seen before (same UID) is updated (Ics.import). Returns how many. */
+  importIcs(items: IcsItem[], calendarId: string | null): number {
+    for (const item of items) {
+      const task = { ...item.task, calendarId: item.task.isEvent ? calendarId : null };
+      const existing = this.store.get("tasks", task.id);
+      const specs = item.reminders.map((m) => ({ offsetMinutes: m, kind: "NOTIFY" as const }));
+      if (task.isEvent) {
+        this.saveEvent(existing ? { ...task, createdAt: existing.createdAt, updatedAt: existing.updatedAt } : task, specs, existing);
+      } else if (!existing) {
+        this.createTask(task);
+        for (const m of item.reminders) this.addReminder(task.id, m);
+      } else {
+        this.update({ ...task, createdAt: existing.createdAt, sortOrder: existing.sortOrder, updatedAt: existing.updatedAt });
+      }
+    }
+    return items.length;
   }
 
   /** A copy of the task (an event as it is on [occurrence] when given), with its reminders and tags. */
