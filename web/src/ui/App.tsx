@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Actions } from "../data/actions";
-import { Store } from "../data/store";
+import { type SessionKeeper, Store } from "../data/store";
 import { type Session, signIn, signOut, signUp } from "../data/supabase";
 import type { FilterKey } from "../domain/tasks";
 import type { Task } from "../data/model";
@@ -33,6 +33,8 @@ function saveSession(s: Session | null) {
     else localStorage.removeItem(SESSION_KEY);
   } catch { /* storage refused: the session lives until the tab closes */ }
 }
+
+const keeper: SessionKeeper = { load: loadSession, save: saveSession };
 
 export function App() {
   const [session, setSession] = useState<Session | null>(loadSession);
@@ -99,7 +101,7 @@ const SECTIONS: { key: Section; icon: string; label: string }[] = [
 ];
 
 function Workspace({ session, onSession }: { session: Session; onSession: (s: Session | null) => void }) {
-  const store = useMemo(() => new Store(session, onSession), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const store = useMemo(() => new Store(session, onSession, keeper), []); // eslint-disable-line react-hooks/exhaustive-deps
   const actions = useMemo(() => new Actions(store), [store]);
   const [toast, setToast] = useState<Toast | null>(null);
   useEffect(() => {
@@ -114,6 +116,9 @@ function Workspace({ session, onSession }: { session: Session; onSession: (s: Se
   const ctx: AppContext = useMemo(() => ({ store, actions, toast: setToast }), [store, actions]);
 
   async function logout() {
+    // Edits that have not reached the server yet would be lost with this browser's copy.
+    if (store.unsent) await store.sync();
+    if (store.unsent && !confirm(`${store.unsent} изменений ещё не отправлены на сервер (нет связи?). Если выйти сейчас, они пропадут. Всё равно выйти?`)) return;
     await signOut(session);
     store.stop();
     await store.clearCache();

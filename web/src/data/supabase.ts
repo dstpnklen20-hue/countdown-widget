@@ -6,6 +6,8 @@
 export const SUPABASE_URL = "https://bjwpdcenqeckobvtpvwy.supabase.co";
 export const SUPABASE_KEY = "sb_publishable_4KRzQLfSBYfhhr7CjLKdrw_dTrx72js";
 const TABLE = "sync_records";
+/** The server returns at most 1000 rows per request. */
+const STAMPS_PAGE = 1000;
 
 export interface Session {
   accessToken: string;
@@ -141,6 +143,18 @@ export class SyncApi {
     const userId = (await this.session(false)).userId;
     const list = ids.map((id) => `"${id.replace(/"/g, "")}"`).join(",");
     await this.call("DELETE", `${this.base}?user_id=eq.${userId}&kind=eq.${encodeURIComponent(kind)}&id=in.${encodeURIComponent(`(${list})`)}`);
+  }
+
+  /** Key and version of every record of the account, no data (SupabaseApi.stamps in the app). */
+  async stamps(): Promise<{ kind: string; id: string; updatedAt: number }[]> {
+    const userId = (await this.session(false)).userId;
+    const out: { kind: string; id: string; updatedAt: number }[] = [];
+    for (;;) {
+      const r = await this.call("GET", `${this.base}?select=kind,id,updated_at&user_id=eq.${userId}&order=kind.asc,id.asc&limit=${STAMPS_PAGE}&offset=${out.length}`);
+      const page = JSON.parse(r.text) as any[];
+      for (const o of page) out.push({ kind: o.kind, id: o.id, updatedAt: Number(o.updated_at) });
+      if (page.length < STAMPS_PAGE) return out;
+    }
   }
 
   /** Records stored after [since] (all when null), oldest first, at most [limit]. */

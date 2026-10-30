@@ -93,9 +93,9 @@ export function TaskRow({ task: t, today, now, showList, selected, countdown, on
   const due = formatDue(t, today);
   const overdue = isOverdue(t, now, today);
   const color = cssColor(t.color) ?? cssColor(list?.color);
-  const checklist = store.live("checklist_items").filter((c) => c.taskId === t.id);
-  const subtasks = store.live("tasks").filter((s) => s.parentId === t.id);
-  const tags = store.live("task_tags").filter((l) => l.taskId === t.id).map((l) => store.get("tags", l.tagId)).filter((x) => x && !x.deleted);
+  const checklist = store.index("checklist_items", "taskId").get(t.id) ?? [];
+  const subtasks = store.index("tasks", "parentId").get(t.id) ?? [];
+  const tags = (store.index("task_tags", "taskId").get(t.id) ?? []).map((l) => store.get("tags", l.tagId)).filter((x) => x && !x.deleted);
   const day = dueDay(t);
   return (
     <div className={`task-row ${done ? "done" : ""} ${selected ? "selected" : ""}`} onClick={onOpen} role="button" tabIndex={0}
