@@ -125,8 +125,14 @@ https://dstpnklen20-hue.github.io/countdown-widget/ . `tasks` = `main`.
   с отметкой 0 (`Actions.ensureBasics`, как `DatabaseSeeder`).
 - Ядро перенесено с тестами слово в слово: `web/src/core` ↔ `core/` (RepeatRule, RepeatText, QuickAddParser),
   `web/src/domain` ↔ `domain/` (SmartLists, Repeats, CalendarProjection, Timeline, Habits). Меняя одно — менять другое.
-- Не умеет (пока): изменить один повтор серии событий (только всю серию; удалить один — умеет), разделы
-  списков, папки, статистику, напоминания (их показывает телефон).
+- Умеет почти всё, что телефон (BACKLOG A7, 2026-10-30): серии «только это / последующие / все»
+  (`domain/series.ts`), календарь с перетаскиванием и слоями, `.ics` (`data/ics.ts`), поиск, статистика,
+  Канбан и папки, напоминания во вкладке (`ui/TabReminders.ts`), офлайн (`public/sw.js`, только в сборке).
+  Нет: виджетов, будильников, напоминаний при закрытом сайте (нужен Web Push с сервером).
+- Store: `index(kind, field)` — живые строки по полю (taskId, parentId), кэшируются до следующей правки;
+  строки списков (`TaskRow`) получают готовые props (`rowProps`), чтобы перерисовывалась только изменённая.
+- Проверка без живого сервера: `VITE_SUPABASE_URL=http://localhost:54321` + поддельный Supabase
+  (скрипт в scratchpad сессии не сохраняется: http-сервер с /auth/v1/token и /rest/v1/sync_records, как в mcp/test).
 - Проверка в браузере: headless Chrome через DevTools-протокол (скрипт-помощник в scratchpad прошлой сессии
   не сохраняется — проще написать заново); тестовый аккаунт сайта `web-test@example.org` (пароль не в репозитории).
   Эмулятор сейчас вошёл в этот же аккаунт.
