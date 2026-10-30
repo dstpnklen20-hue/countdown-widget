@@ -332,3 +332,22 @@ label.row { display: flex; align-items: center; gap: 8px; }
 .month .cell .more-link { border: none; background: none; cursor: pointer; }
 .allday-row .col .more-link { border: none; background: none; cursor: pointer; }
 mark { background: color-mix(in srgb, var(--primary) 30%, transparent); color: inherit; border-radius: 2px; }
+
+/* --- Statistics --- */
+.card-box { background: var(--surface); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+.chart-title { font-weight: 650; }
+.stats.tiles { justify-content: space-around; }
+.stats.tiles > div { display: flex; flex-direction: column; }
+.ring .time { flex-direction: column; gap: 2px; display: flex; align-items: center; justify-content: center; }
+.bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
+.bars .bar { flex: 1; height: 100%; display: flex; align-items: flex-end; border: none; background: none; padding: 0; min-width: 0; }
+.bars .bar span { display: block; width: 100%; border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--primary) 45%, transparent); }
+.bars .bar.on span { background: var(--primary); }
+.bars.labels { height: auto; font-size: 11px; color: var(--muted); }
+.bars.labels span { flex: 1; text-align: center; min-width: 0; overflow: visible; white-space: nowrap; }
+.bars.labels span.on { color: var(--primary); font-weight: 600; }
+.hbar { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.hbar .name { width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar .track { flex: 1; height: 14px; }
+.hbar .track span { display: block; height: 100%; border-radius: 4px; }
+.hbar .val { width: 72px; text-align: right; color: var(--muted); }

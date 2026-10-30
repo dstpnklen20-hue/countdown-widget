@@ -17,6 +17,7 @@ import { TaskDetail } from "./TaskDetail";
 import { TaskListView } from "./TaskListView";
 import { TrashView } from "./TrashView";
 import { SearchView } from "./SearchView";
+import { StatsView } from "./StatsView";
 
 const SESSION_KEY = "tiktak.session";
 
@@ -91,7 +92,7 @@ function Login({ onSession }: { onSession: (s: Session) => void }) {
   );
 }
 
-export type Section = "tasks" | "calendar" | "matrix" | "habits" | "focus" | "trash" | "settings" | "search";
+export type Section = "tasks" | "calendar" | "matrix" | "habits" | "focus" | "trash" | "settings" | "search" | "stats";
 
 const SECTIONS: { key: Section; icon: string; label: string }[] = [
   { key: "tasks", icon: "tasks", label: "Задачи" },
@@ -99,6 +100,7 @@ const SECTIONS: { key: Section; icon: string; label: string }[] = [
   { key: "matrix", icon: "matrix", label: "Матрица" },
   { key: "habits", icon: "habits", label: "Привычки" },
   { key: "focus", icon: "focus", label: "Фокус" },
+  { key: "stats", icon: "stats", label: "Статистика" },
 ];
 
 function Workspace({ session, onSession }: { session: Session; onSession: (s: Session | null) => void }) {
@@ -210,7 +212,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         {section === "search" && <SearchView onOpen={open} onBack={() => go("tasks")} />}
         {section === "matrix" && <MatrixView selected={selected} onOpen={open} />}
         {section === "habits" && <HabitsView />}
-        {section === "focus" && <FocusView />}
+        {section === "focus" && <FocusView onStats={() => go("stats")} />}
+        {section === "stats" && <StatsView />}
         {section === "trash" && <TrashView onBack={() => go("tasks")} />}
         {section === "settings" && <SettingsView onLogout={onLogout} />}
       </main>

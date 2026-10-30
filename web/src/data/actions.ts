@@ -15,7 +15,7 @@ export interface ReminderSpec { offsetMinutes: number; kind: Reminder["kind"] }
 
 /** Colour of the "Личное" calendar the app seeds (DatabaseSeeder.PERSONAL_CALENDAR_COLOR). */
 const PERSONAL_CALENDAR_COLOR = 0xff039be5 | 0;
-import type { IcsItem } from "./ics";
+import { type IcsItem, nameUuid } from "./ics";
 import type { Rows } from "./store";
 
 /**
@@ -395,7 +395,13 @@ export class Actions {
 
   // --- Focus ---
 
+  /**
+   * A finished focus. Its id comes from its start, so the same pomodoro finishing in two tabs at
+   * once is one session, not two.
+   */
   recordFocus(startedAt: number, endedAt: number, taskId: string | null): void {
-    this.store.put("focus_sessions", blank.focus({ startedAt, endedAt, taskId, kind: "FOCUS" }));
+    const id = nameUuid(`focus:${startedAt}`);
+    if (this.store.get("focus_sessions", id)) return;
+    this.store.put("focus_sessions", blank.focus({ id, startedAt, endedAt, taskId, kind: "FOCUS" }));
   }
 }

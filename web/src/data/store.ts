@@ -498,9 +498,19 @@ export class Store implements Rows {
       rows: Record<string, [string, unknown][]>; pulledUpTo: string | null; pending: RemoteRecord[]; deletes?: string[]; reconciledAt?: number;
     }>(this.cacheKey());
     if (!saved) return;
-    for (const kind of KINDS) this.rows[kind] = new Map(saved.rows[kind] ?? []) as never;
+    // Merged, not replaced: an edit made while the cache was loading is newer and stays.
+    for (const kind of KINDS) {
+      const map = this.rows[kind] as Map<string, { updatedAt: number }>;
+      for (const [id, row] of (saved.rows[kind] ?? []) as [string, { updatedAt: number }][]) {
+        const mine = map.get(id);
+        if (!mine || mine.updatedAt < row.updatedAt) map.set(id, row);
+      }
+    }
     this.pulledUpTo = saved.pulledUpTo;
-    for (const rec of saved.pending ?? []) this.pending.set(key(rec.kind, rec.id), rec);
+    for (const rec of saved.pending ?? []) {
+      const k = key(rec.kind, rec.id);
+      if ((this.pending.get(k)?.updatedAt ?? -Infinity) < rec.updatedAt) this.pending.set(k, rec);
+    }
     for (const k of saved.deletes ?? []) this.pendingDeletes.add(k);
     this.reconciledAt = saved.reconciledAt ?? 0;
     this.rev++;
