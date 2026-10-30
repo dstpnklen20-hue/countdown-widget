@@ -1,31 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { type LocalDate, dayOfWeek, formatTime, parseTime, parts } from "../core/date";
+import { formatTime, parseTime } from "../core/date";
 import { cssColor, INBOX_ID, type Task } from "../data/model";
 import { allDayDue, dueDay, localTimeOf, timedDue, todayDate } from "../domain/dates";
-import { durationMinutes, isDone, repeatDescription, timeStart } from "../domain/tasks";
+import { durationMinutes, isDone, timeStart } from "../domain/tasks";
 import { Check, MenuButton, Swatches } from "./common";
 import { useData, useNow, useToday } from "./context";
 import { PRIORITY_COLORS, PRIORITY_NAMES, REMINDER_PRESETS, formatDuration, reminderLabel } from "./format";
 import { Icon } from "./icons";
+import { RepeatPicker } from "./RepeatPicker";
 
 const DURATIONS = [15, 30, 45, 60, 90, 120, 180, 240];
-const DAY_ACC = ["понедельник", "вторник", "среду", "четверг", "пятницу", "субботу", "воскресенье"];
-const DAY_CODES = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
-
-/** Repeats offered for a date, like repeatPresets() in EventEditor.kt. */
-export function repeatPresets(day: LocalDate): { label: string; rule: string | null }[] {
-  const dow = dayOfWeek(day);
-  const [, , d] = parts(day);
-  return [
-    { label: "Не повторять", rule: null },
-    { label: "Каждый день", rule: "FREQ=DAILY" },
-    { label: `Каждую неделю в ${DAY_ACC[dow - 1]}`, rule: `FREQ=WEEKLY;BYDAY=${DAY_CODES[dow - 1]}` },
-    { label: "По будням", rule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" },
-    { label: `Ежемесячно, ${d} числа`, rule: `FREQ=MONTHLY;BYMONTHDAY=${d}` },
-    { label: "Ежегодно", rule: "FREQ=YEARLY" },
-  ];
-}
-
 /** Text typed into a field is saved after a short pause (and when leaving it). */
 function useDraft(value: string, save: (v: string) => void, key: string): [string, (v: string) => void, () => void] {
   const [draft, setDraft] = useState(value);
@@ -80,7 +64,6 @@ export function TaskDetail({ task, onClose, onOpen }: { task: Task; onClose: () 
   const tags = actions.tagNames(task.id);
   const allTags = store.live("tags").filter((t) => !tags.includes(t.name));
   const overdue = !done && day != null && (task.isAllDay ? day < today : (task.dueAt ?? 0) < now);
-  const repeat = repeatDescription(task);
 
   const setDate = (d: string, t: number | null) => {
     if (!d) return actions.setDue(task, null, null);
@@ -151,11 +134,7 @@ export function TaskDetail({ task, onClose, onOpen }: { task: Task; onClose: () 
         )}
         <div className="prop">
           <span className="icon"><Icon name="repeat" size={18} /></span>
-          <select className="field" style={{ width: "auto", maxWidth: 280 }} value={task.repeatRule ?? ""} aria-label="Повтор"
-            onChange={(e) => setRepeat(e.target.value || null)}>
-            {repeatPresets(day ?? today).map((p) => <option key={p.label} value={p.rule ?? ""}>{p.label}</option>)}
-            {task.repeatRule && !repeatPresets(day ?? today).some((p) => p.rule === task.repeatRule) && <option value={task.repeatRule}>{repeat}</option>}
-          </select>
+          <RepeatPicker day={day ?? today} rule={task.repeatRule} onChange={setRepeat} style={{ width: "auto", maxWidth: 280 }} />
           {task.repeatRule && (
             <label className="row small muted">
               <input type="checkbox" checked={task.repeatFrom === "COMPLETION"} onChange={(e) => actions.update({ ...task, repeatFrom: e.target.checked ? "COMPLETION" : "DUE" })} />

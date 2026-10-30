@@ -3,7 +3,9 @@
  * The publishable key is meant to ship inside apps: row-level security on the server lets each
  * account reach only its own records.
  */
-export const SUPABASE_URL = "https://bjwpdcenqeckobvtpvwy.supabase.co";
+export const SUPABASE_URL: string =
+  // A local stand-in server for checks in the browser: `VITE_SUPABASE_URL=http://localhost:54321 npx vite`.
+  (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_SUPABASE_URL ?? "https://bjwpdcenqeckobvtpvwy.supabase.co";
 export const SUPABASE_KEY = "sb_publishable_4KRzQLfSBYfhhr7CjLKdrw_dTrx72js";
 const TABLE = "sync_records";
 /** The server returns at most 1000 rows per request. */

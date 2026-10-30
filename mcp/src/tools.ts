@@ -426,10 +426,10 @@ export function registerTools(server: McpServer, store: NodeStore) {
     const t = taskOf(a.id);
     if (a.occurrence) {
       if (!t.isEvent || !t.repeatRule) throw new UserError("occurrence — только для повторяющихся событий.");
-      actions.deleteEvent(t, a.occurrence, true);
+      actions.deleteEvent(t, a.occurrence, "ONE");
       return `Пропущен день ${a.occurrence} в серии: ${line(t, false)}`;
     }
-    if (t.isEvent) actions.deleteEvent(t, dueDay(t) ?? todayDate(), false);
+    if (t.isEvent) actions.deleteEvent(t, dueDay(t) ?? todayDate(), "ALL");
     else actions.delete(t);
     return `В корзине: ${line(t)}`;
   }));

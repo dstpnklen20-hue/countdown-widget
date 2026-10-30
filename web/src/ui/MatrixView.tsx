@@ -6,7 +6,7 @@ import { isCountdown, isDone } from "../domain/tasks";
 import { useData, useLocal, useNow, useToday } from "./context";
 import { PRIORITY_CATEGORY, PRIORITY_COLORS, PRIORITY_NAMES } from "./format";
 import { Icon } from "./icons";
-import { TaskRow } from "./TaskListView";
+import { TaskRow, rowProps, useStable } from "./TaskListView";
 
 /** Eisenhower matrix: quadrants by priority, a period filter (domain/Matrix.kt). */
 const PERIODS: { key: string; label: string; days: number | null }[] = [
@@ -21,6 +21,8 @@ export function MatrixView({ selected, onOpen }: { selected: string | null; onOp
   const [period, setPeriod] = useLocal("matrixPeriod", "all");
   const [adding, setAdding] = useState<number | null>(null);
   const [text, setText] = useState("");
+  const open = useStable(onOpen);
+  const done = useStable((t: Task) => actions.setDone(t, true));
   const days = PERIODS.find((p) => p.key === period)?.days ?? null;
 
   const tasks = useMemo(() => {
@@ -64,7 +66,7 @@ export function MatrixView({ selected, onOpen }: { selected: string | null; onOp
                     onBlur={() => !text && setAdding(null)} onKeyDown={(e) => { if (e.key === "Enter") add(p); if (e.key === "Escape") setAdding(null); }} />
                 )}
                 {list.map((t) => (
-                  <TaskRow key={t.id} task={t} today={today} now={now} showList selected={selected === t.id} onOpen={() => onOpen(t)} onToggle={() => actions.setDone(t, true)} />
+                  <TaskRow key={t.id} {...rowProps(store, t, today, now, true)} selected={selected === t.id} onOpen={open} onToggle={done} />
                 ))}
                 {!list.length && adding !== p && <div className="muted small" style={{ padding: 8 }}>Пусто</div>}
               </div>

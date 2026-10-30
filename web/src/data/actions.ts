@@ -2,12 +2,16 @@ import type { LocalDate } from "../core/date";
 import { plusDays, toEpochDay } from "../core/date";
 import { QuickAddParser } from "../core/quickAdd";
 import { toRRule } from "../core/repeatRule";
-import { type Due, allDayDue, nowMinute, timedDue, todayDate } from "../domain/dates";
-import { type FilterKey, nextOccurrence, skippedDays } from "../domain/tasks";
+import { type Due, allDayDue, dueDay, nowMinute, timedDue, todayDate } from "../domain/dates";
+import { type SeriesScope, atOccurrence, deleteFromSeries, editSeries } from "../domain/series";
+import { type FilterKey, nextOccurrence } from "../domain/tasks";
 import {
   type CalendarLayer, type ChecklistItem, type Habit, INBOX_ID, PERSONAL_CALENDAR_ID, type Reminder, type Task, type TaskList,
   blank, newId, now,
 } from "./model";
+
+/** What a reminder is, without its identity: two equal ones are the same reminder. */
+export interface ReminderSpec { offsetMinutes: number; kind: Reminder["kind"] }
 
 /** Colour of the "Личное" calendar the app seeds (DatabaseSeeder.PERSONAL_CALENDAR_COLOR). */
 const PERSONAL_CALENDAR_COLOR = 0xff039be5 | 0;
@@ -241,24 +245,86 @@ export class Actions {
     return c && !c.deleted ? c : undefined;
   }
 
+  /** Reminders a new event gets from its calendar: before the start, or at the all-day time. */
+  defaultReminders(calendarId: string | null, allDay: boolean): ReminderSpec[] {
+    const cal = this.calendar(calendarId);
+    const offset = allDay ? cal?.defaultAllDayReminder : cal?.defaultReminder;
+    return offset != null ? [{ offsetMinutes: offset, kind: "NOTIFY" }] : [];
+  }
+
   /** A new event gets its calendar's default reminder (TaskRepository.defaultReminders). */
   createEvent(event: Partial<Task>): Task {
     const task = this.createTask({ ...event, isEvent: 1 });
-    const cal = this.calendar(task.calendarId);
-    const offset = task.isAllDay ? cal?.defaultAllDayReminder : cal?.defaultReminder;
-    if (offset != null) this.addReminder(task.id, offset);
+    for (const r of this.defaultReminders(task.calendarId, !!task.isAllDay)) this.addReminder(task.id, r.offsetMinutes, r.kind);
     return task;
   }
 
-  /** One occurrence of a repeating event goes (its day is skipped), or the whole series with its exceptions. */
-  deleteEvent(task: Task, occurrence: LocalDate, onlyThis: boolean): void {
-    if (onlyThis && task.repeatRule) {
-      const days = [...skippedDays(task), occurrence].sort();
-      this.update({ ...task, exDates: [...new Set(days)].join(",") });
-      return;
+  /** Makes the task's reminders exactly [wanted]: removes the others, adds the missing ones. */
+  setReminders(taskId: string, wanted: ReminderSpec[]): void {
+    const current = this.reminders(taskId).filter((r) => r.absoluteAt == null);
+    const same = (r: Reminder, w: ReminderSpec) => r.offsetMinutes === w.offsetMinutes && r.kind === w.kind;
+    const gone = current.filter((r) => !wanted.some((w) => same(r, w)));
+    if (gone.length) this.store.put("reminders", ...gone.map((r) => ({ ...r, deleted: 1 as const })));
+    const added = wanted.filter((w, i) => !current.some((r) => same(r, w)) && wanted.findIndex((x) => x.offsetMinutes === w.offsetMinutes && x.kind === w.kind) === i);
+    if (added.length) this.store.put("reminders", ...added.map((w) => blank.reminder({ taskId, offsetMinutes: w.offsetMinutes, kind: w.kind })));
+  }
+
+  /**
+   * Saves an event from the editor (TaskRepository.saveEvent): a new one ([master] null), or the
+   * occurrence of [master] due on [occurrence] for the [scope] the user chose. Rows the change
+   * creates get [reminders]; a changed series gets them too. Returns the id of the row that now
+   * holds the edited occurrence.
+   */
+  saveEvent(edited: Task, reminders: ReminderSpec[], master?: Task, occurrence?: LocalDate, scope: SeriesScope = "ALL"): string {
+    if (!master) {
+      const [created] = this.store.put("tasks", { ...edited, sortOrder: this.maxSort("tasks") + 1 });
+      this.setReminders(created.id, reminders);
+      return created.id;
     }
-    const rows = this.store.all("tasks").filter((t) => (t.id === task.id || t.seriesId === task.id) && !t.deleted);
-    this.store.put("tasks", ...rows.map((t) => ({ ...t, deleted: 1 as const })));
+    const change = editSeries(master, occurrence ?? dueDay(master) ?? todayDate(), edited, scope, now());
+    let resultId = edited.id;
+    for (const row of change.save) {
+      if (!this.store.get("tasks", row.id)) {
+        this.store.put("tasks", { ...row, sortOrder: this.maxSort("tasks") + 1 });
+        this.setReminders(row.id, reminders);
+        resultId = row.id;
+      } else {
+        this.store.put("tasks", row);
+        if (row.id === edited.id && (scope === "ALL" || master.repeatRule == null)) this.setReminders(row.id, reminders);
+      }
+    }
+    if (master.repeatRule == null || scope === "ALL") resultId = master.id;
+    return resultId;
+  }
+
+  /**
+   * Deletes the occurrence of [master] due on [occurrence] for [scope] (TaskRepository.deleteEvent);
+   * a deleted series takes the occurrences moved out of it along. Returns how to undo it.
+   */
+  deleteEvent(master: Task, occurrence: LocalDate, scope: SeriesScope): () => void {
+    const change = deleteFromSeries(master, occurrence, scope);
+    for (const row of change.save) this.store.put("tasks", row);
+    const ids = new Set(change.delete);
+    const rows = this.store.all("tasks").filter((t) => !t.deleted && (ids.has(t.id) || (t.seriesId != null && ids.has(t.seriesId))));
+    if (rows.length) this.store.put("tasks", ...rows.map((t) => ({ ...t, deleted: 1 as const })));
+    return () => {
+      const back = rows.map((r) => ({ ...(this.store.get("tasks", r.id) ?? r), deleted: 0 as const }));
+      if (back.length) this.store.put("tasks", ...back);
+      if (change.save.length) this.store.put("tasks", { ...master, updatedAt: this.store.get("tasks", master.id)?.updatedAt ?? master.updatedAt });
+    };
+  }
+
+  /** A copy of the task (an event as it is on [occurrence] when given), with its reminders and tags. */
+  duplicate(task: Task, occurrence?: LocalDate): Task {
+    const source = occurrence && task.repeatRule ? { ...atOccurrence(task, occurrence), repeatRule: null, exDates: null } : task;
+    const at = now();
+    const [copy] = this.store.put("tasks", {
+      ...source, id: newId(), status: "OPEN", completedAt: null, seriesId: null, sortOrder: this.maxSort("tasks") + 1, createdAt: at, updatedAt: at,
+    });
+    this.setReminders(copy.id, this.reminders(task.id).map((r) => ({ offsetMinutes: r.offsetMinutes ?? 0, kind: r.kind })));
+    const tags = this.tagNames(task.id);
+    if (tags.length) this.setTags(copy.id, tags);
+    return copy;
   }
 
   // --- Habits ---

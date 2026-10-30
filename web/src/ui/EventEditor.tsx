@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { type LocalDate, daysBetween, formatTime, parseTime, plusDays } from "../core/date";
-import { PERSONAL_CALENDAR_ID, type Task, blank } from "../data/model";
-import { allDayDue, dayOf, localTimeOf, timedDue, todayDate } from "../domain/dates";
+import type { ReminderSpec } from "../data/actions";
+import { PERSONAL_CALENDAR_ID, type Task, blank, cssColor } from "../data/model";
+import { allDayDue, dayOf, dueDay, localTimeOf, timedDue, todayDate } from "../domain/dates";
+import { type SeriesScope, SCOPES, atOccurrence } from "../domain/series";
 import { repeatDescription } from "../domain/tasks";
 import { Dialog, Swatches } from "./common";
 import { useData } from "./context";
-import { REMINDER_PRESETS, reminderLabel } from "./format";
-import { repeatPresets } from "./TaskDetail";
+import { CALENDAR_COLORS, REMINDER_PRESETS, reminderLabel } from "./format";
+import { RepeatPicker } from "./RepeatPicker";
 
 /** An event to edit ([task]) or to create (from [init]); [occurrence] is the day of a repeat that was clicked. */
 export interface EventDraft {
@@ -51,10 +53,22 @@ function apply(s: Span, t: Task): Task {
   return { ...t, startAt: a.at, dueAt: Math.max(b.at, a.at), isAllDay: 0, timeZone: a.timeZone };
 }
 
+const EVENT_TYPES: { key: string | null; label: string }[] = [
+  { key: null, label: "Обычное событие" }, { key: "FOCUS", label: "◎ Время для работы" }, { key: "AWAY", label: "Нет на месте" },
+];
+
+const ALL_DAY_PRESETS = [
+  { label: "В день события (9:00)", minutes: 0 }, { label: "За день (9:00)", minutes: 1440 }, { label: "За 2 дня (9:00)", minutes: 2880 }, { label: "За неделю (9:00)", minutes: 7 * 1440 },
+];
+
 export function EventEditor({ draft, onClose, onTask }: { draft: EventDraft; onClose: () => void; onTask: (id: string) => void }) {
   const { store, actions, toast } = useData();
-  const isNew = draft.task == null;
-  const base: Task = draft.task ?? blank.task({ isEvent: 1, ...draft.init });
+  const master = draft.task;
+  const isNew = master == null;
+  const repeating = !!master?.repeatRule;
+  const occurrence = master ? draft.occurrence ?? dueDay(master) ?? todayDate() : undefined;
+  // A repeat opens as it is on its own day.
+  const base: Task = master ? atOccurrence(master, occurrence!) : blank.task({ isEvent: 1, ...draft.init });
   const [title, setTitle] = useState(base.title);
   const [span, setSpan] = useState<Span>(spanOf(base));
   const [repeat, setRepeat] = useState<string | null>(base.repeatRule);
@@ -62,52 +76,67 @@ export function EventEditor({ draft, onClose, onTask }: { draft: EventDraft; onC
   const [location, setLocation] = useState(base.location ?? "");
   const [content, setContent] = useState(base.content);
   const [color, setColor] = useState<number | null>(base.color);
-  const [askDelete, setAskDelete] = useState(false);
+  const [type, setType] = useState<string | null>(base.eventType);
+  const [countdown, setCountdown] = useState(base.displayMode === "COUNTDOWN");
+  const [reminders, setReminders] = useState<ReminderSpec[]>(() =>
+    master ? actions.reminders(master.id).filter((r) => r.absoluteAt == null).map((r) => ({ offsetMinutes: r.offsetMinutes ?? 0, kind: r.kind }))
+      : actions.defaultReminders(base.calendarId, !!base.isAllDay));
+  const [ask, setAsk] = useState<null | "save" | "delete">(null);
   const calendars = store.live("calendars").sort((a, b) => a.sortOrder - b.sortOrder);
-  const reminders = draft.task ? actions.reminders(draft.task.id) : [];
-  const repeating = !!base.repeatRule;
+  const calendarColor = cssColor(calendars.find((c) => c.id === calendarId)?.color);
 
-  const save = () => {
-    const edited = apply(span, {
-      ...base, title: title.trim() || "(Без названия)", repeatRule: repeat, location: location.trim() || null,
-      content, color, calendarId: calendarId === PERSONAL_CALENDAR_ID ? null : calendarId,
-    });
-    if (isNew) actions.createEvent(edited);
-    else actions.update(edited);
+  const edited = (): Task => apply(span, {
+    ...base, title: title.trim() || "(Без названия)", repeatRule: repeat, location: location.trim() || null,
+    content, color, calendarId: calendarId === PERSONAL_CALENDAR_ID ? null : calendarId, eventType: type,
+    displayMode: countdown ? "COUNTDOWN" : "NORMAL", isEvent: 1,
+  });
+
+  const save = (scope: SeriesScope = "ALL") => {
+    if (isNew) actions.saveEvent(edited(), reminders);
+    else actions.saveEvent(edited(), reminders, store.get("tasks", master.id) ?? master, occurrence, scope);
     onClose();
   };
 
-  const remove = (onlyThis: boolean) => {
-    if (!draft.task) return;
-    const before = store.get("tasks", draft.task.id) ?? draft.task;
-    actions.deleteEvent(draft.task, draft.occurrence ?? dayOf(draft.task, draft.task.dueAt ?? Date.now()), onlyThis);
+  const remove = (scope: SeriesScope) => {
+    if (!master) return;
+    const undo = actions.deleteEvent(store.get("tasks", master.id) ?? master, occurrence!, scope);
     onClose();
-    toast({ text: "Событие удалено", undo: () => {
-      const rows = store.all("tasks").filter((t) => (t.id === before.id || t.seriesId === before.id) && t.deleted);
-      actions.update({ ...before, deleted: 0 });
-      for (const r of rows) if (r.id !== before.id) actions.update({ ...r, deleted: 0 });
-    } });
+    toast({ text: scope === "ONE" && repeating ? "Повтор удалён" : "Событие удалено", undo });
+  };
+
+  const copy = () => {
+    if (!master) return;
+    const c = actions.duplicate(store.get("tasks", master.id) ?? master, occurrence);
+    onClose();
+    toast({ text: `Копия: «${c.title}»` });
   };
 
   const makeTask = () => {
-    if (!draft.task) return;
-    actions.update({ ...(store.get("tasks", draft.task.id) ?? draft.task), isEvent: 0 });
-    onTask(draft.task.id);
+    if (!master) return;
+    actions.update({ ...(store.get("tasks", master.id) ?? master), isEvent: 0 });
+    onTask(master.id);
   };
 
-  const presets = repeatPresets(span.startDate);
+  const setAllDay = (allDay: boolean) => {
+    setSpan({ ...span, allDay });
+    // Reminders of an all-day event count from 9:00 of its day, so the defaults differ.
+    if (isNew) setReminders(actions.defaultReminders(calendarId === PERSONAL_CALENDAR_ID ? null : calendarId, allDay));
+  };
+
+  const presets = span.allDay ? ALL_DAY_PRESETS : REMINDER_PRESETS;
   return (
     <Dialog title={isNew ? "Новое событие" : "Событие"} onClose={onClose} actions={<>
-      {!isNew && <button className="btn danger" onClick={() => (repeating ? setAskDelete(true) : remove(false))}>Удалить</button>}
+      {!isNew && <button className="btn danger" onClick={() => (repeating ? setAsk("delete") : remove("ALL"))}>Удалить</button>}
+      {!isNew && <button className="btn ghost" onClick={copy}>Копия</button>}
       {!isNew && <button className="btn ghost" onClick={makeTask}>Сделать задачей</button>}
       <div className="spacer" />
       <button className="btn" onClick={onClose}>Отмена</button>
-      <button className="btn primary" onClick={save}>Сохранить</button>
+      <button className="btn primary" onClick={() => (repeating ? setAsk("save") : save())}>Сохранить</button>
     </>}>
       <div className="form">
         <input className="field" autoFocus value={title} placeholder="Название" style={{ fontSize: 17 }}
-          onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
-        <label className="row"><input type="checkbox" checked={span.allDay} onChange={(e) => setSpan({ ...span, allDay: e.target.checked })} />Весь день</label>
+          onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (repeating ? setAsk("save") : save())} />
+        <label className="row"><input type="checkbox" checked={span.allDay} onChange={(e) => setAllDay(e.target.checked)} />Весь день</label>
         <div className="two">
           <input className="field" type="date" value={span.startDate} aria-label="Начало, дата" onChange={(e) => e.target.value && setSpan(withStart(span, e.target.value, span.start))} />
           {!span.allDay && <input className="field" type="time" value={formatTime(span.start)} aria-label="Начало, время"
@@ -118,39 +147,45 @@ export function EventEditor({ draft, onClose, onTask }: { draft: EventDraft; onC
           {!span.allDay && <input className="field" type="time" value={formatTime(span.end)} aria-label="Конец, время"
             onChange={(e) => { const t = parseTime(e.target.value); if (t != null) setSpan(withEnd(span, span.endDate, t)); }} />}
         </div>
-        <select className="field" value={repeat ?? ""} aria-label="Повтор" onChange={(e) => setRepeat(e.target.value || null)}>
-          {presets.map((p) => <option key={p.label} value={p.rule ?? ""}>{p.label}</option>)}
-          {repeat && !presets.some((p) => p.rule === repeat) && <option value={repeat}>{repeatDescription({ ...base, repeatRule: repeat })}</option>}
-        </select>
-        {repeating && !isNew && <div className="muted small">Изменения применятся ко всем повторам. Отдельный повтор можно изменить в приложении.</div>}
+        <RepeatPicker day={span.startDate} rule={repeat} onChange={setRepeat} />
         {calendars.length > 0 && (
           <select className="field" value={calendarId} aria-label="Календарь" onChange={(e) => setCalendarId(e.target.value)}>
             {calendars.map((c) => <option key={c.id} value={c.id}>● {c.name}</option>)}
           </select>
         )}
+        <select className="field" value={type ?? ""} aria-label="Тип события" onChange={(e) => setType(e.target.value || null)}>
+          {EVENT_TYPES.map((t) => <option key={t.label} value={t.key ?? ""}>{t.label}</option>)}
+        </select>
         <input className="field" value={location} placeholder="Место" onChange={(e) => setLocation(e.target.value)} />
         <textarea className="field" rows={3} value={content} placeholder="Описание" onChange={(e) => setContent(e.target.value)} />
-        {!isNew && (
-          <div className="prop">
-            {reminders.map((r) => (
-              <button key={r.id} className="chip" onClick={() => actions.deleteReminder(r)} title="Убрать">
-                🔔 {reminderLabel(r.offsetMinutes ?? 0, span.allDay)} ✕
-              </button>
-            ))}
-            <select className="field" style={{ width: "auto" }} value="" aria-label="Добавить напоминание"
-              onChange={(e) => e.target.value !== "" && draft.task && actions.addReminder(draft.task.id, Number(e.target.value))}>
-              <option value="">+ Напоминание</option>
-              {REMINDER_PRESETS.map((p) => <option key={p.minutes} value={p.minutes}>{p.label}</option>)}
-            </select>
-          </div>
-        )}
-        <div className="muted small">Цвет {color == null && calendars.find((c) => c.id === calendarId) ? "(сейчас — цвет календаря)" : ""}</div>
-        <Swatches value={color} onChange={setColor} />
+        <div className="prop">
+          {reminders.map((r) => (
+            <button key={`${r.offsetMinutes}:${r.kind}`} className="chip" title="Убрать" onClick={() => setReminders(reminders.filter((x) => x !== r))}>
+              {r.kind === "ALARM" ? "⏰" : "🔔"} {reminderLabel(r.offsetMinutes, span.allDay)} ✕
+            </button>
+          ))}
+          <select className="field" style={{ width: "auto" }} value="" aria-label="Добавить напоминание"
+            onChange={(e) => {
+              const m = Number(e.target.value);
+              if (e.target.value !== "" && !reminders.some((r) => r.offsetMinutes === m)) setReminders([...reminders, { offsetMinutes: m, kind: "NOTIFY" }]);
+            }}>
+            <option value="">+ Напоминание</option>
+            {presets.map((p) => <option key={p.minutes} value={p.minutes}>{p.label}</option>)}
+          </select>
+        </div>
+        <label className="row"><input type="checkbox" checked={countdown} onChange={(e) => setCountdown(e.target.checked)} />Отсчёт дней до события</label>
+        <div className="muted small">Цвет {color == null && calendarColor ? "(сейчас — цвет календаря)" : ""}</div>
+        <Swatches value={color} onChange={setColor} palette={CALENDAR_COLORS} />
+        {repeating && repeat !== master?.repeatRule && <div className="muted small">Новый повтор: {repeatDescription({ ...base, repeatRule: repeat })}</div>}
       </div>
-      {askDelete && (
-        <div className="menu" style={{ position: "static", marginTop: 12 }}>
-          <button onClick={() => remove(true)}>Только это событие</button>
-          <button className="error-text" onClick={() => remove(false)}>Все события серии</button>
+      {ask && (
+        <div className="menu" style={{ position: "static", marginTop: 12 }} role="menu" aria-label={ask === "save" ? "Сохранить для" : "Удалить"}>
+          <div className="muted small" style={{ padding: "6px 12px" }}>{ask === "save" ? "Изменить повторяющееся событие:" : "Удалить повторяющееся событие:"}</div>
+          {SCOPES.map((s) => (
+            <button key={s.key} className={ask === "delete" && s.key === "ALL" ? "error-text" : undefined}
+              onClick={() => (ask === "save" ? save(s.key) : remove(s.key))}>{s.label}</button>
+          ))}
+          <button onClick={() => setAsk(null)}>Отмена</button>
         </div>
       )}
     </Dialog>

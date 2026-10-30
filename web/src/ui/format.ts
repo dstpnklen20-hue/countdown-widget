@@ -80,6 +80,13 @@ export const PRIORITY_CATEGORY: Record<number, string> = {
 /** Colours offered for lists, tasks and events (LIST_COLORS in Formats.kt). */
 export const PALETTE = ["#e53935", "#fb8c00", "#fdd835", "#43a047", "#00acc1", "#1e88e5", "#5e35b1", "#d81b60"];
 
+/** Google Calendar's 24 colours offered for events and calendars (CALENDAR_COLORS in Palette.kt). */
+export const CALENDAR_COLORS = [
+  "#d50000", "#e67c73", "#f4511e", "#f6bf26", "#33b679", "#0b8043", "#039be5", "#3f51b5",
+  "#7986cb", "#8e24aa", "#616161", "#ad1457", "#d81b60", "#ef6c00", "#f09300", "#e4c441",
+  "#c0ca33", "#7cb342", "#009688", "#4285f4", "#9e69af", "#b39ddb", "#795548", "#a79b8e",
+];
+
 export const REMINDER_PRESETS: { label: string; minutes: number }[] = [
   { label: "В момент начала", minutes: 0 },
   { label: "За 5 минут", minutes: 5 },
