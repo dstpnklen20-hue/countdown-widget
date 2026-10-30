@@ -297,7 +297,6 @@ label.row { display: flex; align-items: center; gap: 8px; }
 .login h1 { margin: 10px 0 4px; font-size: 22px; }
 .sync-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .sync-badge.error { color: var(--danger); }
-@media (max-width: 760px) { .cal-toolbar label.row { display: none; } }
 
 /* --- Calendar: layers, year, schedule, dragging --- */
 .layers { width: 290px; max-height: 70vh; overflow-y: auto; padding: 6px; }
@@ -373,3 +372,10 @@ mark { background: color-mix(in srgb, var(--primary) 30%, transparent); color: i
 .quad.over { border-color: var(--primary); }
 .quad .kcard { background: transparent; }
 .quad .kcard .task-row .meta { display: flex; }
+@media (max-width: 760px) {
+  .year { grid-template-columns: repeat(2, 1fr); gap: 14px 10px; }
+  .mini-grid { font-size: 10px; gap: 1px; }
+  .mini-grid button { font-size: 10px; }
+  .layers { position: fixed !important; left: 8px; right: 8px; top: 60px !important; width: auto; max-height: calc(100vh - 140px); }
+}
+.layer-check:has(input[type="checkbox"]) { justify-content: flex-start; }
