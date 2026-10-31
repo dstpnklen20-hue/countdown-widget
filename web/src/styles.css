@@ -297,4 +297,85 @@ label.row { display: flex; align-items: center; gap: 8px; }
 .login h1 { margin: 10px 0 4px; font-size: 22px; }
 .sync-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .sync-badge.error { color: var(--danger); }
-@media (max-width: 760px) { .cal-toolbar label.row { display: none; } }
+
+/* --- Calendar: layers, year, schedule, dragging --- */
+.layers { width: 290px; max-height: 70vh; overflow-y: auto; padding: 6px; }
+.layer-row { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px; }
+.layer-check { padding: 5px 10px; justify-content: space-between; }
+.mobile-select { display: none; width: auto; }
+.desktop-only-inline { display: inline; }
+@media (max-width: 760px) { .mobile-select { display: block; } .desktop-seg { display: none; } .desktop-only-inline { display: none; } }
+.year { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 18px; padding-top: 8px; }
+.mini-title { border: none; background: none; font-weight: 650; padding: 4px 0; }
+.mini-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; font-size: 11px; text-align: center; }
+.mini-grid .w { color: var(--faint); }
+.mini-grid button { border: none; background: none; border-radius: 50%; aspect-ratio: 1; padding: 0; font-size: 11px; }
+.mini-grid button.busy { background: var(--primary-soft); }
+.mini-grid button.today { background: var(--primary); color: var(--on-primary); }
+.schedule { max-width: 760px; }
+.sched-month { font-weight: 650; font-size: 16px; padding: 18px 0 6px; }
+.sched-day { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.sched-date { width: 48px; flex: none; border: none; background: none; display: flex; flex-direction: column; align-items: center; }
+.sched-date .w { font-size: 11px; color: var(--muted); }
+.sched-date .n { font-size: 20px; }
+.sched-day.today .sched-date .n { color: var(--primary); font-weight: 700; }
+.sched-list { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sched-entry { display: flex; flex-direction: column; align-items: flex-start; border: none; border-radius: 8px; padding: 6px 10px; text-align: left; }
+.sched-entry .t { font-weight: 600; }
+.sched-entry.done { text-decoration: line-through; opacity: 0.6; }
+.block .resize { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; cursor: ns-resize; }
+.block.ghost { z-index: 5; box-shadow: var(--shadow); pointer-events: none; opacity: 0.9; }
+.block, .chip-entry.away { touch-action: pan-y; }
+.block.away, .chip-entry.away { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.18) 0 6px, transparent 6px 12px) !important; }
+.allday-row .gutter .more-link { display: block; border: none; background: none; padding: 0; color: var(--primary); }
+.month .cell .more-link { border: none; background: none; cursor: pointer; }
+.allday-row .col .more-link { border: none; background: none; cursor: pointer; }
+mark { background: color-mix(in srgb, var(--primary) 30%, transparent); color: inherit; border-radius: 2px; }
+
+/* --- Statistics --- */
+.card-box { background: var(--surface); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+.chart-title { font-weight: 650; }
+.stats.tiles { justify-content: space-around; }
+.stats.tiles > div { display: flex; flex-direction: column; }
+.ring .time { flex-direction: column; gap: 2px; display: flex; align-items: center; justify-content: center; }
+.bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
+.bars .bar { flex: 1; height: 100%; display: flex; align-items: flex-end; border: none; background: none; padding: 0; min-width: 0; }
+.bars .bar span { display: block; width: 100%; border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--primary) 45%, transparent); }
+.bars .bar.on span { background: var(--primary); }
+.bars.labels { height: auto; font-size: 11px; color: var(--muted); }
+.bars.labels span { flex: 1; text-align: center; min-width: 0; overflow: visible; white-space: nowrap; }
+.bars.labels span.on { color: var(--primary); font-weight: 600; }
+.hbar { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.hbar .name { width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar .track { flex: 1; height: 14px; }
+.hbar .track span { display: block; height: 100%; border-radius: 4px; }
+.hbar .val { width: 72px; text-align: right; color: var(--muted); }
+
+/* --- Kanban --- */
+.kanban { flex: 1; display: flex; gap: 12px; overflow-x: auto; padding: 4px 20px 24px; align-items: flex-start; }
+.kcol { flex: none; width: 280px; background: var(--surface); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 4px; max-height: 100%; overflow-y: auto; border: 2px solid transparent; }
+.kcol.over { border-color: var(--primary); }
+.khead { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
+.kadd { margin-bottom: 4px; }
+.kcard { display: flex; align-items: center; background: var(--bg); border-radius: 8px; }
+.kcard .task-row { flex: 1; min-width: 0; border-bottom: none; }
+.kcard .task-row .meta { display: none; }
+.kcol.knew { border: 2px dashed var(--line); background: transparent; align-items: center; justify-content: center; flex-direction: row; min-height: 60px; color: var(--muted); }
+@media (max-width: 760px) { .kanban { padding: 4px 16px 80px; } .kcol { width: 82vw; } }
+.habit-month { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; font-size: 12px; }
+.habit-month .w { color: var(--faint); }
+.habit-month button { aspect-ratio: 1; border-radius: 50%; border: none; background: transparent; padding: 0; }
+.habit-month button.on { color: #fff; font-weight: 600; }
+.habit-month button.off { opacity: 0.4; }
+.habit-month button:not(:disabled):hover { outline: 1px solid var(--line); }
+.quad { border: 2px solid transparent; }
+.quad.over { border-color: var(--primary); }
+.quad .kcard { background: transparent; }
+.quad .kcard .task-row .meta { display: flex; }
+@media (max-width: 760px) {
+  .year { grid-template-columns: repeat(2, 1fr); gap: 14px 10px; }
+  .mini-grid { font-size: 10px; gap: 1px; }
+  .mini-grid button { font-size: 10px; }
+  .layers { position: fixed !important; left: 8px; right: 8px; top: 60px !important; width: auto; max-height: calc(100vh - 140px); }
+}
+.layer-check:has(input[type="checkbox"]) { justify-content: flex-start; }

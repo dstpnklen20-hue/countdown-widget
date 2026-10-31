@@ -5,6 +5,7 @@ on:
     # The website and notes do not change the app: no new build (and no update offered to phones).
     paths-ignore:
       - "web/**"
+      - "mcp/**"
       - "**/*.md"
       - ".github/workflows/web.yml"
   workflow_dispatch:

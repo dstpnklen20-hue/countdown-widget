@@ -6,7 +6,8 @@ import { isCountdown, isDone } from "../domain/tasks";
 import { useData, useLocal, useNow, useToday } from "./context";
 import { PRIORITY_CATEGORY, PRIORITY_COLORS, PRIORITY_NAMES } from "./format";
 import { Icon } from "./icons";
-import { TaskRow } from "./TaskListView";
+import { MenuButton } from "./common";
+import { TaskRow, rowProps, useStable } from "./TaskListView";
 
 /** Eisenhower matrix: quadrants by priority, a period filter (domain/Matrix.kt). */
 const PERIODS: { key: string; label: string; days: number | null }[] = [
@@ -15,12 +16,16 @@ const PERIODS: { key: string; label: string; days: number | null }[] = [
 ];
 
 export function MatrixView({ selected, onOpen }: { selected: string | null; onOpen: (t: Task) => void }) {
-  const { store, actions } = useData();
+  const { store, actions, toast } = useData();
   const today = useToday();
   const now = useNow();
   const [period, setPeriod] = useLocal("matrixPeriod", "all");
   const [adding, setAdding] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  const [shown, setShown] = useState<number[]>([]);
   const [text, setText] = useState("");
+  const open = useStable(onOpen);
+  const done = useStable((t: Task) => actions.setDone(t, true));
   const days = PERIODS.find((p) => p.key === period)?.days ?? null;
 
   const tasks = useMemo(() => {
@@ -51,7 +56,17 @@ export function MatrixView({ selected, onOpen }: { selected: string | null; onOp
           {[3, 2, 1, 0].map((p) => {
             const list = tasks.filter((t) => t.priority === p).sort((a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity));
             return (
-              <div key={p} className="quad">
+              <div key={p} className={`quad ${over === p ? "over" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); setOver(p); }} onDragLeave={() => setOver((o) => (o === p ? null : o))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setOver(null);
+                  const t = store.get("tasks", e.dataTransfer.getData("text/x-tiktak-task"));
+                  if (t && t.priority !== p) {
+                    actions.update({ ...t, priority: p });
+                    toast({ text: `«${t.title}» → ${PRIORITY_CATEGORY[p]}`, undo: () => actions.update({ ...t, updatedAt: store.get("tasks", t.id)?.updatedAt ?? t.updatedAt }) });
+                  }
+                }}>
                 <h3>
                   <span className="dot" style={{ background: PRIORITY_COLORS[p] ?? "var(--faint)" }} />
                   {PRIORITY_CATEGORY[p]}
@@ -63,9 +78,17 @@ export function MatrixView({ selected, onOpen }: { selected: string | null; onOp
                   <input className="field" autoFocus value={text} placeholder="Новая задача" onChange={(e) => setText(e.target.value)}
                     onBlur={() => !text && setAdding(null)} onKeyDown={(e) => { if (e.key === "Enter") add(p); if (e.key === "Escape") setAdding(null); }} />
                 )}
-                {list.map((t) => (
-                  <TaskRow key={t.id} task={t} today={today} now={now} showList selected={selected === t.id} onOpen={() => onOpen(t)} onToggle={() => actions.setDone(t, true)} />
+                {list.slice(0, shown.includes(p) ? undefined : 100).map((t) => (
+                  <div key={t.id} draggable className="kcard" onDragStart={(e) => { e.dataTransfer.setData("text/x-tiktak-task", t.id); e.dataTransfer.effectAllowed = "move"; }}>
+                    <TaskRow {...rowProps(store, t, today, now, true)} selected={selected === t.id} onOpen={open} onToggle={done} />
+                    <MenuButton label="Переместить в" icon="matrix" items={[3, 2, 1, 0].filter((q) => q !== t.priority).map((q) => ({
+                      label: PRIORITY_CATEGORY[q], onClick: () => actions.update({ ...t, priority: q }),
+                    }))} />
+                  </div>
                 ))}
+                {list.length > 100 && !shown.includes(p) && (
+                  <button className="btn ghost small" onClick={() => setShown([...shown, p])}>Показать все ({list.length})</button>
+                )}
                 {!list.length && adding !== p && <div className="muted small" style={{ padding: 8 }}>Пусто</div>}
               </div>
             );

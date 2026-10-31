@@ -2,7 +2,10 @@
 
 Android-приложение «Tik Tak» — клон TickTick, выросший из «Обратного отсчёта».
 Kotlin 2.0, Jetpack Compose, Room, Flow/ViewModel, ручной DI (`AppContainer`), Glance-виджеты.
-Статус на 2026-10-27: выпущен `build-47` (Tik Tak 2.6, BACKLOG A8, пункты 51–54) — плавное листание дней в календаре
+Статус на 2026-10-28: выпущен `build-52` (Tik Tak 2.7, BACKLOG A9, пункты 55–56) — новые записи больше не теряются
+при синхронизации (отметка в момент сохранения + сверка с сервером раз в сутки, `SyncEngine.pushMissing`),
+календарь на планшете и сайте без колонки разделов (разделы — в меню ☰).
+Ранее `build-47` (Tik Tak 2.6, BACKLOG A8, пункты 51–54) — плавное листание дней в календаре
 (`GridPaging` в `TimeGrid`), задачи со временем и длительностью (`Task.durationMinutes`), «Сделать событием»
 в меню задачи. Веб-версия (`web/`, BACKLOG A7) опубликована 2026-10-27 вместе с `build-50`:
 https://dstpnklen20-hue.github.io/countdown-widget/ . `tasks` = `main`.
@@ -122,11 +125,30 @@ https://dstpnklen20-hue.github.io/countdown-widget/ . `tasks` = `main`.
   с отметкой 0 (`Actions.ensureBasics`, как `DatabaseSeeder`).
 - Ядро перенесено с тестами слово в слово: `web/src/core` ↔ `core/` (RepeatRule, RepeatText, QuickAddParser),
   `web/src/domain` ↔ `domain/` (SmartLists, Repeats, CalendarProjection, Timeline, Habits). Меняя одно — менять другое.
-- Не умеет (пока): изменить один повтор серии событий (только всю серию; удалить один — умеет), разделы
-  списков, папки, статистику, напоминания (их показывает телефон).
+- Умеет почти всё, что телефон (BACKLOG A7, 2026-10-30): серии «только это / последующие / все»
+  (`domain/series.ts`), календарь с перетаскиванием и слоями, `.ics` (`data/ics.ts`), поиск, статистика,
+  Канбан и папки, напоминания во вкладке (`ui/TabReminders.ts`), офлайн (`public/sw.js`, только в сборке).
+  Нет: виджетов, будильников, напоминаний при закрытом сайте (нужен Web Push с сервером).
+- Store: `index(kind, field)` — живые строки по полю (taskId, parentId), кэшируются до следующей правки;
+  строки списков (`TaskRow`) получают готовые props (`rowProps`), чтобы перерисовывалась только изменённая.
+- Проверка без живого сервера: `VITE_SUPABASE_URL=http://localhost:54321` + поддельный Supabase
+  (скрипт в scratchpad сессии не сохраняется: http-сервер с /auth/v1/token и /rest/v1/sync_records, как в mcp/test).
 - Проверка в браузере: headless Chrome через DevTools-протокол (скрипт-помощник в scratchpad прошлой сессии
   не сохраняется — проще написать заново); тестовый аккаунт сайта `web-test@example.org` (пароль не в репозитории).
   Эмулятор сейчас вошёл в этот же аккаунт.
+
+## Коннектор для Claude (`mcp/`, BACKLOG A10)
+
+- Локальный MCP-сервер (stdio): Claude работает с задачами и событиями аккаунта. TypeScript, сборка esbuild
+  в один файл `mcp/dist/tiktak-mcp.mjs` вместе с кодом сайта (`web/src/core`, `domain`, `data/actions.ts`,
+  `model.ts`, `supabase.ts`) — правки там сразу касаются и коннектора. Сборка/тесты:
+  `cd mcp && npm ci && npm run build && npm test` (тест — поддельный Supabase в памяти + MCP-клиент).
+- Запись — только через `Actions` сайта (он принимает интерфейс `Rows` из `store.ts`; у коннектора свой
+  `NodeStore`). Каждый вызов инструмента: pull → действие → push до ответа.
+- Вход: `node mcp/dist/tiktak-mcp.mjs login` в терминале (пароль вводит пользователь, хранятся только
+  токены в `%APPDATA%\tiktak-mcp\session.json`, путь меняет `TIKTAK_SESSION_FILE`). Claude не вводит пароли
+  на рабочем сервере — проверка на настоящем аккаунте делается руками пользователя.
+- В stdout в режиме сервера писать нельзя (там протокол), только `console.error`.
 
 ## Изменение схемы БД
 

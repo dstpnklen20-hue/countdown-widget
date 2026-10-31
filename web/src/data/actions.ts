@@ -2,23 +2,28 @@ import type { LocalDate } from "../core/date";
 import { plusDays, toEpochDay } from "../core/date";
 import { QuickAddParser } from "../core/quickAdd";
 import { toRRule } from "../core/repeatRule";
-import { type Due, allDayDue, nowMinute, timedDue, todayDate } from "../domain/dates";
-import { type FilterKey, nextOccurrence, skippedDays } from "../domain/tasks";
+import { type Due, allDayDue, dueDay, nowMinute, timedDue, todayDate } from "../domain/dates";
+import { type SeriesScope, atOccurrence, deleteFromSeries, editSeries } from "../domain/series";
+import { type FilterKey, nextOccurrence } from "../domain/tasks";
 import {
-  type CalendarLayer, type ChecklistItem, type Habit, INBOX_ID, PERSONAL_CALENDAR_ID, type Reminder, type Task, type TaskList,
+  type CalendarLayer, type ChecklistItem, type Folder, type Section, type Habit, INBOX_ID, PERSONAL_CALENDAR_ID, type Reminder, type Task, type TaskList,
   blank, newId, now,
 } from "./model";
 
+/** What a reminder is, without its identity: two equal ones are the same reminder. */
+export interface ReminderSpec { offsetMinutes: number; kind: Reminder["kind"] }
+
 /** Colour of the "Личное" calendar the app seeds (DatabaseSeeder.PERSONAL_CALENDAR_COLOR). */
 const PERSONAL_CALENDAR_COLOR = 0xff039be5 | 0;
-import type { Store } from "./store";
+import { type IcsItem, nameUuid } from "./ics";
+import type { Rows } from "./store";
 
 /**
  * Everything the page changes, written the way the app's repositories write it
  * (data/TaskRepository.kt, HabitRepository.kt), so phones see the same rows they would make.
  */
 export class Actions {
-  constructor(private store: Store) {}
+  constructor(private store: Rows) {}
 
   private maxSort(kind: "tasks" | "task_lists" | "habits" | "checklist_items", filter: (r: any) => boolean = () => true): number {
     let max = 0;
@@ -51,7 +56,7 @@ export class Actions {
    * Quick add with natural-language parsing; tasks inherit list or date from the view they are
    * added in (TaskRepository.quickAdd).
    */
-  quickAdd(text: string, filter: FilterKey): Task | null {
+  quickAdd(text: string, filter: FilterKey, sectionId: string | null = null): Task | null {
     if (!text.trim()) return null;
     const parsed = new QuickAddParser(todayDate(), nowMinute()).parse(text);
     const lists = this.store.live("task_lists");
@@ -67,6 +72,7 @@ export class Actions {
       {
         title: parsed.title || text.trim(),
         listId,
+        sectionId: sectionId && this.store.get("sections", sectionId)?.listId === listId ? sectionId : null,
         priority: parsed.priority ?? 0,
         dueAt: due?.at ?? null,
         isAllDay: due?.isAllDay ? 1 : 0,
@@ -218,20 +224,67 @@ export class Actions {
 
   // --- Lists ---
 
-  createList(name: string, color: number | null): TaskList {
-    return this.store.put("task_lists", blank.list({ name, color, sortOrder: this.maxSort("task_lists") + 1 }))[0];
+  createList(name: string, color: number | null, folderId: string | null = null): TaskList {
+    return this.store.put("task_lists", blank.list({ name, color, folderId, sortOrder: this.maxSort("task_lists") + 1 }))[0];
   }
 
   updateList(list: TaskList): void {
     this.store.put("task_lists", list);
   }
 
-  /** Deletes the list with its tasks (Inbox stays). */
-  deleteList(list: TaskList): void {
-    if (list.isInbox) return;
+  /** Deletes the list with its tasks (Inbox stays); returns how to undo it (TaskRepository.restoreList). */
+  deleteList(list: TaskList): () => void {
+    if (list.isInbox) return () => {};
     const tasks = this.store.all("tasks").filter((t) => t.listId === list.id && !t.deleted);
-    this.store.put("tasks", ...tasks.map((t) => ({ ...t, deleted: 1 as const })));
+    if (tasks.length) this.store.put("tasks", ...tasks.map((t) => ({ ...t, deleted: 1 as const })));
     this.store.put("task_lists", { ...list, deleted: 1 });
+    return () => {
+      this.store.put("task_lists", { ...(this.store.get("task_lists", list.id) ?? list), deleted: 0 });
+      const back = tasks.map((t) => ({ ...(this.store.get("tasks", t.id) ?? t), deleted: 0 as const }));
+      if (back.length) this.store.put("tasks", ...back);
+    };
+  }
+
+  // --- Sections (Kanban columns) and folders ---
+
+  sections(listId: string): Section[] {
+    return this.store.live("sections").filter((s) => s.listId === listId).sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  createSection(listId: string, name: string): Section {
+    const max = Math.max(0, ...this.sections(listId).map((s) => s.sortOrder));
+    return this.store.put("sections", blank.section({ listId, name, sortOrder: max + 1 }))[0];
+  }
+
+  updateSection(section: Section): void {
+    this.store.put("sections", section);
+  }
+
+  /** The section goes; its tasks stay in the list without a section. */
+  deleteSection(section: Section): void {
+    const tasks = this.store.all("tasks").filter((t) => t.sectionId === section.id && !t.deleted);
+    if (tasks.length) this.store.put("tasks", ...tasks.map((t) => ({ ...t, sectionId: null })));
+    this.store.put("sections", { ...section, deleted: 1 });
+  }
+
+  moveToSection(task: Task, sectionId: string | null): void {
+    if (task.sectionId !== sectionId) this.update({ ...task, sectionId });
+  }
+
+  createFolder(name: string): Folder {
+    const max = Math.max(0, ...this.store.all("folders").map((f) => f.sortOrder));
+    return this.store.put("folders", blank.folder({ name, sortOrder: max + 1 }))[0];
+  }
+
+  updateFolder(folder: Folder): void {
+    this.store.put("folders", folder);
+  }
+
+  /** The folder goes; its lists stay, outside any folder. */
+  deleteFolder(folder: Folder): void {
+    const lists = this.store.all("task_lists").filter((l) => l.folderId === folder.id && !l.deleted);
+    if (lists.length) this.store.put("task_lists", ...lists.map((l) => ({ ...l, folderId: null })));
+    this.store.put("folders", { ...folder, deleted: 1 });
   }
 
   // --- Events ---
@@ -241,24 +294,126 @@ export class Actions {
     return c && !c.deleted ? c : undefined;
   }
 
+  createCalendar(name: string, color: number, defaultReminder: number | null = 30, defaultAllDayReminder: number | null = 24 * 60): CalendarLayer {
+    const max = Math.max(0, ...this.store.all("calendars").map((c) => c.sortOrder));
+    return this.store.put("calendars", blank.calendar({ name, color, defaultReminder, defaultAllDayReminder, sortOrder: max + 1 }))[0];
+  }
+
+  updateCalendar(calendar: CalendarLayer): void {
+    this.store.put("calendars", calendar);
+  }
+
+  /** Removes a calendar with its events (they go to the trash; TaskRepository.deleteCalendar). Returns how to undo it. */
+  deleteCalendar(calendar: CalendarLayer): () => void {
+    if (calendar.id === PERSONAL_CALENDAR_ID) return () => {};
+    const events = this.store.all("tasks").filter((t) => t.isEvent && t.calendarId === calendar.id && !t.deleted);
+    if (events.length) this.store.put("tasks", ...events.map((t) => ({ ...t, deleted: 1 as const })));
+    this.store.put("calendars", { ...calendar, deleted: 1 });
+    return () => {
+      this.store.put("calendars", { ...(this.store.get("calendars", calendar.id) ?? calendar), deleted: 0 });
+      const back = events.map((t) => ({ ...(this.store.get("tasks", t.id) ?? t), deleted: 0 as const }));
+      if (back.length) this.store.put("tasks", ...back);
+    };
+  }
+
+  /** Reminders a new event gets from its calendar: before the start, or at the all-day time. */
+  defaultReminders(calendarId: string | null, allDay: boolean): ReminderSpec[] {
+    const cal = this.calendar(calendarId);
+    const offset = allDay ? cal?.defaultAllDayReminder : cal?.defaultReminder;
+    return offset != null ? [{ offsetMinutes: offset, kind: "NOTIFY" }] : [];
+  }
+
   /** A new event gets its calendar's default reminder (TaskRepository.defaultReminders). */
   createEvent(event: Partial<Task>): Task {
     const task = this.createTask({ ...event, isEvent: 1 });
-    const cal = this.calendar(task.calendarId);
-    const offset = task.isAllDay ? cal?.defaultAllDayReminder : cal?.defaultReminder;
-    if (offset != null) this.addReminder(task.id, offset);
+    for (const r of this.defaultReminders(task.calendarId, !!task.isAllDay)) this.addReminder(task.id, r.offsetMinutes, r.kind);
     return task;
   }
 
-  /** One occurrence of a repeating event goes (its day is skipped), or the whole series with its exceptions. */
-  deleteEvent(task: Task, occurrence: LocalDate, onlyThis: boolean): void {
-    if (onlyThis && task.repeatRule) {
-      const days = [...skippedDays(task), occurrence].sort();
-      this.update({ ...task, exDates: [...new Set(days)].join(",") });
-      return;
+  /** Makes the task's reminders exactly [wanted]: removes the others, adds the missing ones. */
+  setReminders(taskId: string, wanted: ReminderSpec[]): void {
+    const current = this.reminders(taskId).filter((r) => r.absoluteAt == null);
+    const same = (r: Reminder, w: ReminderSpec) => r.offsetMinutes === w.offsetMinutes && r.kind === w.kind;
+    const gone = current.filter((r) => !wanted.some((w) => same(r, w)));
+    if (gone.length) this.store.put("reminders", ...gone.map((r) => ({ ...r, deleted: 1 as const })));
+    const added = wanted.filter((w, i) => !current.some((r) => same(r, w)) && wanted.findIndex((x) => x.offsetMinutes === w.offsetMinutes && x.kind === w.kind) === i);
+    if (added.length) this.store.put("reminders", ...added.map((w) => blank.reminder({ taskId, offsetMinutes: w.offsetMinutes, kind: w.kind })));
+  }
+
+  /**
+   * Saves an event from the editor (TaskRepository.saveEvent): a new one ([master] null), or the
+   * occurrence of [master] due on [occurrence] for the [scope] the user chose. Rows the change
+   * creates get [reminders]; a changed series gets them too. Returns the id of the row that now
+   * holds the edited occurrence.
+   */
+  saveEvent(edited: Task, reminders: ReminderSpec[], master?: Task, occurrence?: LocalDate, scope: SeriesScope = "ALL"): string {
+    if (!master) {
+      const [created] = this.store.put("tasks", { ...edited, sortOrder: this.maxSort("tasks") + 1 });
+      this.setReminders(created.id, reminders);
+      return created.id;
     }
-    const rows = this.store.all("tasks").filter((t) => (t.id === task.id || t.seriesId === task.id) && !t.deleted);
-    this.store.put("tasks", ...rows.map((t) => ({ ...t, deleted: 1 as const })));
+    const change = editSeries(master, occurrence ?? dueDay(master) ?? todayDate(), edited, scope, now());
+    let resultId = edited.id;
+    for (const row of change.save) {
+      if (!this.store.get("tasks", row.id)) {
+        this.store.put("tasks", { ...row, sortOrder: this.maxSort("tasks") + 1 });
+        this.setReminders(row.id, reminders);
+        resultId = row.id;
+      } else {
+        this.store.put("tasks", row);
+        if (row.id === edited.id && (scope === "ALL" || master.repeatRule == null)) this.setReminders(row.id, reminders);
+      }
+    }
+    if (master.repeatRule == null || scope === "ALL") resultId = master.id;
+    return resultId;
+  }
+
+  /**
+   * Deletes the occurrence of [master] due on [occurrence] for [scope] (TaskRepository.deleteEvent);
+   * a deleted series takes the occurrences moved out of it along. Returns how to undo it.
+   */
+  deleteEvent(master: Task, occurrence: LocalDate, scope: SeriesScope): () => void {
+    const change = deleteFromSeries(master, occurrence, scope);
+    for (const row of change.save) this.store.put("tasks", row);
+    const ids = new Set(change.delete);
+    const rows = this.store.all("tasks").filter((t) => !t.deleted && (ids.has(t.id) || (t.seriesId != null && ids.has(t.seriesId))));
+    if (rows.length) this.store.put("tasks", ...rows.map((t) => ({ ...t, deleted: 1 as const })));
+    return () => {
+      const back = rows.map((r) => ({ ...(this.store.get("tasks", r.id) ?? r), deleted: 0 as const }));
+      if (back.length) this.store.put("tasks", ...back);
+      if (change.save.length) this.store.put("tasks", { ...master, updatedAt: this.store.get("tasks", master.id)?.updatedAt ?? master.updatedAt });
+    };
+  }
+
+  /** Stores what an .ics file holds; an entry seen before (same UID) is updated (Ics.import). Returns how many. */
+  importIcs(items: IcsItem[], calendarId: string | null): number {
+    for (const item of items) {
+      const task = { ...item.task, calendarId: item.task.isEvent ? calendarId : null };
+      const existing = this.store.get("tasks", task.id);
+      const specs = item.reminders.map((m) => ({ offsetMinutes: m, kind: "NOTIFY" as const }));
+      if (task.isEvent) {
+        this.saveEvent(existing ? { ...task, createdAt: existing.createdAt, updatedAt: existing.updatedAt } : task, specs, existing);
+      } else if (!existing) {
+        this.createTask(task);
+        for (const m of item.reminders) this.addReminder(task.id, m);
+      } else {
+        this.update({ ...task, createdAt: existing.createdAt, sortOrder: existing.sortOrder, updatedAt: existing.updatedAt });
+      }
+    }
+    return items.length;
+  }
+
+  /** A copy of the task (an event as it is on [occurrence] when given), with its reminders and tags. */
+  duplicate(task: Task, occurrence?: LocalDate): Task {
+    const source = occurrence && task.repeatRule ? { ...atOccurrence(task, occurrence), repeatRule: null, exDates: null } : task;
+    const at = now();
+    const [copy] = this.store.put("tasks", {
+      ...source, id: newId(), status: "OPEN", completedAt: null, seriesId: null, sortOrder: this.maxSort("tasks") + 1, createdAt: at, updatedAt: at,
+    });
+    this.setReminders(copy.id, this.reminders(task.id).map((r) => ({ offsetMinutes: r.offsetMinutes ?? 0, kind: r.kind })));
+    const tags = this.tagNames(task.id);
+    if (tags.length) this.setTags(copy.id, tags);
+    return copy;
   }
 
   // --- Habits ---
@@ -288,7 +443,13 @@ export class Actions {
 
   // --- Focus ---
 
+  /**
+   * A finished focus. Its id comes from its start, so the same pomodoro finishing in two tabs at
+   * once is one session, not two.
+   */
   recordFocus(startedAt: number, endedAt: number, taskId: string | null): void {
-    this.store.put("focus_sessions", blank.focus({ startedAt, endedAt, taskId, kind: "FOCUS" }));
+    const id = nameUuid(`focus:${startedAt}`);
+    if (this.store.get("focus_sessions", id)) return;
+    this.store.put("focus_sessions", blank.focus({ id, startedAt, endedAt, taskId, kind: "FOCUS" }));
   }
 }

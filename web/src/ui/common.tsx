@@ -36,12 +36,14 @@ export function Check({ done, priority, onToggle, label }: { done: boolean; prio
 }
 
 /** Colour choice: none (the list's colour) or one of the app's palette. */
-export function Swatches({ value, onChange, allowNone = true }: { value: number | null; onChange: (c: number | null) => void; allowNone?: boolean }) {
+export function Swatches({ value, onChange, allowNone = true, palette = PALETTE }: {
+  value: number | null; onChange: (c: number | null) => void; allowNone?: boolean; palette?: string[];
+}) {
   const current = cssColor(value);
   return (
     <div className="swatches">
       {allowNone && <button className={`swatch none ${value == null ? "on" : ""}`} title="Без цвета" aria-label="Без цвета" onClick={() => onChange(null)} />}
-      {PALETTE.map((c) => (
+      {palette.map((c) => (
         <button key={c} className={`swatch ${current === c ? "on" : ""}`} style={{ background: c }} aria-label={`Цвет ${c}`} onClick={() => onChange(argbOf(c))} />
       ))}
     </div>

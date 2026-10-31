@@ -3,7 +3,14 @@ import type { LocalDate, LocalTime } from "../core/date";
 import type { Task } from "../data/model";
 
 /** Port of domain/Dates.kt. The browser's zone plays the role of the phone's zone. */
-export const zone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;
+let zoneCache = { at: 0, zone: "" };
+
+/** The computer's zone; asked again once a minute (a laptop may travel). */
+export const zone = (): string => {
+  const t = Date.now();
+  if (t - zoneCache.at > 60_000) zoneCache = { at: t, zone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+  return zoneCache.zone;
+};
 
 export interface Due {
   at: number;
@@ -39,9 +46,16 @@ function validZone(z: string | null | undefined): string | null {
 /** Calendar day of a task's due date. All-day dates stay fixed in the zone they were set in. */
 export function dueDay(task: Pick<Task, "dueAt" | "isAllDay" | "timeZone">, deviceZone: string = zone()): LocalDate | null {
   if (task.dueAt == null) return null;
+  // Rows are never changed in place (an edit makes a new object), so the answer can be kept.
+  const cached = dueDays.get(task);
+  if (cached && cached.zone === deviceZone && cached.dueAt === task.dueAt) return cached.day;
   const z = task.isAllDay ? validZone(task.timeZone) ?? deviceZone : deviceZone;
-  return localDateOf(task.dueAt, z);
+  const day = localDateOf(task.dueAt, z);
+  dueDays.set(task, { zone: deviceZone, dueAt: task.dueAt, day });
+  return day;
 }
+
+const dueDays = new WeakMap<object, { zone: string; dueAt: number; day: LocalDate }>();
 
 /** The day [ms] falls on for an entry: all-day ones in their own zone. */
 export function dayOf(task: Pick<Task, "isAllDay" | "timeZone">, ms: number): LocalDate {

@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useData, useLocal } from "./context";
 import { Icon } from "./icons";
+import { enableNotifications, notifySupported, useNotifySetting } from "./TabReminders";
 
 type Theme = "system" | "light" | "dark";
 
@@ -57,10 +59,33 @@ export function SettingsView({ onLogout }: { onLogout: () => void }) {
           На iPhone откройте сайт в Safari → «Поделиться» → «На экран „Домой“»: Tik Tak откроется как приложение.
           На Android и компьютере в Chrome — меню ⋮ → «Установить приложение».
         </p>
-        <p className="muted small">
-          Напоминания приходят с телефона (приложение Tik Tak). Задачи, созданные на сайте, тоже напомнят на телефоне.
-        </p>
+        <div className="section-title">Напоминания на этом компьютере</div>
+        <Reminders />
       </div>
+    </>
+  );
+}
+
+function Reminders() {
+  const [enabled, setEnabled] = useNotifySetting();
+  const [denied, setDenied] = useState(notifySupported() && Notification.permission === "denied");
+  if (!notifySupported()) return <p className="muted small">Этот браузер не умеет показывать уведомления. Напоминания приходят на телефон.</p>;
+  return (
+    <>
+      <label className="row">
+        <input type="checkbox" checked={enabled && !denied} onChange={async (e) => {
+          if (!e.target.checked) return setEnabled(false);
+          const ok = await enableNotifications();
+          setDenied(!ok);
+          setEnabled(ok);
+        }} />
+        Показывать напоминания, пока сайт открыт
+      </label>
+      {denied && <p className="error-text small">Браузер запретил уведомления для сайта. Разрешите их в настройках сайта (значок замка в адресной строке).</p>}
+      <p className="muted small">
+        Задачи, события и привычки напомнят и здесь, и на телефоне. Когда сайт закрыт, напоминает только телефон:
+        браузер не может будить закрытый сайт без отдельного сервера рассылки.
+      </p>
     </>
   );
 }

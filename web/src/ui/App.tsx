@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Actions } from "../data/actions";
-import { Store } from "../data/store";
+import { type SessionKeeper, Store } from "../data/store";
 import { type Session, signIn, signOut, signUp } from "../data/supabase";
 import type { FilterKey } from "../domain/tasks";
 import type { Task } from "../data/model";
@@ -16,6 +16,9 @@ import { Sidebar } from "./Sidebar";
 import { TaskDetail } from "./TaskDetail";
 import { TaskListView } from "./TaskListView";
 import { TrashView } from "./TrashView";
+import { SearchView } from "./SearchView";
+import { StatsView } from "./StatsView";
+import { useTabReminders } from "./TabReminders";
 
 const SESSION_KEY = "tiktak.session";
 
@@ -33,6 +36,8 @@ function saveSession(s: Session | null) {
     else localStorage.removeItem(SESSION_KEY);
   } catch { /* storage refused: the session lives until the tab closes */ }
 }
+
+const keeper: SessionKeeper = { load: loadSession, save: saveSession };
 
 export function App() {
   const [session, setSession] = useState<Session | null>(loadSession);
@@ -88,7 +93,7 @@ function Login({ onSession }: { onSession: (s: Session) => void }) {
   );
 }
 
-export type Section = "tasks" | "calendar" | "matrix" | "habits" | "focus" | "trash" | "settings";
+export type Section = "tasks" | "calendar" | "matrix" | "habits" | "focus" | "trash" | "settings" | "search" | "stats";
 
 const SECTIONS: { key: Section; icon: string; label: string }[] = [
   { key: "tasks", icon: "tasks", label: "Задачи" },
@@ -96,10 +101,11 @@ const SECTIONS: { key: Section; icon: string; label: string }[] = [
   { key: "matrix", icon: "matrix", label: "Матрица" },
   { key: "habits", icon: "habits", label: "Привычки" },
   { key: "focus", icon: "focus", label: "Фокус" },
+  { key: "stats", icon: "stats", label: "Статистика" },
 ];
 
 function Workspace({ session, onSession }: { session: Session; onSession: (s: Session | null) => void }) {
-  const store = useMemo(() => new Store(session, onSession), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const store = useMemo(() => new Store(session, onSession, keeper), []); // eslint-disable-line react-hooks/exhaustive-deps
   const actions = useMemo(() => new Actions(store), [store]);
   const [toast, setToast] = useState<Toast | null>(null);
   useEffect(() => {
@@ -114,6 +120,9 @@ function Workspace({ session, onSession }: { session: Session; onSession: (s: Se
   const ctx: AppContext = useMemo(() => ({ store, actions, toast: setToast }), [store, actions]);
 
   async function logout() {
+    // Edits that have not reached the server yet would be lost with this browser's copy.
+    if (store.unsent) await store.sync();
+    if (store.unsent && !confirm(`${store.unsent} изменений ещё не отправлены на сервер (нет связи?). Если выйти сейчас, они пропадут. Всё равно выйти?`)) return;
     await signOut(session);
     store.stop();
     await store.clearCache();
@@ -154,6 +163,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     setMenuOpen(false);
     setRailShown(false);
   };
+  useTabReminders((t) => { setSection(t.isEvent ? "calendar" : "tasks"); open(t); });
   const selectedTask = store.get("tasks", selected);
   // A task turned into an event moves to the event editor.
   useEffect(() => {
@@ -177,6 +187,9 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <Icon name={s.icon} size={22} />
           </button>
         ))}
+        <button className={`icon-btn ${section === "search" ? "active" : ""}`} title="Поиск" aria-label="Поиск" onClick={() => go("search")}>
+          <Icon name="search" size={22} />
+        </button>
         <div className="spacer rail-extra" />
         <button className={`icon-btn ${section === "settings" ? "active" : ""}`} title="Настройки" aria-label="Настройки" onClick={() => go("settings")}>
           <Icon name="settings" size={22} />
@@ -197,10 +210,12 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 
       <main className="main">
         {section === "tasks" && <TaskListView filter={filter} selected={selected} onOpen={open} onMenu={() => setMenuOpen(true)} />}
-        {section === "calendar" && <CalendarView onOpen={open} onNewEvent={(d) => setEvent(d)} onMenu={() => setRailShown((v) => !v)} />}
+        {section === "calendar" && <CalendarView onOpen={open} onNewEvent={(d) => setEvent(d)} onMenu={() => setRailShown((v) => !v)} onSearch={() => go("search")} />}
+        {section === "search" && <SearchView onOpen={open} onBack={() => go("tasks")} />}
         {section === "matrix" && <MatrixView selected={selected} onOpen={open} />}
         {section === "habits" && <HabitsView />}
-        {section === "focus" && <FocusView />}
+        {section === "focus" && <FocusView onStats={() => go("stats")} />}
+        {section === "stats" && <StatsView />}
         {section === "trash" && <TrashView onBack={() => go("tasks")} />}
         {section === "settings" && <SettingsView onLogout={onLogout} />}
       </main>
