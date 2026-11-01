@@ -136,7 +136,9 @@ class SyncManager(
 
     private suspend fun startSession(session: Session) {
         // A fresh start: everything on this device goes up, everything in the account comes down.
-        prefs.edit().clear().commit()
+        // The one-off cleanup is only for devices that synced before merging existed: on a fresh
+        // start it would also merge copies the user made on purpose.
+        prefs.edit().clear().putBoolean(KEY_DEDUPED_ALL, true).commit()
         saveSession(session)
         _status.value = SyncStatus(email = session.email)
         schedulePeriodic()
