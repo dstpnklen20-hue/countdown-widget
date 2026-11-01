@@ -18,10 +18,13 @@ import java.util.Locale
  * sessions, widgets, check-ins) moves over to it, and the others go to the trash. Everything is
  * an ordinary stamped edit, so the result travels to the other devices like any change.
  *
- * With [arrived] (ids per table that just came from another device) only groups that mix a new
- * row with one this device already had are merged, so two identical tasks the user made on one
- * device on purpose stay as they are. Null merges every group: the one-off cleanup of duplicates
- * that synced before this existed.
+ * With [arrived] (ids per table that just came from another device) only groups whose oldest row
+ * is a new one and that also hold a row this device already had are merged: two identical tasks
+ * the user made on one device on purpose stay as they are, and so does a copy ("Копия") made on
+ * another device, since it is newer than the original this device already has. Two devices that
+ * made the same thing apart still agree: the one that gets the older row merges, and its trashing
+ * of the newer copy reaches the other one. Null merges every group: the one-off cleanup of
+ * duplicates that synced before this existed.
  */
 class Deduplicator(private val db: AppDatabase, private val clock: () -> Long = System::currentTimeMillis) {
 
@@ -126,8 +129,8 @@ class Deduplicator(private val db: AppDatabase, private val clock: () -> Long = 
         }
         for (group in rows.groupBy { it.key }.values) {
             if (group.size < 2) continue
-            if (arrived != null && (group.none { it.id in arrived } || group.all { it.id in arrived })) continue
             val keep = group.minWith(compareBy<Row>({ it.createdAt }, { it.id }))
+            if (arrived != null && (keep.id !in arrived || group.all { it.id in arrived })) continue
             for (copy in group) {
                 if (copy === keep) continue
                 moveChildren(copy.id, keep.id)

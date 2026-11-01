@@ -284,6 +284,26 @@ class SyncTest {
     }
 
     @Test
+    fun copyMadeOnOneDeviceStaysOnTheOther() = runBlocking {
+        val due = time + 86_400_000
+        val original = a.repo.create(Task(title = "Пара", dueAt = due, createdAt = time))
+        tick()
+        a.sync(); b.sync()
+        // "Копия" on B, then on A: the same content, made later, next to the original.
+        b.repo.create(Task(title = "Пара", dueAt = due, createdAt = time))
+        tick()
+        b.sync(); a.sync()
+        a.repo.create(Task(title = "Пара", dueAt = due, createdAt = time))
+        tick()
+        a.sync(); b.sync(); a.sync()
+
+        for (d in listOf(a, b)) {
+            assertEquals(3, liveTasks(d).size)
+            assertFalse(d.repo.get(original.id)!!.deleted)
+        }
+    }
+
+    @Test
     fun sameListOnTwoDevicesBecomesOneWithAllTasks() = runBlocking {
         val workA = a.repo.createList("Работа", null, null)
         a.repo.create(Task(title = "Отчёт", listId = workA.id, createdAt = time))
