@@ -136,6 +136,7 @@ class MainActivity : AppCompatActivity() {
         if (savedInstanceState == null) {
             Updater.checkForUpdates(this, manual = false)
             container.appScope.launch { container.tasks.purgeExpired() }
+            container.deviceCalendar.schedule()
         }
 
         // While the app is on screen, changes made on other devices show up within half a minute.

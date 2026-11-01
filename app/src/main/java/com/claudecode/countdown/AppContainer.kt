@@ -3,6 +3,7 @@ package com.claudecode.countdown
 import android.content.BroadcastReceiver
 import android.content.Context
 import com.claudecode.countdown.data.AppSettings
+import com.claudecode.countdown.data.DeviceCalendar
 import com.claudecode.countdown.data.FocusRepository
 import com.claudecode.countdown.data.HabitRepository
 import com.claudecode.countdown.data.TaskRepository
@@ -46,6 +47,8 @@ class AppContainer(private val context: Context) {
         HabitRepository(database, onClosed = { ReminderNotifier.cancelHabit(context, it) }) { reminders.reschedule() }
     }
     val focus: FocusRepository by lazy { FocusRepository(database) }
+    /** Copy of events and dated tasks in a calendar of the phone (for Google Calendar and the watch). */
+    val deviceCalendar: DeviceCalendar by lazy { DeviceCalendar(context, database, appScope) }
     val pomodoro: PomodoroTimer by lazy { PomodoroTimer(context, focus) }
     val undo = UndoBus(appScope)
 
@@ -55,7 +58,7 @@ class AppContainer(private val context: Context) {
     /** A day to show in the calendar (a widget asked for it); the calendar clears it once shown. */
     val calendarJump = MutableStateFlow<java.time.LocalDate?>(null)
 
-    /** Everything that mirrors task data outside the app: widgets and the reminder alarm. */
+    /** Everything that mirrors task data outside the app: widgets, the reminder alarm, the phone's calendar. */
     fun onDataChanged() {
         CountdownWidgetProvider.updateAllWidgets(context)
         appScope.launch { TodayWidget.refresh(context) }
@@ -63,6 +66,7 @@ class AppContainer(private val context: Context) {
         appScope.launch { MonthWidget.refresh(context) }
         appScope.launch { DateWidget.refresh(context) }
         appScope.launch { reminders.reschedule() }
+        deviceCalendar.schedule()
     }
 
     /**

@@ -120,6 +120,7 @@ fun CalendarSettingsScreen(onBack: () -> Unit, onOpenCalendars: () -> Unit) {
                     s.appZone?.let { "${zoneLabel(it)} · на телефоне ${zoneLabel(AppZone.device().id)}" } ?: "Как на телефоне: ${zoneLabel(AppZone.device().id)}",
                 ) { dialog = "appZone" }
             }
+            PhoneCalendarSection()
         }
     }
     when (dialog) {
@@ -327,6 +328,98 @@ private fun CalendarDialog(
             text = { Text("Его события уйдут в корзину. Это можно отменить.") },
             confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Удалить") } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Отмена") } },
+        )
+    }
+}
+
+
+/**
+ * Copy of Tik Tak's events in a calendar of the phone ([com.claudecode.countdown.data.DeviceCalendar]):
+ * a Google calendar shows them in Google Calendar everywhere, and the watch reads it too.
+ */
+@Composable
+private fun PhoneCalendarSection() {
+    val context = LocalContext.current
+    val export = context.container.deviceCalendar
+    val target by export.target.collectAsStateWithLifecycle()
+    val status by export.status.collectAsStateWithLifecycle()
+    var picking by remember { mutableStateOf(false) }
+    var calendars by remember { mutableStateOf(export.calendars()) }
+    // A calendar just made or picked shows by name at once.
+    androidx.compose.runtime.LaunchedEffect(target) { calendars = export.calendars() }
+    val permission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        if (granted.values.all { it }) {
+            calendars = export.calendars()
+            picking = true
+        }
+    }
+    val current = calendars.firstOrNull { it.id == target }
+    Section("Google Календарь и часы") {
+        SettingRow(
+            "Копировать в календарь телефона",
+            when {
+                target == null -> "Выключено. События и задачи со временем появятся в выбранном календаре: в Google Календаре и на часах"
+                current == null -> "Календарь не найден — выберите другой"
+                else -> "«${current.name}»" + if (current.local) " · только на телефоне" else " · ${current.account}"
+            },
+        ) {
+            if (export.allowed()) {
+                calendars = export.calendars()
+                picking = true
+            } else {
+                permission.launch(arrayOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR))
+            }
+        }
+        if (target != null) {
+            status?.let { SettingRow("Последняя выгрузка", it) }
+            SettingRow(
+                "Как это работает",
+                "Только из Tik Tak в календарь: правки делайте в Tik Tak, изменения в Google при следующей выгрузке вернутся. " +
+                    "Напоминания приходят от Tik Tak — в настройках Google-календаря уведомления по умолчанию лучше выключить.",
+            )
+        }
+    }
+    if (picking) {
+        AlertDialog(
+            onDismissRequest = { picking = false },
+            title = { Text("Куда копировать") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "Лучше отдельный календарь: создайте его на calendar.google.com («Другие календари» → «+» → «Создать календарь», " +
+                            "название «Tik Tak»), подождите минуту и откройте этот список снова.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    for (c in calendars) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { export.setTarget(c.id); picking = false }.padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.material3.RadioButton(selected = c.id == target, onClick = { export.setTarget(c.id); picking = false })
+                            Box(Modifier.size(12.dp).clip(CircleShape).background(Color(c.color)))
+                            Column(Modifier.padding(start = 10.dp)) {
+                                Text(c.name)
+                                Text(if (c.local) "Только на телефоне" else c.account, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    if (calendars.none { it.local && it.name == "Tik Tak" }) {
+                        TextButton(onClick = {
+                            export.createLocal()?.let { export.setTarget(it) }
+                            picking = false
+                        }) { Text("+ Новый календарь «Tik Tak» только на телефоне") }
+                    }
+                }
+            },
+            confirmButton = {
+                if (target != null) TextButton(onClick = { export.setTarget(null); picking = false }) { Text("Выключить") }
+                else TextButton(onClick = { picking = false }) { Text("Отмена") }
+            },
+            dismissButton = { if (target != null) TextButton(onClick = { picking = false }) { Text("Закрыть") } },
         )
     }
 }
