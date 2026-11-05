@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { type LocalDate, daysBetween, formatTime, parseTime, plusDays } from "../core/date";
 import type { ReminderSpec } from "../data/actions";
 import { PERSONAL_CALENDAR_ID, type Task, blank, cssColor } from "../data/model";
@@ -9,12 +9,15 @@ import { Dialog, Swatches } from "./common";
 import { useData } from "./context";
 import { CALENDAR_COLORS, REMINDER_PRESETS, reminderLabel } from "./format";
 import { RepeatPicker } from "./RepeatPicker";
+import { PREVIEW_ID } from "./TimeGrid";
 
 /** An event to edit ([task]) or to create (from [init]); [occurrence] is the day of a repeat that was clicked. */
 export interface EventDraft {
   task: Task | null;
   init?: Partial<Task>;
   occurrence?: LocalDate;
+  /** Where on the screen the time was picked: the window opens on the other side, so it stays visible. */
+  x?: number;
 }
 
 interface Span { startDate: LocalDate; start: number; endDate: LocalDate; end: number; allDay: boolean }
@@ -61,7 +64,11 @@ const ALL_DAY_PRESETS = [
   { label: "В день события (9:00)", minutes: 0 }, { label: "За день (9:00)", minutes: 1440 }, { label: "За 2 дня (9:00)", minutes: 2880 }, { label: "За неделю (9:00)", minutes: 7 * 1440 },
 ];
 
-export function EventEditor({ draft, onClose, onTask }: { draft: EventDraft; onClose: () => void; onTask: (id: string) => void }) {
+export function EventEditor({ draft, onClose, onTask, onPreview }: {
+  draft: EventDraft; onClose: () => void; onTask: (id: string) => void;
+  /** A new event as it is now, to show in the calendar under the window; null when it closes. */
+  onPreview: (t: Task | null) => void;
+}) {
   const { store, actions, toast } = useData();
   const master = draft.task;
   const isNew = master == null;
@@ -90,6 +97,12 @@ export function EventEditor({ draft, onClose, onTask }: { draft: EventDraft; onC
     content, color, calendarId: calendarId === PERSONAL_CALENDAR_ID ? null : calendarId, eventType: type,
     displayMode: countdown ? "COUNTDOWN" : "NORMAL", isEvent: 1,
   });
+
+  // The picked time stays marked in the calendar while the event is being filled in, and follows the fields.
+  useEffect(() => {
+    if (isNew) onPreview({ ...edited(), id: PREVIEW_ID, title: title.trim() || "Новое событие" });
+  }, [isNew, title, span, calendarId, color, type, repeat]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onPreview(null), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = (scope: SeriesScope = "ALL") => {
     if (isNew) actions.saveEvent(edited(), reminders);
@@ -125,7 +138,9 @@ export function EventEditor({ draft, onClose, onTask }: { draft: EventDraft; onC
 
   const presets = span.allDay ? ALL_DAY_PRESETS : REMINDER_PRESETS;
   return (
-    <Dialog title={isNew ? "Новое событие" : "Событие"} onClose={onClose} actions={<>
+    <Dialog title={isNew ? "Новое событие" : "Событие"} onClose={onClose}
+      side={draft.x == null ? undefined : draft.x > window.innerWidth / 2 ? "left" : "right"}
+      closeOutside={isNew ? !title.trim() : false} actions={<>
       {!isNew && <button className="btn danger" onClick={() => (repeating ? setAsk("delete") : remove("ALL"))}>Удалить</button>}
       {!isNew && <button className="btn ghost" onClick={copy}>Копия</button>}
       {!isNew && <button className="btn ghost" onClick={makeTask}>Сделать задачей</button>}

@@ -76,3 +76,21 @@ test("habit streaks skip days it is not planned for", async () => {
   expect(s.best).toBe(3);
   expect(s.total).toBe(4);
 });
+
+test("the title names both months of a week across them", async () => {
+  const { periodTitle } = await import("../ui/format");
+  expect(periodTitle("2026-11-02", "2026-11-08", "2026-11-05")).toBe("Ноябрь");
+  expect(periodTitle("2026-11-30", "2026-12-06", "2026-11-05")).toBe("Ноябрь – Декабрь");
+  expect(periodTitle("2026-12-28", "2027-01-03", "2026-11-05")).toBe("Декабрь 2026 – Январь 2027");
+  expect(periodTitle("2027-03-01", "2027-03-07", "2026-11-05")).toBe("Март 2027");
+});
+
+test("entries far outside the range are skipped, those at its edges stay", () => {
+  const near = timedDue("2026-11-02", 23 * 60);
+  const overnight = blank.task({ title: "ночь", isEvent: 1, startAt: near.at, dueAt: near.at + 7 * 3_600_000 });
+  const before = blank.task({ title: "раньше", dueAt: timedDue("2026-10-01", 10 * 60).at });
+  const after = blank.task({ title: "позже", dueAt: timedDue("2026-12-01", 10 * 60).at });
+  const days = calendarEntries([overnight, before, after], "2026-11-03", "2026-11-03");
+  expect(days.get("2026-11-03")!.map((e) => e.task.title)).toEqual(["ночь"]);
+  expect(calendarEntries([before], "2026-10-01", "2026-10-01").get("2026-10-01")).toHaveLength(1);
+});

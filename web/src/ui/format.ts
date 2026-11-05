@@ -71,6 +71,15 @@ export function monthTitle(day: LocalDate, today: LocalDate): string {
   return MONTHS_NOM[m - 1] + (y !== parts(today)[0] ? ` ${y}` : "");
 }
 
+/** "Ноябрь", or "Ноябрь – Декабрь" when the days shown cross a month, with the year when it isn't this one. */
+export function periodTitle(from: LocalDate, to: LocalDate, today: LocalDate): string {
+  const [fy, fm] = parts(from), [ty, tm] = parts(to);
+  const year = parts(today)[0];
+  if (fy === ty && fm === tm) return MONTHS_NOM[fm - 1] + (fy !== year ? ` ${fy}` : "");
+  if (fy === ty) return `${MONTHS_NOM[fm - 1]} – ${MONTHS_NOM[tm - 1]}` + (fy !== year ? ` ${fy}` : "");
+  return `${MONTHS_NOM[fm - 1]} ${fy} – ${MONTHS_NOM[tm - 1]} ${ty}`;
+}
+
 export const PRIORITY_COLORS: Record<number, string> = { 3: "#e53935", 2: "#fb8c00", 1: "#1e88e5" };
 export const PRIORITY_NAMES: Record<number, string> = { 3: "Высокий", 2: "Средний", 1: "Низкий", 0: "Без приоритета" };
 export const PRIORITY_CATEGORY: Record<number, string> = {

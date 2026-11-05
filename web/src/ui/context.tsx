@@ -23,6 +23,12 @@ export function useData(): AppContext {
   return ctx;
 }
 
+/** The state of sync, for the few places that show it (redraws on its every change, unlike [useData]). */
+export function useSyncStatus() {
+  const ctx = useContext(Ctx);
+  return useSyncExternalStore(ctx.store.subscribe, () => ctx.store.status);
+}
+
 /** Today's date, updated at midnight (and when the tab comes back). */
 export function useToday() {
   const [today, setToday] = useState(todayDate());
