@@ -379,3 +379,23 @@ mark { background: color-mix(in srgb, var(--primary) 30%, transparent); color: i
   .layers { position: fixed !important; left: 8px; right: 8px; top: 60px !important; width: auto; max-height: calc(100vh - 140px); }
 }
 .layer-check:has(input[type="checkbox"]) { justify-content: flex-start; }
+
+/* --- Grid blocks: readable like a planned day --- */
+.block { line-height: 1.25; user-select: none; }
+.block .t { display: flex; align-items: flex-start; gap: 4px; min-width: 0; }
+.block .t > span { min-width: 0; overflow: hidden; }
+.block .t svg { flex: none; margin-top: 2px; opacity: 0.8; }
+.block .when { font-size: 11px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.block .check, .chip-entry .check { width: 14px; height: 14px; flex: none; border-width: 1.5px; border-color: currentColor; margin-top: 1px; border-radius: 3px; }
+.block .check.on, .chip-entry .check.on { background: currentColor; }
+.block .check.on svg, .chip-entry .check.on svg { color: var(--bg); margin: 0; opacity: 1; }
+.block.draft, .chip-entry.draft { outline: 2px solid var(--primary); outline-offset: -1px; box-shadow: var(--shadow); z-index: 4; cursor: default; }
+.chip-entry { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn.away { border-color: var(--primary); color: var(--primary); font-weight: 600; }
+.grid-scroll { overscroll-behavior: contain; }
+
+/* A window beside the calendar: the picked time stays visible. */
+.dialog-scrim.side { background: rgba(0, 0, 0, 0.06); justify-items: end; }
+.dialog-scrim.side.left { justify-items: start; }
+@media (max-width: 760px) { .dialog-scrim.side, .dialog-scrim.side.left { justify-items: center; background: rgba(0, 0, 0, 0.4); } }

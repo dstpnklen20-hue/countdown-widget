@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Actions } from "../data/actions";
 import { type SessionKeeper, Store } from "../data/store";
 import { type Session, signIn, signOut, signUp } from "../data/supabase";
@@ -144,10 +144,12 @@ function Workspace({ session, onSession }: { session: Session; onSession: (s: Se
 
 function Shell({ onLogout }: { onLogout: () => void }) {
   const { store } = useData();
+  const loading = useSyncExternalStore(store.subscribe, () => store.status.state === "loading");
   const [section, setSection] = useLocal<Section>("section", "tasks");
   const [filter, setFilter] = useLocal<FilterKey>("filter", "today");
   const [selected, setSelected] = useState<string | null>(null);
   const [event, setEvent] = useState<EventDraft | null>(null);
+  const [preview, setPreview] = useState<Task | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   /** The calendar takes the whole width: the rail slides away until its ☰ button calls it back. */
   const [railShown, setRailShown] = useState(false);
@@ -173,8 +175,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     }
   }, [selectedTask]);
 
-  const status = store.status;
-  if (status.state === "loading" && !store.all("task_lists").length) {
+  if (loading && !store.all("task_lists").length) {
     return <div className="empty"><div className="big">⏳</div>Загружаю ваши задачи…</div>;
   }
 
@@ -210,7 +211,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 
       <main className="main">
         {section === "tasks" && <TaskListView filter={filter} selected={selected} onOpen={open} onMenu={() => setMenuOpen(true)} />}
-        {section === "calendar" && <CalendarView onOpen={open} onNewEvent={(d) => setEvent(d)} onMenu={() => setRailShown((v) => !v)} onSearch={() => go("search")} />}
+        {section === "calendar" && <CalendarView onOpen={open} onNewEvent={(d) => setEvent(d)} onMenu={() => setRailShown((v) => !v)} onSearch={() => go("search")} preview={preview} />}
         {section === "search" && <SearchView onOpen={open} onBack={() => go("tasks")} />}
         {section === "matrix" && <MatrixView selected={selected} onOpen={open} />}
         {section === "habits" && <HabitsView />}
@@ -225,7 +226,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           <TaskDetail task={selectedTask} onClose={() => setSelected(null)} onOpen={(t) => open(t)} />
         </aside>
       )}
-      {event && <EventEditor draft={event} onClose={() => setEvent(null)} onTask={(id) => { setEvent(null); setSection(section === "calendar" ? "calendar" : "tasks"); setSelected(id); }} />}
+      {event && <EventEditor draft={event} onPreview={setPreview} onClose={() => setEvent(null)} onTask={(id) => { setEvent(null); setSection(section === "calendar" ? "calendar" : "tasks"); setSelected(id); }} />}
     </div>
   );
 }

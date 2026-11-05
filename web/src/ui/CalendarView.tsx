@@ -3,14 +3,15 @@ import {
   type LocalDate, dayOfWeek, formatTime, parts, plusDays, plusMonths, plusWeeks, plusYears, previousOrSame, withDayOfMonth,
 } from "../core/date";
 import { type CalendarLayer, cssColor, PERSONAL_CALENDAR_ID, type Task, argbOf } from "../data/model";
-import { allDayDue, epochAt, localTimeOf, nowMinute, timedDue } from "../domain/dates";
-import { type CalendarEntry, MINUTES_PER_DAY, calendarEntries, isVirtual, layoutBlocks, russianHolidays } from "../domain/calendar";
+import { allDayDue, epochAt, nowMinute, timedDue } from "../domain/dates";
+import { type CalendarEntry, MINUTES_PER_DAY, calendarEntries, isVirtual, russianHolidays } from "../domain/calendar";
 import { type SeriesScope, SCOPES, shifted } from "../domain/series";
 import { happens, isDone } from "../domain/tasks";
 import { Dialog, Swatches } from "./common";
+import { DEFAULT_HOUR_PX, EntryChip, MAX_HOUR_PX, MIN_HOUR_PX, TimeGrid, entryEnd, entryTitle, onColor } from "./TimeGrid";
 import { useData, useLocal, useNow, useToday } from "./context";
 import type { EventDraft } from "./EventEditor";
-import { CALENDAR_COLORS, MONTHS_NOM, PRIORITY_COLORS, WEEKDAYS_SHORT, formatDay, formatFullDate, monthTitle, reminderLabel } from "./format";
+import { CALENDAR_COLORS, MONTHS_NOM, PRIORITY_COLORS, WEEKDAYS_SHORT, formatDay, formatFullDate, monthTitle, periodTitle, reminderLabel } from "./format";
 import { Icon } from "./icons";
 import { CalendarFile } from "./CalendarFile";
 
@@ -19,11 +20,6 @@ const MODES: { key: Mode; label: string }[] = [
   { key: "schedule", label: "Расписание" }, { key: "day", label: "День" }, { key: "3days", label: "3 дня" },
   { key: "week", label: "Неделя" }, { key: "month", label: "Месяц" }, { key: "year", label: "Год" },
 ];
-const HOUR_PX = 48;
-/** Taps and drags on the grid land on quarter hours, as in the app. */
-const SNAP = 15;
-/** All-day entries shown per day before "+N". */
-const ALL_DAY_ROWS = 2;
 const SCHEDULE_DAYS = 60;
 
 /** Calendar choices kept in this browser, like the app's calendar settings (AppSettings.kt). */
@@ -37,8 +33,9 @@ export function useCalendarSettings() {
   const [showDone, setShowDone] = useLocal("cal.showDone", true);
   const [showTasks, setShowTasks] = useLocal("calendarTasks", true);
   const [showHolidays, setShowHolidays] = useLocal("calendarHolidays", true);
+  const [hourPx, setHourPx] = useLocal<number>("cal.hourPx", DEFAULT_HOUR_PX);
   return {
-    hidden, setHidden, firstDay, setFirstDay, eventMinutes, setEventMinutes, defaultCalendar, setDefaultCalendar,
+    hourPx, setHourPx, hidden, setHidden, firstDay, setFirstDay, eventMinutes, setEventMinutes, defaultCalendar, setDefaultCalendar,
     dimPast, setDimPast, weekends, setWeekends, showDone, setShowDone, showTasks, setShowTasks, showHolidays, setShowHolidays,
   };
 }
@@ -47,17 +44,28 @@ type Settings = ReturnType<typeof useCalendarSettings>;
 /** A block moved or stretched on the grid, waiting for "this one / following / all". */
 interface PendingShift { entry: CalendarEntry; start: number; end: number }
 
-export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch }: {
+export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: {
   onOpen: (t: Task, occurrence?: string) => void; onNewEvent: (d: EventDraft) => void; onMenu: () => void; onSearch: () => void;
+  /** The new event while its editor is open: it stays visible in the calendar. */
+  preview: Task | null;
 }) {
   const { store, actions, toast } = useData();
   const today = useToday();
   const now = useNow(60_000);
   const s = useCalendarSettings();
   const [mode, setMode] = useLocal<Mode>("calendarMode", "week");
-  const [anchor, setAnchor] = useLocal<LocalDate>("calendarDay", today);
+  // Always opens on today, as on the phone: a week left open last time looks like a shifted calendar.
+  const [anchor, setAnchor] = useState<LocalDate>(today);
+  const shownToday = useRef(today);
+  useEffect(() => {
+    // Midnight passed with today on the screen: follow it.
+    if (shownToday.current !== today && anchor === shownToday.current) setAnchor(today);
+    shownToday.current = today;
+  }, [today]); // eslint-disable-line react-hooks/exhaustive-deps
   const [layers, setLayers] = useState(false);
   const [pending, setPending] = useState<PendingShift | null>(null);
+  const [menu, setMenu] = useState<{ entry: CalendarEntry; x: number; y: number } | null>(null);
+  const [askDelete, setAskDelete] = useState<CalendarEntry | null>(null);
   const [scheduleDays, setScheduleDays] = useState(SCHEDULE_DAYS);
 
   const weekStart = (d: LocalDate) => previousOrSame(d, s.firstDay);
@@ -84,13 +92,20 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch }: {
         : cssColor(lists.get(t.listId)) ?? PRIORITY_COLORS[t.priority] ?? "var(--primary)");
   }, [store.version]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const entries = useMemo(() => {
+  const stored = useMemo(() => {
     const hidden = new Set(s.hidden);
     const tasks = store.live("tasks").filter((t) => t.dueAt != null && !t.parentId &&
       (t.isEvent ? !hidden.has(t.calendarId ?? PERSONAL_CALENDAR_ID) : happens(t) || (s.showTasks && (s.showDone || !isDone(t)))));
     const all = s.showHolidays ? [...tasks, ...russianHolidays(parts(today)[0] - 2)] : tasks;
     return calendarEntries(all, range[0], range[1]);
   }, [store.version, range, s.showTasks, s.showHolidays, s.showDone, s.hidden, today]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The event being created is added on top: the days it doesn't touch keep their lists, and their columns don't redraw.
+  const entries = useMemo(() => {
+    if (!preview) return stored;
+    const merged = new Map(stored);
+    for (const [day, list] of calendarEntries([preview], range[0], range[1])) merged.set(day, [...(merged.get(day) ?? []), ...list]);
+    return merged;
+  }, [stored, preview, range]);
 
   const shift = (n: number) => {
     switch (mode) {
@@ -127,11 +142,12 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch }: {
   const dragging = useRef(false);
 
   const calendarIdForNew = calendars.some((c) => c.id === s.defaultCalendar) ? s.defaultCalendar : PERSONAL_CALENDAR_ID;
-  const newEvent = (day: LocalDate, minute: number | null, endMinute?: number) => {
+  const newEvent = (day: LocalDate, minute: number | null, endMinute?: number, x?: number) => {
     const start = minute != null ? timedDue(day, minute) : allDayDue(day);
     const calendarId = calendarIdForNew === PERSONAL_CALENDAR_ID ? null : calendarIdForNew;
     onNewEvent({
       task: null,
+      x,
       init: minute != null
         ? { startAt: start.at, dueAt: endMinute != null ? epochAt(day, endMinute) : start.at + s.eventMinutes * 60_000, isAllDay: 0, timeZone: start.timeZone, calendarId }
         : { startAt: start.at, dueAt: start.at, isAllDay: 1, timeZone: start.timeZone, calendarId },
@@ -139,6 +155,27 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch }: {
   };
   const openEntry = (e: CalendarEntry) => !isVirtual(e.task) && onOpen(e.task, e.occurrence);
   const openDay = (d: LocalDate) => { setAnchor(d); setMode("day"); };
+  const current = (e: CalendarEntry) => store.get("tasks", e.task.id) ?? e.task;
+  const toggleEntry = (e: CalendarEntry) => {
+    const t = current(e);
+    const done = !isDone(t);
+    const undo = actions.setDone(t, done);
+    if (done) toast({ text: `«${t.title}» выполнена`, undo });
+  };
+  const openMenu = (e: CalendarEntry, ev: React.MouseEvent) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!isVirtual(e.task)) setMenu({ entry: e, x: ev.clientX, y: ev.clientY });
+  };
+  const removeEntry = (e: CalendarEntry, scope: SeriesScope) => {
+    const t = current(e);
+    if (t.isEvent) {
+      toast({ text: "Событие удалено", undo: actions.deleteEvent(t, e.occurrence, scope) });
+    } else {
+      actions.delete(t);
+      toast({ text: "Задача удалена", undo: () => actions.restore({ ...t, deleted: 1, updatedAt: Date.now() - 1000 }) });
+    }
+  };
 
   /** A block dropped somewhere else or stretched: moved by [start] minutes, its end by [end]. */
   const onShift = (entry: CalendarEntry, start: number, end: number) => {
@@ -169,7 +206,10 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch }: {
   else if (mode === "week") days = [0, 1, 2, 3, 4, 5, 6].map((i) => plusDays(range[0], i)).filter((d) => s.weekends || dayOfWeek(d) < 6);
 
   const title = mode === "year" ? String(parts(anchor)[0])
-    : mode === "month" ? monthTitle(withDayOfMonth(anchor, 1), today) : monthTitle(range[0], today);
+    : mode === "month" ? monthTitle(withDayOfMonth(anchor, 1), today)
+      : mode === "schedule" ? monthTitle(anchor, today) : periodTitle(range[0], range[1], today);
+  const todayShown = mode === "year" ? parts(today)[0] === parts(anchor)[0]
+    : mode === "month" ? today.slice(0, 7) === anchor.slice(0, 7) : today >= range[0] && today <= range[1];
   const firstHour = mode === "month" || mode === "year" || mode === "schedule" || !days.includes(today) ? (days[0] ?? today) : today;
 
   return (
@@ -178,7 +218,7 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch }: {
         <button className="icon-btn desktop-only" title="Разделы" aria-label="Разделы" onClick={onMenu}><Icon name="menu" /></button>
         <h1 style={{ marginRight: 8 }}>{title}</h1>
         <button className="icon-btn" aria-label="Назад" onClick={() => shift(-1)}><Icon name="left" /></button>
-        <button className="btn" onClick={() => setAnchor(today)}>Сегодня</button>
+        <button className={`btn ${todayShown ? "" : "away"}`} title={todayShown ? undefined : "Открыта другая неделя — вернуться к сегодня"} onClick={() => setAnchor(today)}>Сегодня</button>
         <button className="icon-btn" aria-label="Вперёд" onClick={() => shift(1)}><Icon name="right" /></button>
         <div className="spacer" />
         <button className="icon-btn" title="Поиск" aria-label="Поиск" onClick={onSearch}><Icon name="search" /></button>
@@ -200,17 +240,36 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch }: {
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {mode === "month" && (
           <MonthGrid first={range[0]} month={parts(withDayOfMonth(anchor, 1))[1]} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast}
-            onDay={openDay} onNew={(d) => newEvent(d, null)} onOpen={openEntry} />
+            onDay={openDay} onNew={(d, x) => newEvent(d, null, undefined, x)} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} />
         )}
         {mode === "year" && <YearView year={parts(anchor)[0]} firstDay={s.firstDay} today={today} entries={entries}
           onDay={openDay} onMonth={(m) => { setAnchor(m); setMode("month"); }} />}
         {mode === "schedule" && <ScheduleView from={anchor} days={scheduleDays} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast}
-          onOpen={openEntry} onDay={openDay} onMore={() => setScheduleDays(scheduleDays + SCHEDULE_DAYS)} />}
+          onOpen={openEntry} onMenu={openMenu} onDay={openDay} onMore={() => setScheduleDays(scheduleDays + SCHEDULE_DAYS)} />}
         {days.length > 0 && (
-          <TimeGrid days={days} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast} dragging={dragging}
-            onDay={openDay} onNew={newEvent} onOpen={openEntry} onShift={onShift} />
+          <TimeGrid days={days} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast} hourPx={s.hourPx} setHourPx={s.setHourPx} dragging={dragging}
+            onDay={openDay} onNew={newEvent} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onShift={onShift} />
         )}
       </div>
+      {menu && (
+        <EntryMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
+          { label: "Открыть", icon: "edit", onClick: () => openEntry(menu.entry) },
+          ...(!menu.entry.task.isEvent && !menu.entry.projected && menu.entry.task.displayMode !== "COUNTDOWN"
+            ? [{ label: isDone(menu.entry.task) ? "Вернуть в работу" : "Выполнить", icon: "done", onClick: () => toggleEntry(menu.entry) }] : []),
+          { label: "Копия", icon: "tasks", onClick: () => toast({ text: `Копия: «${actions.duplicate(current(menu.entry), menu.entry.occurrence).title}»` }) },
+          {
+            label: "Удалить", icon: "trash", danger: true,
+            onClick: () => (menu.entry.task.isEvent && menu.entry.task.repeatRule ? setAskDelete(menu.entry) : removeEntry(menu.entry, "ALL")),
+          },
+        ]} />
+      )}
+      {askDelete && (
+        <Dialog title={`Удалить «${askDelete.task.title}»`} onClose={() => setAskDelete(null)} actions={<button className="btn" onClick={() => setAskDelete(null)}>Отмена</button>}>
+          <div className="menu" style={{ position: "static", boxShadow: "none" }}>
+            {SCOPES.map((sc) => <button key={sc.key} className={sc.key === "ALL" ? "error-text" : undefined} onClick={() => { removeEntry(askDelete, sc.key); setAskDelete(null); }}>{sc.label}</button>)}
+          </div>
+        </Dialog>
+      )}
       {pending && (
         <Dialog title="Перенести повторяющееся событие" onClose={() => setPending(null)} actions={<button className="btn" onClick={() => setPending(null)}>Отмена</button>}>
           <div className="menu" style={{ position: "static", boxShadow: "none" }}>
@@ -222,15 +281,28 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch }: {
   );
 }
 
-function entryTitle(e: CalendarEntry): string {
-  const t = e.parts > 1 ? `${e.task.title} (${e.part}/${e.parts})` : e.task.title;
-  return e.task.eventType === "FOCUS" ? `◎ ${t}` : t;
-}
-
-/** End of an entry's occurrence on the clock, to dim what is over. */
-function entryEnd(e: CalendarEntry): number {
-  if (e.start == null) return epochAt(plusDays(e.date, 1), 0);
-  return epochAt(e.date, 0) + (e.end ?? e.start) * 60_000;
+/** The right-click menu of a block. */
+function EntryMenu({ x, y, items, onClose }: { x: number; y: number; onClose: () => void; items: { label: string; icon: string; danger?: boolean; onClick: () => void }[] }) {
+  useEffect(() => {
+    const close = () => onClose();
+    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", key);
+    };
+  }, [onClose]);
+  return (
+    <div className="menu" role="menu" style={{ position: "fixed", left: Math.min(x, window.innerWidth - 220), top: Math.min(y, window.innerHeight - 200) }}
+      onMouseDown={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
+      {items.map((it) => (
+        <button key={it.label} role="menuitem" className={it.danger ? "error-text" : undefined} onClick={() => { onClose(); it.onClick(); }}>
+          <Icon name={it.icon} size={18} />{it.label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 // --- Layers: calendars, what to show, settings ---
@@ -284,6 +356,14 @@ function LayersMenu({ s, calendars, onClose }: { s: Settings; calendars: Calenda
           {calendars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </label>
+      <div className="row layer-check">Масштаб часа
+        <span className="row">
+          <button className="btn small" style={{ width: "auto" }} aria-label="Мельче" onClick={() => s.setHourPx(Math.max(s.hourPx - 8, MIN_HOUR_PX))}>−</button>
+          <span>{s.hourPx}</span>
+          <button className="btn small" style={{ width: "auto" }} aria-label="Крупнее" onClick={() => s.setHourPx(Math.min(s.hourPx + 8, MAX_HOUR_PX))}>+</button>
+        </span>
+      </div>
+      <div className="muted small" style={{ padding: "0 10px 6px" }}>Или Ctrl + колёсико над сеткой</div>
       <button onClick={() => setFile(true)}><Icon name="sync" size={16} />Импорт и экспорт .ics</button>
       {editing && <CalendarDialog calendar={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
       {file && <CalendarFile onClose={() => setFile(false)} />}
@@ -336,9 +416,10 @@ function CalendarDialog({ calendar, onClose }: { calendar: CalendarLayer | null;
 
 // --- Month, year, schedule ---
 
-function MonthGrid({ first, month, today, now, entries, colorOf, dimPast, onDay, onNew, onOpen }: {
+function MonthGrid({ first, month, today, now, entries, colorOf, dimPast, onDay, onNew, onOpen, onToggle, onMenu }: {
   first: LocalDate; month: number; today: LocalDate; now: number; entries: Map<LocalDate, CalendarEntry[]>; colorOf: (t: Task) => string; dimPast: boolean;
-  onDay: (d: LocalDate) => void; onNew: (d: LocalDate) => void; onOpen: (e: CalendarEntry) => void;
+  onDay: (d: LocalDate) => void; onNew: (d: LocalDate, x: number) => void; onOpen: (e: CalendarEntry) => void;
+  onToggle: (e: CalendarEntry) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void;
 }) {
   const cells = Array.from({ length: 42 }, (_, i) => plusDays(first, i));
   return (
@@ -347,9 +428,9 @@ function MonthGrid({ first, month, today, now, entries, colorOf, dimPast, onDay,
       {cells.map((d) => {
         const list = entries.get(d) ?? [];
         return (
-          <div key={d} className={`cell ${parts(d)[1] !== month ? "other" : ""} ${d === today ? "today" : ""}`} onClick={() => onNew(d)}>
+          <div key={d} className={`cell ${parts(d)[1] !== month ? "other" : ""} ${d === today ? "today" : ""}`} onClick={(ev) => onNew(d, ev.clientX)}>
             <button className="num" onClick={(e) => { e.stopPropagation(); onDay(d); }}>{parts(d)[2]}</button>
-            {list.slice(0, 4).map((e, i) => <EntryChip key={i} e={e} color={colorOf(e.task)} past={dimPast && entryEnd(e) < now} onOpen={onOpen} />)}
+            {list.slice(0, 4).map((e, i) => <EntryChip key={i} e={e} color={colorOf(e.task)} past={dimPast && entryEnd(e) < now} onOpen={onOpen} onToggle={onToggle} onMenu={onMenu} />)}
             {list.length > 4 && <button className="more-link" onClick={(ev) => { ev.stopPropagation(); onDay(d); }}>ещё {list.length - 4}</button>}
           </div>
         );
@@ -385,9 +466,9 @@ function YearView({ year, firstDay, today, entries, onDay, onMonth }: {
 }
 
 /** Days ahead as a list of their entries, like the app's «Расписание». */
-function ScheduleView({ from, days, today, now, entries, colorOf, dimPast, onOpen, onDay, onMore }: {
+function ScheduleView({ from, days, today, now, entries, colorOf, dimPast, onOpen, onMenu, onDay, onMore }: {
   from: LocalDate; days: number; today: LocalDate; now: number; entries: Map<LocalDate, CalendarEntry[]>; colorOf: (t: Task) => string; dimPast: boolean;
-  onOpen: (e: CalendarEntry) => void; onDay: (d: LocalDate) => void; onMore: () => void;
+  onOpen: (e: CalendarEntry) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void; onDay: (d: LocalDate) => void; onMore: () => void;
 }) {
   const list = Array.from({ length: days }, (_, i) => plusDays(from, i)).filter((d) => entries.get(d)?.length || d === today);
   return (
@@ -406,8 +487,8 @@ function ScheduleView({ from, days, today, now, entries, colorOf, dimPast, onOpe
                 const color = colorOf(e.task);
                 const filled = happens(e.task);
                 return (
-                  <button key={k} className={`sched-entry ${isDone(e.task) && !e.task.isEvent ? "done" : ""}`} onClick={() => onOpen(e)}
-                    style={{ background: filled ? color : `color-mix(in srgb, ${color} 18%, transparent)`, color: filled ? "#fff" : "var(--text)", opacity: dimPast && entryEnd(e) < now ? 0.55 : undefined }}>
+                  <button key={k} className={`sched-entry ${isDone(e.task) && !e.task.isEvent ? "done" : ""}`} onClick={() => onOpen(e)} onContextMenu={(ev) => onMenu(e, ev)}
+                    style={{ background: filled ? color : `color-mix(in srgb, ${color} 45%, var(--bg))`, color: filled ? onColor(color) : "var(--text)", opacity: dimPast && entryEnd(e) < now ? 0.55 : undefined }}>
                     <span className="t">{entryTitle(e)}</span>
                     <span className="small">{e.start == null ? "Весь день" : `${formatTime(e.start)}–${formatTime((e.end ?? e.start) % MINUTES_PER_DAY)}`}{e.task.location ? ` · ${e.task.location}` : ""}</span>
                   </button>
@@ -419,241 +500,6 @@ function ScheduleView({ from, days, today, now, entries, colorOf, dimPast, onOpe
       ))}
       <button className="btn ghost" style={{ margin: "12px auto", display: "flex" }} onClick={onMore}>Показать дальше</button>
       <p className="muted small" style={{ textAlign: "center" }}>По {formatDay(plusDays(from, days - 1), today).toLowerCase()}</p>
-    </div>
-  );
-}
-
-function EntryChip({ e, color, past, onOpen }: { e: CalendarEntry; color: string; past?: boolean; onOpen: (e: CalendarEntry) => void }) {
-  const t = e.task;
-  const filled = happens(t);
-  return (
-    <button className={`chip-entry ${isDone(t) && !t.isEvent ? "done" : ""} ${t.eventType === "AWAY" ? "away" : ""}`}
-      style={{ ...(filled ? { background: color, color: "#fff" } : { background: `color-mix(in srgb, ${color} 18%, transparent)`, color: "var(--text)" }), opacity: past ? 0.55 : undefined }}
-      onClick={(ev) => { ev.stopPropagation(); onOpen(e); }} title={t.title}>
-      {e.start != null && !t.isAllDay ? `${formatTime(e.start)} ` : ""}{entryTitle(e)}
-    </button>
-  );
-}
-
-// --- Day, 3 days, week: the time grid ---
-
-interface Drag {
-  entry: CalendarEntry;
-  /** Move the whole block, or only its end. */
-  mode: "move" | "resize";
-  x: number;
-  y: number;
-  dMin: number;
-  dDay: number;
-  moved: boolean;
-}
-
-/** A range being drawn on an empty column with the mouse: a new event of that length. */
-interface Draw { day: LocalDate; from: number; to: number }
-
-function TimeGrid({ days, today, now, entries, colorOf, dimPast, dragging, onDay, onNew, onOpen, onShift }: {
-  days: LocalDate[]; today: LocalDate; now: number; entries: Map<LocalDate, CalendarEntry[]>; colorOf: (t: Task) => string; dimPast: boolean;
-  dragging: React.MutableRefObject<boolean>;
-  onDay: (d: LocalDate) => void; onNew: (d: LocalDate, minute: number | null, end?: number) => void; onOpen: (e: CalendarEntry) => void;
-  onShift: (e: CalendarEntry, start: number, end: number) => void;
-}) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const grid = useRef<HTMLDivElement>(null);
-  const nowMin = localTimeOf(now);
-  const [drag, setDrag] = useState<Drag | null>(null);
-  const [draw, setDraw] = useState<Draw | null>(null);
-  const [allDayOpen, setAllDayOpen] = useState(false);
-  const lastPointer = useRef("mouse");
-  // Open at the current hour (an hour above it).
-  useEffect(() => {
-    scroller.current?.scrollTo({ top: Math.max(0, (Math.floor(nowMin / 60) - 1) * HOUR_PX) });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const minuteAt = (clientY: number) => {
-    const top = grid.current!.getBoundingClientRect().top;
-    return Math.min(Math.max(Math.floor((((clientY - top) / HOUR_PX) * 60) / SNAP) * SNAP, 0), MINUTES_PER_DAY - SNAP);
-  };
-
-  // While a block is held: follow the pointer, drop it on release.
-  useEffect(() => {
-    if (!drag) return;
-    const colWidth = (grid.current?.querySelector(".daycol") as HTMLElement | null)?.offsetWidth ?? 100;
-    const index = days.indexOf(drag.entry.date);
-    const move = (e: PointerEvent) => {
-      const dMin = Math.round((((e.clientY - drag.y) / HOUR_PX) * 60) / SNAP) * SNAP;
-      const dDay = drag.mode === "move" ? Math.min(Math.max(Math.round((e.clientX - drag.x) / colWidth), -index), days.length - 1 - index) : 0;
-      const moved = drag.moved || Math.abs(e.clientY - drag.y) > 4 || Math.abs(e.clientX - drag.x) > 4;
-      if (dMin !== drag.dMin || dDay !== drag.dDay || moved !== drag.moved) setDrag({ ...drag, dMin, dDay, moved });
-    };
-    const up = () => {
-      const shift = drag.dDay * MINUTES_PER_DAY + drag.dMin;
-      if (drag.moved && shift !== 0) onShift(drag.entry, drag.mode === "move" ? shift : 0, shift);
-      setDrag(null);
-      setTimeout(() => { dragging.current = false; });
-    };
-    const noScroll = (e: TouchEvent) => e.preventDefault();
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    window.addEventListener("touchmove", noScroll, { passive: false });
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-      window.removeEventListener("touchmove", noScroll);
-    };
-  }, [drag]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Drawing a new event on an empty column.
-  useEffect(() => {
-    if (!draw) return;
-    const move = (e: PointerEvent) => {
-      const to = Math.max(minuteAt(e.clientY) + SNAP, draw.from + SNAP);
-      if (to !== draw.to) setDraw({ ...draw, to });
-    };
-    const up = () => {
-      onNew(draw.day, draw.from, draw.to > draw.from + SNAP ? draw.to : undefined);
-      setDraw(null);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-  }, [draw]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  /** Mouse: drag at once. Touch: hold still for a moment first, so a swipe still scrolls. */
-  const hold = useRef<ReturnType<typeof setTimeout>>();
-  const startDrag = (e: React.PointerEvent, entry: CalendarEntry, mode: Drag["mode"]) => {
-    if (entry.projected && !entry.task.isEvent) return;
-    if (isVirtual(entry.task) || e.button !== 0) return;
-    e.stopPropagation();
-    const begin = () => {
-      dragging.current = true;
-      setDrag({ entry, mode, x: e.clientX, y: e.clientY, dMin: 0, dDay: 0, moved: e.pointerType !== "mouse" });
-      if (e.pointerType !== "mouse") navigator.vibrate?.(20);
-    };
-    if (e.pointerType === "mouse") return begin();
-    clearTimeout(hold.current);
-    const x = e.clientX, y = e.clientY;
-    hold.current = setTimeout(begin, 400);
-    const cancel = (ev: PointerEvent) => {
-      if (ev.type === "pointermove" && Math.hypot(ev.clientX - x, ev.clientY - y) < 6) return;
-      clearTimeout(hold.current);
-      window.removeEventListener("pointermove", cancel);
-      window.removeEventListener("pointerup", cancel);
-    };
-    window.addEventListener("pointermove", cancel);
-    window.addEventListener("pointerup", cancel);
-  };
-
-  const allDay = days.map((d) => (entries.get(d) ?? []).filter((e) => e.start == null));
-  const hasAllDay = allDay.some((l) => l.length);
-  const hidden = allDay.reduce((n, l) => Math.max(n, l.length - ALL_DAY_ROWS), 0);
-  return (
-    <div className="grid-wrap">
-      <div className="grid-head">
-        <div className="gutter" />
-        {days.map((d) => (
-          <div key={d} className={`day ${d === today ? "today" : ""}`} onClick={() => onDay(d)}>
-            <div className="w">{WEEKDAYS_SHORT[dayOfWeek(d) - 1]}</div>
-            <div className="n">{parts(d)[2]}</div>
-          </div>
-        ))}
-      </div>
-      {hasAllDay && (
-        <div className="allday-row">
-          <div className="gutter">
-            весь день
-            {hidden > 0 && <button className="more-link" onClick={() => setAllDayOpen(!allDayOpen)}>{allDayOpen ? "свернуть" : `+${hidden}`}</button>}
-          </div>
-          {days.map((d, i) => (
-            <div key={d} className="col" onClick={() => onNew(d, null)}>
-              {(allDayOpen ? allDay[i] : allDay[i].slice(0, ALL_DAY_ROWS)).map((e, j) => (
-                <EntryChip key={j} e={e} color={colorOf(e.task)} past={dimPast && entryEnd(e) < now} onOpen={onOpen} />
-              ))}
-              {!allDayOpen && allDay[i].length > ALL_DAY_ROWS && (
-                <button className="more-link" onClick={(ev) => { ev.stopPropagation(); setAllDayOpen(true); }}>ещё {allDay[i].length - ALL_DAY_ROWS}</button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="grid-scroll" ref={scroller}>
-        <div className="grid" style={{ height: HOUR_PX * 24 }} ref={grid}>
-          <div className="hours">
-            {Array.from({ length: 23 }, (_, h) => <span key={h} style={{ top: (h + 1) * HOUR_PX }}>{String(h + 1).padStart(2, "0")}:00</span>)}
-          </div>
-          {days.map((d, di) => {
-            const timed = (entries.get(d) ?? []).filter((e) => e.start != null);
-            const placed = layoutBlocks(timed.map((e) => ({ item: e, start: e.start!, end: Math.max(e.end!, e.start! + 20) })))
-              .sort((a, b) => a.depth - b.depth);
-            const ghost = drag && drag.moved && days.indexOf(drag.entry.date) + drag.dDay === di ? drag : null;
-            return (
-              <div key={d} className={`daycol ${d === today ? "today" : ""}`}
-                onPointerDown={(ev) => {
-                  lastPointer.current = ev.pointerType;
-                  if (ev.pointerType !== "mouse" || ev.button !== 0) return;
-                  const from = minuteAt(ev.clientY);
-                  setDraw({ day: d, from, to: from + SNAP });
-                }}
-                onClick={(ev) => {
-                  // Touch: a tap is a new event at that time (the mouse draws one instead).
-                  if (lastPointer.current === "mouse") return;
-                  onNew(d, minuteAt(ev.clientY));
-                }}>
-                {Array.from({ length: 24 }, (_, h) => <div key={h} className="hourline" style={{ top: h * HOUR_PX }} />)}
-                {placed.map((p, i) => {
-                  const e = p.item;
-                  const t = e.task;
-                  const color = colorOf(t);
-                  const filled = happens(t);
-                  const width = 100 / p.lanes;
-                  const indent = Math.min(p.depth * 10, 40);
-                  const top = (p.start / 60) * HOUR_PX;
-                  const height = Math.max(((p.end - p.start) / 60) * HOUR_PX, 18);
-                  const held = drag?.entry === e;
-                  return (
-                    <div key={i} className={`block ${filled ? "" : "task"} ${isDone(t) && !t.isEvent ? "done" : ""} ${t.eventType === "AWAY" ? "away" : ""} ${held && drag.moved ? "held" : ""}`}
-                      style={{
-                        top, height, left: `calc(${p.lane * width}% + ${indent}px)`, width: `calc(${width}% - ${indent + 2}px)`,
-                        background: filled ? color : `color-mix(in srgb, ${color} 22%, var(--bg))`,
-                        color: filled ? "#fff" : "var(--text)", borderLeftColor: color,
-                        opacity: held && drag.moved ? 0.35 : (e.projected && !filled) || (dimPast && entryEnd(e) < now) ? 0.6 : undefined,
-                      }}
-                      onPointerDown={(ev) => startDrag(ev, e, "move")}
-                      onClick={(ev) => { ev.stopPropagation(); if (!dragging.current) onOpen(e); }} title={t.title}>
-                      <div className="t">{entryTitle(e)}</div>
-                      {height >= 34 && <div>{formatTime(e.start!)}–{formatTime(e.end! % MINUTES_PER_DAY)}{t.location ? ` · ${t.location}` : ""}</div>}
-                      {!isVirtual(t) && !(e.projected && !t.isEvent) && e.part === e.parts && (
-                        <div className="resize" onPointerDown={(ev) => startDrag(ev, e, "resize")} onClick={(ev) => ev.stopPropagation()} />
-                      )}
-                    </div>
-                  );
-                })}
-                {ghost && (() => {
-                  const s = ghost.mode === "move" ? ghost.entry.start! + ghost.dMin : ghost.entry.start!;
-                  const end = Math.max(ghost.entry.end! + ghost.dMin, s + SNAP);
-                  return (
-                    <div className="block ghost" style={{ top: (s / 60) * HOUR_PX, height: Math.max(((end - s) / 60) * HOUR_PX, 18), left: 0, width: "calc(100% - 2px)",
-                      background: colorOf(ghost.entry.task), color: "#fff" }}>
-                      <div className="t">{ghost.entry.task.title}</div>
-                      <div>{formatTime(((s % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY)}–{formatTime(((end % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY)}</div>
-                    </div>
-                  );
-                })()}
-                {draw && draw.day === d && (
-                  <div className="block ghost" style={{ top: (draw.from / 60) * HOUR_PX, height: ((draw.to - draw.from) / 60) * HOUR_PX, left: 0, width: "calc(100% - 2px)", background: "var(--primary)", color: "#fff" }}>
-                    <div>{formatTime(draw.from)}–{formatTime(draw.to % MINUTES_PER_DAY)}</div>
-                  </div>
-                )}
-                {d === today && <div className="nowline" style={{ top: (nowMin / 60) * HOUR_PX }} />}
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }

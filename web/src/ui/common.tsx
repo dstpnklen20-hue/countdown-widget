@@ -3,14 +3,20 @@ import { argbOf, cssColor } from "../data/model";
 import { PALETTE, PRIORITY_COLORS } from "./format";
 import { Icon } from "./icons";
 
-export function Dialog({ title, children, actions, onClose }: { title: string; children: ReactNode; actions?: ReactNode; onClose: () => void }) {
+export function Dialog({ title, children, actions, onClose, side, closeOutside = true }: {
+  title: string; children: ReactNode; actions?: ReactNode; onClose: () => void;
+  /** Sit at this side of the screen, leaving the page visible. */
+  side?: "left" | "right";
+  /** Whether a click outside closes it (not while something typed would be lost). */
+  closeOutside?: boolean;
+}) {
   useEffect(() => {
     const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [onClose]);
   return (
-    <div className="dialog-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={`dialog-scrim ${side ? `side ${side}` : ""}`} onMouseDown={(e) => closeOutside && e.target === e.currentTarget && onClose()}>
       <div className="dialog" role="dialog" aria-label={title}>
         <h2>{title}</h2>
         {children}

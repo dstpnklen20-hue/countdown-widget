@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useData, useLocal } from "./context";
+import { useData, useLocal, useSyncStatus } from "./context";
 import { Icon } from "./icons";
 import { enableNotifications, notifySupported, useNotifySetting } from "./TabReminders";
 
@@ -18,7 +18,7 @@ export function applyTheme(theme?: Theme) {
 export function SettingsView({ onLogout }: { onLogout: () => void }) {
   const { store } = useData();
   const [theme, setTheme] = useLocal<Theme>("theme", "system");
-  const s = store.status;
+  const s = useSyncStatus();
   const stateText = {
     loading: "Загрузка…", idle: "Всё синхронизировано", syncing: "Синхронизация…", offline: "Нет связи — изменения сохранены в браузере", error: "Ошибка синхронизации",
   }[s.state];

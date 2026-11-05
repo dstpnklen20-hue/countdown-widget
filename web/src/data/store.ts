@@ -82,8 +82,14 @@ export class Store implements Rows {
   private rev = 0;
   private liveCache = new Map<Kind, { rev: number; rows: unknown[] }>();
   private indexCache = new Map<string, { rev: number; map: Map<unknown, unknown[]> }>();
-  /** Bumped on every change, for React's useSyncExternalStore. */
-  version = 0;
+  /**
+   * Changes only when the records change: screens that show data redraw, and what they worked out
+   * from the data is recalculated, only then. A sync that brought nothing new costs nothing.
+   */
+  get version(): number {
+    return this.rev;
+  }
+
   status: SyncStatus = { state: "loading", pending: 0 };
 
   constructor(private session: Session, private onSession: (s: Session | null) => void, private keeper?: SessionKeeper) {
@@ -135,7 +141,6 @@ export class Store implements Rows {
   };
 
   private emit() {
-    this.version++;
     for (const l of this.listeners) l();
   }
 
