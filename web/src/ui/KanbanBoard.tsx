@@ -3,6 +3,7 @@ import type { Section, Task, TaskList } from "../data/model";
 import { isDone } from "../domain/tasks";
 import { MenuButton, NameDialog } from "./common";
 import { useData, useNow, useToday } from "./context";
+import { TASK_DRAG } from "./ArrangePanel";
 import { Icon } from "./icons";
 import { PAGE_ROWS, TaskRow, rowProps } from "./TaskListView";
 
@@ -31,7 +32,7 @@ export function KanbanBoard({ list, selected, onOpen, onToggle }: {
   const drop = (e: React.DragEvent, sectionId: string | null) => {
     e.preventDefault();
     setOver(null);
-    const task = store.get("tasks", e.dataTransfer.getData("text/x-tiktak-task"));
+    const task = store.get("tasks", e.dataTransfer.getData(TASK_DRAG));
     if (task) actions.moveToSection(task, sectionId);
   };
 
@@ -62,7 +63,7 @@ export function KanbanBoard({ list, selected, onOpen, onToggle }: {
             </div>
             <ColumnAdd onAdd={(text) => actions.quickAdd(text, `list:${list.id}`, section?.id ?? null)} />
             {tasks.slice(0, shown[key] ?? PAGE_ROWS).map((t) => (
-              <div key={t.id} draggable className="kcard" onDragStart={(e) => { e.dataTransfer.setData("text/x-tiktak-task", t.id); e.dataTransfer.effectAllowed = "move"; }}>
+              <div key={t.id} draggable className="kcard" onDragStart={(e) => { e.dataTransfer.setData(TASK_DRAG, t.id); e.dataTransfer.effectAllowed = "move"; }}>
                 <TaskRow {...rowProps(store, t, today, now, false)} selected={selected === t.id} onOpen={onOpen} onToggle={onToggle} />
                 {sections.length > 0 && (
                   <MenuButton label="Переместить в колонку" icon="kanban" items={[

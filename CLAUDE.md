@@ -132,6 +132,10 @@ https://dstpnklen20-hue.github.io/countdown-widget/ . `tasks` = `main`.
   (`domain/series.ts`), календарь с перетаскиванием и слоями, `.ics` (`data/ics.ts`), поиск, статистика,
   Канбан и папки, напоминания во вкладке (`ui/TabReminders.ts`), офлайн (`public/sw.js`, только в сборке).
   Нет: виджетов, будильников, напоминаний при закрытом сайте (нужен Web Push с сервером).
+- Календарь: `ui/CalendarView.tsx` (виды, меню блока), `ui/TimeGrid.tsx` (сетка: колонки `DayColumn` под `memo`, перенос,
+  черновик нового события с id `virtual:preview`), `ui/ArrangePanel.tsx` (панель «Распланировать»). Перетаскивание задач —
+  тип `TASK_DRAG`. Открывается всегда на сегодня (неделю не запоминать: так выглядело как сдвиг дат).
+- `Store.version` меняется только с данными (от него зависят useMemo); состояние синхронизации — `useSyncStatus`.
 - Store: `index(kind, field)` — живые строки по полю (taskId, parentId), кэшируются до следующей правки;
   строки списков (`TaskRow`) получают готовые props (`rowProps`), чтобы перерисовывалась только изменённая.
 - Проверка без живого сервера: `VITE_SUPABASE_URL=http://localhost:54321` + поддельный Supabase

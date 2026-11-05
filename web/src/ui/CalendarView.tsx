@@ -6,13 +6,14 @@ import { type CalendarLayer, cssColor, PERSONAL_CALENDAR_ID, type Task, argbOf }
 import { allDayDue, epochAt, nowMinute, timedDue } from "../domain/dates";
 import { type CalendarEntry, MINUTES_PER_DAY, calendarEntries, isVirtual, russianHolidays } from "../domain/calendar";
 import { type SeriesScope, SCOPES, shifted } from "../domain/series";
-import { happens, isDone } from "../domain/tasks";
+import { durationMinutes, happens, isDone } from "../domain/tasks";
 import { Dialog, Swatches } from "./common";
 import { DEFAULT_HOUR_PX, EntryChip, MAX_HOUR_PX, MIN_HOUR_PX, TimeGrid, entryEnd, entryTitle, onColor } from "./TimeGrid";
 import { useData, useLocal, useNow, useToday } from "./context";
 import type { EventDraft } from "./EventEditor";
 import { CALENDAR_COLORS, MONTHS_NOM, PRIORITY_COLORS, WEEKDAYS_SHORT, formatDay, formatFullDate, monthTitle, periodTitle, reminderLabel } from "./format";
 import { Icon } from "./icons";
+import { ArrangePanel, TASK_DRAG } from "./ArrangePanel";
 import { CalendarFile } from "./CalendarFile";
 
 type Mode = "schedule" | "day" | "3days" | "week" | "month" | "year";
@@ -67,6 +68,7 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
   const [menu, setMenu] = useState<{ entry: CalendarEntry; x: number; y: number } | null>(null);
   const [askDelete, setAskDelete] = useState<CalendarEntry | null>(null);
   const [scheduleDays, setScheduleDays] = useState(SCHEDULE_DAYS);
+  const [arrange, setArrange] = useLocal("cal.arrange", false);
 
   const weekStart = (d: LocalDate) => previousOrSame(d, s.firstDay);
   const range = useMemo((): [LocalDate, LocalDate] => {
@@ -192,6 +194,15 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
     actions.update(shifted(t, entry.occurrence, start, end));
     toast({ text: `«${t.title}» перенесено`, undo: () => actions.update({ ...before, updatedAt: store.get("tasks", t.id)?.updatedAt ?? before.updatedAt }) });
   };
+  /** A task dragged from the panel gets that time, keeping its length (half an hour when it has none), or that day. */
+  const dropTask = (taskId: string, day: LocalDate, minute: number | null) => {
+    const t = store.get("tasks", taskId);
+    if (!t) return;
+    const before = t;
+    if (minute == null) actions.setDue(t, allDayDue(day), null);
+    else actions.setDue(t, timedDue(day, minute), durationMinutes(t) ?? 30);
+    toast({ text: `«${t.title}» запланирована`, undo: () => actions.update({ ...before, updatedAt: store.get("tasks", t.id)?.updatedAt ?? before.updatedAt }) });
+  };
   const applyPending = (scope: SeriesScope) => {
     if (!pending) return;
     const master = store.get("tasks", pending.entry.task.id) ?? pending.entry.task;
@@ -226,6 +237,10 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
           <button className="icon-btn" title="Календари и вид" aria-label="Календари и вид" onClick={() => setLayers(!layers)}><Icon name="layers" /></button>
           {layers && <LayersMenu s={s} calendars={calendars} onClose={() => setLayers(false)} />}
         </div>
+        {mode !== "year" && mode !== "schedule" && (
+          <button className={`icon-btn desktop-only ${arrange ? "active" : ""}`} title="Распланировать задачи" aria-label="Распланировать задачи" aria-pressed={arrange}
+            onClick={() => setArrange(!arrange)}><Icon name="tasks" /></button>
+        )}
         <select className="field mobile-select" value={mode} aria-label="Вид" onChange={(e) => setMode(e.target.value as Mode)}>
           {MODES.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
         </select>
@@ -236,20 +251,23 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
           <Icon name="plus" size={18} /><span className="desktop-only-inline">Событие</span>
         </button>
       </div>
+      <div className="cal-row">
       <div className="main-body cal-body" style={{ paddingBottom: mode === "month" || mode === "year" || mode === "schedule" ? 40 : 0 }}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {mode === "month" && (
           <MonthGrid first={range[0]} month={parts(withDayOfMonth(anchor, 1))[1]} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast}
-            onDay={openDay} onNew={(d, x) => newEvent(d, null, undefined, x)} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} />
+            onDay={openDay} onNew={(d, x) => newEvent(d, null, undefined, x)} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onDropTask={dropTask} />
         )}
         {mode === "year" && <YearView year={parts(anchor)[0]} firstDay={s.firstDay} today={today} entries={entries}
           onDay={openDay} onMonth={(m) => { setAnchor(m); setMode("month"); }} />}
         {mode === "schedule" && <ScheduleView from={anchor} days={scheduleDays} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast}
           onOpen={openEntry} onMenu={openMenu} onDay={openDay} onMore={() => setScheduleDays(scheduleDays + SCHEDULE_DAYS)} />}
         {days.length > 0 && (
-          <TimeGrid days={days} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast} hourPx={s.hourPx} setHourPx={s.setHourPx} dragging={dragging}
-            onDay={openDay} onNew={newEvent} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onShift={onShift} />
+          <TimeGrid days={days} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast} hourPx={s.hourPx} setHourPx={s.setHourPx} dragging={dragging} carrying={arrange}
+            onDay={openDay} onNew={newEvent} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onShift={onShift} onDropTask={dropTask} />
         )}
+      </div>
+      {arrange && mode !== "year" && mode !== "schedule" && <ArrangePanel onOpen={onOpen} onClose={() => setArrange(false)} />}
       </div>
       {menu && (
         <EntryMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
@@ -416,10 +434,11 @@ function CalendarDialog({ calendar, onClose }: { calendar: CalendarLayer | null;
 
 // --- Month, year, schedule ---
 
-function MonthGrid({ first, month, today, now, entries, colorOf, dimPast, onDay, onNew, onOpen, onToggle, onMenu }: {
+function MonthGrid({ first, month, today, now, entries, colorOf, dimPast, onDay, onNew, onOpen, onToggle, onMenu, onDropTask }: {
   first: LocalDate; month: number; today: LocalDate; now: number; entries: Map<LocalDate, CalendarEntry[]>; colorOf: (t: Task) => string; dimPast: boolean;
   onDay: (d: LocalDate) => void; onNew: (d: LocalDate, x: number) => void; onOpen: (e: CalendarEntry) => void;
   onToggle: (e: CalendarEntry) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void;
+  onDropTask: (taskId: string, day: LocalDate, minute: number | null) => void;
 }) {
   const cells = Array.from({ length: 42 }, (_, i) => plusDays(first, i));
   return (
@@ -428,7 +447,12 @@ function MonthGrid({ first, month, today, now, entries, colorOf, dimPast, onDay,
       {cells.map((d) => {
         const list = entries.get(d) ?? [];
         return (
-          <div key={d} className={`cell ${parts(d)[1] !== month ? "other" : ""} ${d === today ? "today" : ""}`} onClick={(ev) => onNew(d, ev.clientX)}>
+          <div key={d} className={`cell ${parts(d)[1] !== month ? "other" : ""} ${d === today ? "today" : ""}`} onClick={(ev) => onNew(d, ev.clientX)}
+            onDragOver={(ev) => ev.dataTransfer.types.includes(TASK_DRAG) && ev.preventDefault()}
+            onDrop={(ev) => {
+              const id = ev.dataTransfer.getData(TASK_DRAG);
+              if (id) { ev.preventDefault(); onDropTask(id, d, null); }
+            }}>
             <button className="num" onClick={(e) => { e.stopPropagation(); onDay(d); }}>{parts(d)[2]}</button>
             {list.slice(0, 4).map((e, i) => <EntryChip key={i} e={e} color={colorOf(e.task)} past={dimPast && entryEnd(e) < now} onOpen={onOpen} onToggle={onToggle} onMenu={onMenu} />)}
             {list.length > 4 && <button className="more-link" onClick={(ev) => { ev.stopPropagation(); onDay(d); }}>ещё {list.length - 4}</button>}

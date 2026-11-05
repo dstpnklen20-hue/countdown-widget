@@ -5,6 +5,7 @@ import { dueDay } from "../domain/dates";
 import { isCountdown, isDone } from "../domain/tasks";
 import { useData, useLocal, useNow, useToday } from "./context";
 import { PRIORITY_CATEGORY, PRIORITY_COLORS, PRIORITY_NAMES } from "./format";
+import { TASK_DRAG } from "./ArrangePanel";
 import { Icon } from "./icons";
 import { MenuButton } from "./common";
 import { TaskRow, rowProps, useStable } from "./TaskListView";
@@ -61,7 +62,7 @@ export function MatrixView({ selected, onOpen }: { selected: string | null; onOp
                 onDrop={(e) => {
                   e.preventDefault();
                   setOver(null);
-                  const t = store.get("tasks", e.dataTransfer.getData("text/x-tiktak-task"));
+                  const t = store.get("tasks", e.dataTransfer.getData(TASK_DRAG));
                   if (t && t.priority !== p) {
                     actions.update({ ...t, priority: p });
                     toast({ text: `«${t.title}» → ${PRIORITY_CATEGORY[p]}`, undo: () => actions.update({ ...t, updatedAt: store.get("tasks", t.id)?.updatedAt ?? t.updatedAt }) });
@@ -79,7 +80,7 @@ export function MatrixView({ selected, onOpen }: { selected: string | null; onOp
                     onBlur={() => !text && setAdding(null)} onKeyDown={(e) => { if (e.key === "Enter") add(p); if (e.key === "Escape") setAdding(null); }} />
                 )}
                 {list.slice(0, shown.includes(p) ? undefined : 100).map((t) => (
-                  <div key={t.id} draggable className="kcard" onDragStart={(e) => { e.dataTransfer.setData("text/x-tiktak-task", t.id); e.dataTransfer.effectAllowed = "move"; }}>
+                  <div key={t.id} draggable className="kcard" onDragStart={(e) => { e.dataTransfer.setData(TASK_DRAG, t.id); e.dataTransfer.effectAllowed = "move"; }}>
                     <TaskRow {...rowProps(store, t, today, now, true)} selected={selected === t.id} onOpen={open} onToggle={done} />
                     <MenuButton label="Переместить в" icon="matrix" items={[3, 2, 1, 0].filter((q) => q !== t.priority).map((q) => ({
                       label: PRIORITY_CATEGORY[q], onClick: () => actions.update({ ...t, priority: q }),

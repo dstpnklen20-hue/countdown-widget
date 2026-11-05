@@ -94,7 +94,11 @@ function occurrenceEntries(t: Task, day: LocalDate, projected: boolean): Calenda
  */
 export function calendarEntries(tasks: Task[], start: LocalDate, end: LocalDate, maxPerTask = 400): Map<LocalDate, CalendarEntry[]> {
   const out: CalendarEntry[] = [];
+  // Entries that don't repeat and lie well outside the range need no date work (with a margin for time zones).
+  const earliest = Date.parse(`${start}T00:00:00Z`) - 2 * 86_400_000;
+  const latest = Date.parse(`${end}T00:00:00Z`) + 3 * 86_400_000;
   for (const t of tasks) {
+    if (!t.repeatRule && t.dueAt != null && (t.dueAt < earliest || (t.startAt != null && t.startAt <= t.dueAt ? t.startAt : t.dueAt) > latest)) continue;
     const day = dueDay(t);
     if (!day) continue;
     const last = plusDays(end, spanDays(t));
@@ -116,7 +120,11 @@ export function calendarEntries(tasks: Task[], start: LocalDate, end: LocalDate,
     }
   }
   const byDay = new Map<LocalDate, CalendarEntry[]>();
-  for (const e of out) byDay.set(e.date, [...(byDay.get(e.date) ?? []), e]);
+  for (const e of out) {
+    const list = byDay.get(e.date);
+    if (list) list.push(e);
+    else byDay.set(e.date, [e]);
+  }
   for (const list of byDay.values()) {
     list.sort((a, b) =>
       Number(isDone(a.task) && !a.task.isEvent) - Number(isDone(b.task) && !b.task.isEvent) ||

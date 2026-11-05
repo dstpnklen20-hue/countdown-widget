@@ -7,6 +7,7 @@ import { happens, isDone } from "../domain/tasks";
 import { Check } from "./common";
 import { WEEKDAYS_SHORT } from "./format";
 import { Icon } from "./icons";
+import { TASK_DRAG } from "./ArrangePanel";
 
 /** Taps and drags on the grid land on quarter hours, as in the app. */
 const SNAP = 15;
@@ -59,7 +60,7 @@ export function EntryChip({ e, color, past, onOpen, onToggle, onMenu }: {
     <div role="button" tabIndex={0} className={`chip-entry ${t.eventType === "AWAY" ? "away" : ""} ${t.id === PREVIEW_ID ? "draft" : ""}`}
       style={{
         ...(filled ? { background: color, color: onColor(color) } : { background: `color-mix(in srgb, ${color} 45%, var(--bg))`, color: "var(--text)" }),
-        opacity: past || done ? 0.55 : undefined,
+        opacity: (past && filled) || done ? 0.55 : undefined,
       }}
       onClick={(ev) => { ev.stopPropagation(); onOpen(e); }} onKeyDown={(ev) => ev.key === "Enter" && onOpen(e)}
       onContextMenu={(ev) => onMenu?.(e, ev)} title={t.title}>
@@ -93,6 +94,8 @@ interface BlockActions {
   /** A press on the empty part of a column. */
   pressEmpty: (ev: React.PointerEvent, day: LocalDate) => void;
   tapEmpty: (ev: React.MouseEvent, day: LocalDate) => void;
+  dragOver: (ev: React.DragEvent, day: LocalDate) => void;
+  drop: (ev: React.DragEvent, day: LocalDate) => void;
 }
 
 const EMPTY: CalendarEntry[] = [];
@@ -108,7 +111,8 @@ const DayColumn = memo(function DayColumn({ day, isToday, list, colorOf, dimPast
     return layoutBlocks(timed.map((e) => ({ item: e, start: e.start!, end: Math.max(e.end!, e.start! + 20) }))).sort((a, b) => a.depth - b.depth);
   }, [list]);
   return (
-    <div className={`daycol ${isToday ? "today" : ""}`} onPointerDown={(ev) => actions.pressEmpty(ev, day)} onClick={(ev) => actions.tapEmpty(ev, day)}>
+    <div className={`daycol ${isToday ? "today" : ""}`} onPointerDown={(ev) => actions.pressEmpty(ev, day)} onClick={(ev) => actions.tapEmpty(ev, day)}
+      onDragOver={(ev) => actions.dragOver(ev, day)} onDrop={(ev) => actions.drop(ev, day)}>
       {Array.from({ length: 24 }, (_, h) => <div key={h} className="hourline" style={{ top: h * hourPx }} />)}
       {placed.map((p) => {
         const e = p.item;
@@ -128,7 +132,8 @@ const DayColumn = memo(function DayColumn({ day, isToday, list, colorOf, dimPast
               top, height, left: `calc(${p.lane * width}% + ${indent}px)`, width: `calc(${width}% - ${indent + 2}px)`,
               background: filled ? color : `color-mix(in srgb, ${color} 55%, var(--bg))`, color: filled ? onColor(color) : "var(--text)",
               borderLeftColor: color,
-              opacity: held === e ? 0.35 : done || e.projected && !filled || (dimPast && !draft && entryEnd(e) < now) ? 0.55 : undefined,
+              // What is over fades, but a task not done yet stays visible: it still needs doing.
+              opacity: held === e ? 0.35 : done || (e.projected && !filled) || (dimPast && filled && !draft && entryEnd(e) < now) ? 0.55 : undefined,
             }}
             onPointerDown={(ev) => actions.press(ev, e, "move")}
             onClick={(ev) => { ev.stopPropagation(); actions.open(e); }}
@@ -166,13 +171,18 @@ const DayColumn = memo(function DayColumn({ day, isToday, list, colorOf, dimPast
   );
 });
 
-export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, setHourPx, dragging, onDay, onNew, onOpen, onToggle, onMenu, onShift }: {
+export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, setHourPx, dragging, carrying, onDay, onNew, onOpen, onToggle, onMenu, onShift, onDropTask }: {
   days: LocalDate[]; today: LocalDate; now: number; entries: Map<LocalDate, CalendarEntry[]>; colorOf: (t: Task) => string; dimPast: boolean;
   hourPx: number; setHourPx: (n: number) => void; dragging: React.MutableRefObject<boolean>;
+  /** The panel is open: the all-day row stays, as a place to drop a task. */
+  carrying: boolean;
   onDay: (d: LocalDate) => void; onNew: (d: LocalDate, minute: number | null, end?: number, x?: number) => void; onOpen: (e: CalendarEntry) => void;
   onToggle: (e: CalendarEntry) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void;
   onShift: (e: CalendarEntry, start: number, end: number) => void;
+  /** A task dragged from the panel: to a time of [day], or (null) into its all-day row. */
+  onDropTask: (taskId: string, day: LocalDate, minute: number | null) => void;
 }) {
+  const [dropAt, setDropAt] = useState<Draw | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const grid = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -306,6 +316,20 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
     tapEmpty: (ev, day) => {
       if (lastPointer.current !== "mouse") onNew(day, minuteAt(ev.clientY), undefined, ev.clientX);
     },
+    dragOver: (ev, day) => {
+      if (!ev.dataTransfer.types.includes(TASK_DRAG)) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "move";
+      const from = minuteAt(ev.clientY);
+      if (dropAt?.day !== day || dropAt.from !== from) setDropAt({ day, from, to: Math.min(from + 30, MINUTES_PER_DAY) });
+    },
+    drop: (ev, day) => {
+      const id = ev.dataTransfer.getData(TASK_DRAG);
+      if (!id) return;
+      ev.preventDefault();
+      setDropAt(null);
+      onDropTask(id, day, minuteAt(ev.clientY));
+    },
   };
   const actions = useMemo<BlockActions>(() => ({
     open: (e) => latest.current.open(e),
@@ -314,14 +338,28 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
     press: (ev, e, mode) => latest.current.press(ev, e, mode),
     pressEmpty: (ev, day) => latest.current.pressEmpty(ev, day),
     tapEmpty: (ev, day) => latest.current.tapEmpty(ev, day),
+    dragOver: (ev, day) => latest.current.dragOver(ev, day),
+    drop: (ev, day) => latest.current.drop(ev, day),
   }), []);
 
   const allDay = days.map((d) => (entries.get(d) ?? EMPTY).filter((e) => e.start == null));
   const hasAllDay = allDay.some((l) => l.length);
   const hidden = allDay.reduce((n, l) => Math.max(n, l.length - ALL_DAY_ROWS), 0);
   const heldDay = drag?.moved ? days.indexOf(drag.entry.date) : -1;
+  const dropIntoAllDay = (ev: React.DragEvent, day: LocalDate) => {
+    const id = ev.dataTransfer.getData(TASK_DRAG);
+    if (!id) return;
+    ev.preventDefault();
+    setDropAt(null);
+    onDropTask(id, day, null);
+  };
+  const overAllDay = (ev: React.DragEvent) => {
+    if (!ev.dataTransfer.types.includes(TASK_DRAG)) return;
+    ev.preventDefault();
+    setDropAt(null);
+  };
   return (
-    <div className="grid-wrap">
+    <div className="grid-wrap" onDragLeave={(ev) => !ev.currentTarget.contains(ev.relatedTarget as Node) && setDropAt(null)}>
       <div className="grid-head">
         <div className="gutter" />
         {days.map((d) => (
@@ -331,14 +369,14 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
           </div>
         ))}
       </div>
-      {hasAllDay && (
+      {(hasAllDay || carrying) && (
         <div className="allday-row">
           <div className="gutter">
             весь день
             {hidden > 0 && <button className="more-link" onClick={() => setAllDayOpen(!allDayOpen)}>{allDayOpen ? "свернуть" : `+${hidden}`}</button>}
           </div>
           {days.map((d, i) => (
-            <div key={d} className="col" onClick={(ev) => onNew(d, null, undefined, ev.clientX)}>
+            <div key={d} className="col" onClick={(ev) => onNew(d, null, undefined, ev.clientX)} onDragOver={overAllDay} onDrop={(ev) => dropIntoAllDay(ev, d)}>
               {(allDayOpen ? allDay[i] : allDay[i].slice(0, ALL_DAY_ROWS)).map((e) => (
                 <EntryChip key={`${e.task.id}:${e.occurrence}:${e.part}`} e={e} color={colorOf(e.task)} past={dimPast && entryEnd(e) < now}
                   onOpen={onOpen} onToggle={onToggle} onMenu={onMenu} />
@@ -359,7 +397,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
             <DayColumn key={d} day={d} isToday={d === today} list={entries.get(d) ?? EMPTY} colorOf={colorOf} dimPast={dimPast} now={now} hourPx={hourPx}
               held={di === heldDay ? drag!.entry : null}
               ghost={drag?.moved && heldDay + drag.dDay === di ? drag : null}
-              draw={draw?.day === d ? draw : null} actions={actions} />
+              draw={draw?.day === d ? draw : dropAt?.day === d ? dropAt : null} actions={actions} />
           ))}
         </div>
       </div>
