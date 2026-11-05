@@ -1,3 +1,4 @@
+import { splitListName } from "../domain/listIcon";
 import type { LocalDate } from "../core/date";
 import { plusDays, toEpochDay } from "../core/date";
 import { QuickAddParser } from "../core/quickAdd";
@@ -60,7 +61,7 @@ export class Actions {
     if (!text.trim()) return null;
     const parsed = new QuickAddParser(todayDate(), nowMinute()).parse(text);
     const lists = this.store.live("task_lists");
-    const listId = (parsed.listName && lists.find((l) => l.name.toLowerCase() === parsed.listName!.toLowerCase())?.id)
+    const listId = (parsed.listName && lists.find((l) => splitListName(l.name).text.toLowerCase() === parsed.listName!.toLowerCase() || l.name.toLowerCase() === parsed.listName!.toLowerCase())?.id)
       ?? (filter.startsWith("list:") ? filter.slice(5) : INBOX_ID);
     let due: Due | null = parsed.date ? (parsed.time != null ? timedDue(parsed.date, parsed.time) : allDayDue(parsed.date)) : null;
     if (!due) {

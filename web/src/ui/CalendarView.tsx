@@ -15,6 +15,7 @@ import { CALENDAR_COLORS, MONTHS_NOM, PRIORITY_COLORS, WEEKDAYS_SHORT, formatDay
 import { Icon } from "./icons";
 import { ArrangePanel, TASK_DRAG } from "./ArrangePanel";
 import { CalendarFile } from "./CalendarFile";
+import { SyncButton } from "./SyncButton";
 
 type Mode = "schedule" | "day" | "3days" | "week" | "month" | "year";
 const MODES: { key: Mode; label: string }[] = [
@@ -22,6 +23,8 @@ const MODES: { key: Mode; label: string }[] = [
   { key: "week", label: "Неделя" }, { key: "month", label: "Месяц" }, { key: "year", label: "Год" },
 ];
 const SCHEDULE_DAYS = 60;
+/** How far Shift + wheel has to turn to flip a period: one notch of a mouse, a stretch of a trackpad swipe. */
+const WHEEL_FLIP = 80;
 
 /** Calendar choices kept in this browser, like the app's calendar settings (AppSettings.kt). */
 export function useCalendarSettings() {
@@ -35,8 +38,9 @@ export function useCalendarSettings() {
   const [showTasks, setShowTasks] = useLocal("calendarTasks", true);
   const [showHolidays, setShowHolidays] = useLocal("calendarHolidays", true);
   const [hourPx, setHourPx] = useLocal<number>("cal.hourPx", DEFAULT_HOUR_PX);
+  const [scaleInfo, setScaleInfo] = useLocal("cal.scaleInfo", true);
   return {
-    hourPx, setHourPx, hidden, setHidden, firstDay, setFirstDay, eventMinutes, setEventMinutes, defaultCalendar, setDefaultCalendar,
+    hourPx, setHourPx, scaleInfo, setScaleInfo, hidden, setHidden, firstDay, setFirstDay, eventMinutes, setEventMinutes, defaultCalendar, setDefaultCalendar,
     dimPast, setDimPast, weekends, setWeekends, showDone, setShowDone, showTasks, setShowTasks, showHolidays, setShowHolidays,
   };
 }
@@ -120,6 +124,29 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
     }
   };
 
+  // Shift + wheel flips periods, as in TickTick. Chrome turns such a wheel sideways, Firefox counts it in lines.
+  const flip = useRef(shift);
+  flip.current = shift;
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    let turned = 0;
+    let last = 0;
+    const wheel = (e: WheelEvent) => {
+      if (!e.shiftKey || e.ctrlKey) return;
+      e.preventDefault();
+      if (e.timeStamp - last > 250) turned = 0;
+      last = e.timeStamp;
+      turned += (e.deltaY || e.deltaX) * (e.deltaMode === 1 ? 33 : 1);
+      if (Math.abs(turned) < WHEEL_FLIP) return;
+      flip.current(turned > 0 ? 1 : -1);
+      turned = 0;
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, []);
+
   // Arrow keys move between periods.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -193,6 +220,13 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
     actions.update(shifted(t, entry.occurrence, start, end));
     toast({ text: `«${t.title}» перенесено`, undo: () => actions.update({ ...before, updatedAt: store.get("tasks", t.id)?.updatedAt ?? before.updatedAt }) });
   };
+  /** A block dragged with Ctrl: a separate copy there; the original, and the rest of a series, stay. */
+  const onCopy = (entry: CalendarEntry, minutes: number) => {
+    const copy = actions.duplicate(current(entry), entry.occurrence);
+    const placed = shifted(copy, entry.occurrence, minutes, minutes);
+    actions.update(placed);
+    toast({ text: `Копия: «${placed.title}»`, undo: () => actions.delete(store.get("tasks", placed.id) ?? placed) });
+  };
   /** A task dragged from the panel gets that time, keeping its length (half an hour when it has none), or that day. */
   const dropTask = (taskId: string, day: LocalDate, minute: number | null) => {
     const t = store.get("tasks", taskId);
@@ -231,6 +265,7 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
         <button className={`btn ${todayShown ? "" : "away"}`} title={todayShown ? undefined : "Открыта другая неделя — вернуться к сегодня"} onClick={() => setAnchor(today)}>Сегодня</button>
         <button className="icon-btn" aria-label="Вперёд" onClick={() => shift(1)}><Icon name="right" /></button>
         <div className="spacer" />
+        <SyncButton onlyProblems />
         <button className="icon-btn" title="Поиск" aria-label="Поиск" onClick={onSearch}><Icon name="search" /></button>
         <div style={{ position: "relative" }}>
           <button className="icon-btn" title="Календари и вид" aria-label="Календари и вид" onClick={() => setLayers(!layers)}><Icon name="layers" /></button>
@@ -251,7 +286,7 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
         </button>
       </div>
       <div className="cal-row">
-      <div className="main-body cal-body" style={{ paddingBottom: mode === "month" || mode === "year" || mode === "schedule" ? 40 : 0 }}
+      <div className="main-body cal-body" ref={body} style={{ paddingBottom: mode === "month" || mode === "year" || mode === "schedule" ? 40 : 0 }}
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {mode === "month" && (
           <MonthGrid first={range[0]} month={parts(withDayOfMonth(anchor, 1))[1]} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast}
@@ -262,8 +297,8 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
         {mode === "schedule" && <ScheduleView from={anchor} days={scheduleDays} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast}
           onOpen={openEntry} onMenu={openMenu} onDay={openDay} onMore={() => setScheduleDays(scheduleDays + SCHEDULE_DAYS)} />}
         {days.length > 0 && (
-          <TimeGrid days={days} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast} hourPx={s.hourPx} setHourPx={s.setHourPx} dragging={dragging} carrying={arrange}
-            onDay={openDay} onNew={newEvent} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onShift={onShift} onDropTask={dropTask} />
+          <TimeGrid days={days} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast} hourPx={s.hourPx} setHourPx={s.setHourPx} dragging={dragging} carrying={arrange} scaleInfo={s.scaleInfo}
+            onDay={openDay} onNew={newEvent} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onShift={onShift} onCopy={onCopy} onDropTask={dropTask} />
         )}
       </div>
       {arrange && mode !== "year" && mode !== "schedule" && <ArrangePanel onOpen={(t, at) => onOpen(t, undefined, at)} onClose={() => setArrange(false)} />}
@@ -357,6 +392,7 @@ function LayersMenu({ s, calendars, onClose }: { s: Settings; calendars: Calenda
       <label className="row layer-check"><input type="checkbox" checked={s.showHolidays} onChange={(e) => s.setShowHolidays(e.target.checked)} />Праздники России</label>
       <label className="row layer-check"><input type="checkbox" checked={s.weekends} onChange={(e) => s.setWeekends(e.target.checked)} />Выходные в «Неделе»</label>
       <label className="row layer-check"><input type="checkbox" checked={s.dimPast} onChange={(e) => s.setDimPast(e.target.checked)} />Приглушать прошедшее</label>
+      <label className="row layer-check"><input type="checkbox" checked={s.scaleInfo} onChange={(e) => s.setScaleInfo(e.target.checked)} />Номер недели и часовой пояс</label>
       <div className="side-title">Настройки</div>
       <label className="row layer-check">Первый день недели
         <select className="field" style={{ width: "auto" }} value={s.firstDay} onChange={(e) => s.setFirstDay(Number(e.target.value))}>
@@ -380,7 +416,7 @@ function LayersMenu({ s, calendars, onClose }: { s: Settings; calendars: Calenda
           <button className="btn small" style={{ width: "auto" }} aria-label="Крупнее" onClick={() => s.setHourPx(Math.min(s.hourPx + 8, MAX_HOUR_PX))}>+</button>
         </span>
       </div>
-      <div className="muted small" style={{ padding: "0 10px 6px" }}>Или Ctrl + колёсико над сеткой. Мышью время ставится с шагом 5 минут, с Shift или Alt — с точностью до минуты</div>
+      <div className="muted small" style={{ padding: "0 10px 6px" }}>Или Ctrl + колёсико над сеткой. Shift + колёсико листает период. Мышью время ставится с шагом 5 минут, с Shift или Alt — с точностью до минуты. Перетаскивание с Ctrl делает копию</div>
       <button onClick={() => setFile(true)}><Icon name="sync" size={16} />Импорт и экспорт .ics</button>
       {editing && <CalendarDialog calendar={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
       {file && <CalendarFile onClose={() => setFile(false)} />}

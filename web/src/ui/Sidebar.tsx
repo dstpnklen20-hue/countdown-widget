@@ -1,9 +1,13 @@
 import { useMemo, useState } from "react";
 import { cssColor, type Folder, INBOX_ID, type TaskList } from "../data/model";
+import { splitListName } from "../domain/listIcon";
 import { type FilterKey, SMART, matches } from "../domain/tasks";
 import { Dialog, MenuButton, NameDialog, Swatches } from "./common";
 import { useData, useLocal, useToday } from "./context";
 import { Icon } from "./icons";
+
+/** Ready icons for a list; any other emoji can be typed at the start of the name. */
+const LIST_ICONS = ["🏠", "💼", "📚", "🎓", "🛒", "💪", "🏃", "🍎", "💰", "✈️", "🎯", "💡", "🎮", "🎵", "🎬", "❤️", "🐾", "🌱", "🚗", "🔧", "📝", "📅", "⭐", "🧘"];
 
 type DialogState = null | { kind: "list"; list: TaskList | null; folderId?: string | null } | { kind: "folder"; folder: Folder | null };
 
@@ -33,12 +37,14 @@ export function Sidebar({ open, filter, onFilter, onTrash }: {
 
   const listItem = (l: TaskList, nested: boolean) => {
     const key: FilterKey = `list:${l.id}`;
+    const { icon, text } = splitListName(l.name);
     return (
       <div key={l.id} style={{ display: "flex", alignItems: "center", paddingLeft: nested ? 14 : 0 }}>
         <button className={`side-item ${filter === key ? "active" : ""}`} onClick={() => onFilter(key)}>
-          {l.viewMode === "KANBAN" ? <Icon name="kanban" size={16} color={cssColor(l.color) ?? "var(--faint)"} />
-            : <span className="dot" style={{ background: cssColor(l.color) ?? "var(--faint)" }} />}
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.name}</span>
+          {icon ? <span className="list-emoji" aria-hidden="true">{icon}</span>
+            : l.viewMode === "KANBAN" ? <Icon name="kanban" size={16} color={cssColor(l.color) ?? "var(--faint)"} />
+              : <span className="dot" style={{ background: cssColor(l.color) ?? "var(--faint)" }} />}
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
           <span className="count">{counts(key) || ""}</span>
         </button>
         <MenuButton label={`Список «${l.name}»`} items={[
@@ -137,12 +143,15 @@ function ListDialog({ list, folders, folderId, onSave, onClose }: {
   list: TaskList | null; folders: Folder[]; folderId: string | null;
   onSave: (name: string, color: number | null, folderId: string | null) => void; onClose: () => void;
 }) {
-  const [name, setName] = useState(list?.name ?? "");
+  const first = splitListName(list?.name ?? "");
+  const [name, setName] = useState(first.text);
+  const [icon, setIcon] = useState<string | null>(first.icon);
   const [color, setColor] = useState<number | null>(list?.color ?? null);
   const [folder, setFolder] = useState<string | null>(folderId);
   const save = () => {
     if (!name.trim()) return;
-    onSave(name.trim(), color, folder);
+    // An emoji typed into the name itself counts too, unless one was picked.
+    onSave(icon ? `${icon} ${splitListName(name).text.trim()}` : name.trim(), color, folder);
     onClose();
   };
   return (
@@ -152,6 +161,15 @@ function ListDialog({ list, folders, folderId, onSave, onClose }: {
     </>}>
       <div className="form">
         <input className="field" autoFocus value={name} placeholder="Название" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+        <div className="icon-row" role="group" aria-label="Значок">
+          <button type="button" className={`icon-pick ${icon ? "" : "on"}`} title="Без значка: цветная точка" aria-label="Без значка" aria-pressed={!icon} onClick={() => setIcon(null)}>
+            <span className="dot" style={{ background: cssColor(color) ?? "var(--faint)" }} />
+          </button>
+          {LIST_ICONS.map((e) => (
+            <button key={e} type="button" className={`icon-pick ${icon === e ? "on" : ""}`} aria-pressed={icon === e} aria-label={`Значок ${e}`} onClick={() => setIcon(e)}>{e}</button>
+          ))}
+          {icon && !LIST_ICONS.includes(icon) && <button type="button" className="icon-pick on" aria-pressed="true" aria-label={`Значок ${icon}`}>{icon}</button>}
+        </div>
         <Swatches value={color} onChange={setColor} />
         {folders.length > 0 && (
           <label className="row">Папка

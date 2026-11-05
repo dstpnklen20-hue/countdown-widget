@@ -456,3 +456,28 @@ mark { background: color-mix(in srgb, var(--primary) 30%, transparent); color: i
 
 .menu .menu-group { margin-top: 5px; position: relative; }
 .menu .menu-group::before { content: ""; position: absolute; left: 6px; right: 6px; top: -3px; border-top: 1px solid var(--line); }
+
+/* --- The scale's corner: week number and time zone --- */
+.grid-head .gutter { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 1px; padding-bottom: 8px; font-size: 10px; color: var(--faint); line-height: 1.2; white-space: nowrap; overflow: hidden; }
+.grid-head .gutter b { font-size: 12px; font-weight: 600; color: var(--muted); }
+
+/* --- A list's icon --- */
+.list-emoji { flex: none; width: 18px; font-size: 15px; line-height: 1; text-align: center; }
+.icon-row { display: flex; flex-wrap: wrap; gap: 2px; }
+.icon-pick { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: none; border-radius: 8px; background: transparent; font-size: 17px; line-height: 1; cursor: pointer; }
+.icon-pick:hover { background: var(--surface); }
+.icon-pick.on { background: var(--primary-soft); box-shadow: inset 0 0 0 1.5px var(--primary); }
+
+/* --- Sync in the rail --- */
+.sync-btn.ok { color: var(--faint); }
+.sync-btn.busy { color: var(--primary); }
+.sync-btn.busy svg { animation: sync-turn 1s linear infinite; }
+.sync-btn.warn { color: var(--muted); }
+.sync-btn.error { color: var(--danger); }
+@keyframes sync-turn { to { transform: rotate(-360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-btn.busy svg { animation: none; } }
+@media (max-width: 760px) {
+  /* The bottom bar is full: all is well needs no icon there, and a problem shrinks the others a little. */
+  .rail .sync-btn.ok, .rail .sync-btn.busy { display: none; }
+  .rail .icon-btn { flex: 0 1 42px; min-width: 0; }
+}

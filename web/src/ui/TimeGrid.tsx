@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { type LocalDate, dayOfWeek, formatTime, parts, plusDays } from "../core/date";
 import type { Task } from "../data/model";
 import { type CalendarEntry, MINUTES_PER_DAY, MIN_BLOCK_MINUTES, isVirtual, layoutBlocks } from "../domain/calendar";
-import { epochAt, localTimeOf } from "../domain/dates";
+import { epochAt, isoWeek, localTimeOf, zone, zoneLabel } from "../domain/dates";
 import { happens, isDone } from "../domain/tasks";
 import { Check } from "./common";
 import { WEEKDAYS_SHORT } from "./format";
@@ -12,6 +12,8 @@ import { TASK_DRAG } from "./ArrangePanel";
 /** Drags on the grid land on 5 minutes, as in the app; with Shift or Alt held, on any minute. */
 const SNAP = 5;
 const stepOf = (e: { shiftKey: boolean; altKey: boolean }) => (e.shiftKey || e.altKey ? 1 : SNAP);
+/** A block dragged with this held is copied, not moved. */
+const copyKey = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.metaKey;
 /** A press that moved less than this is a click: a new event of the usual length, not a tiny range. */
 const CLICK_PX = 6;
 /** All-day entries shown per day before "+N". */
@@ -90,6 +92,8 @@ interface Drag {
   dMin: number;
   dDay: number;
   moved: boolean;
+  /** Ctrl is held: the block stays, and a copy lands where it is dropped. */
+  copy: boolean;
 }
 
 /** A range being drawn on an empty column with the mouse: a new event of that length. */
@@ -166,7 +170,7 @@ const DayColumn = memo(function DayColumn({ day, isToday, list, colorOf, dimPast
         const color = colorOf(ghost.entry.task);
         return (
           <div className="block ghost" style={{ top: (s / 60) * hourPx, height: Math.max(((end - s) / 60) * hourPx, 18), left: 0, width: "calc(100% - 2px)", background: color, color: onColor(color) }}>
-            <div className="t"><span>{ghost.entry.task.title}</span></div>
+            <div className="t"><span>{ghost.copy ? `+ ${ghost.entry.task.title}` : ghost.entry.task.title}</span></div>
             <div className="when">{formatTime(wrap(s))}–{formatTime(wrap(end))}</div>
           </div>
         );
@@ -181,14 +185,18 @@ const DayColumn = memo(function DayColumn({ day, isToday, list, colorOf, dimPast
   );
 });
 
-export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, setHourPx, dragging, carrying, onDay, onNew, onOpen, onToggle, onMenu, onShift, onDropTask }: {
+export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, setHourPx, dragging, carrying, scaleInfo, onDay, onNew, onOpen, onToggle, onMenu, onShift, onCopy, onDropTask }: {
   days: LocalDate[]; today: LocalDate; now: number; entries: Map<LocalDate, CalendarEntry[]>; colorOf: (t: Task) => string; dimPast: boolean;
   hourPx: number; setHourPx: (n: number) => void; dragging: React.MutableRefObject<boolean>;
   /** The panel is open: the all-day row stays, as a place to drop a task. */
   carrying: boolean;
+  /** The week's number and the time zone above the hours. */
+  scaleInfo: boolean;
   onDay: (d: LocalDate) => void; onNew: (d: LocalDate, minute: number | null, end?: number) => void; onOpen: (e: CalendarEntry, at?: DOMRect) => void;
   onToggle: (e: CalendarEntry) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void;
   onShift: (e: CalendarEntry, start: number, end: number) => void;
+  /** A block dragged with Ctrl: a copy, [minutes] from it. */
+  onCopy: (e: CalendarEntry, minutes: number) => void;
   /** A task dragged from the panel: to a time of [day], or (null) into its all-day row. */
   onDropTask: (taskId: string, day: LocalDate, minute: number | null) => void;
 }) {
@@ -244,11 +252,15 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
       const dDay = drag.mode === "move" ? Math.min(Math.max(Math.round((e.clientX - drag.x) / colWidth), -index), days.length - 1 - index) : 0;
       const moved = drag.moved || Math.abs(e.clientY - drag.y) > 4 || Math.abs(e.clientX - drag.x) > 4;
       if (moved) dragging.current = true;
-      if (dMin !== drag.dMin || dDay !== drag.dDay || moved !== drag.moved) setDrag({ ...drag, dMin, dDay, moved });
+      const copy = drag.mode === "move" && copyKey(e);
+      if (dMin !== drag.dMin || dDay !== drag.dDay || moved !== drag.moved || copy !== drag.copy) setDrag({ ...drag, dMin, dDay, moved, copy });
     };
-    const up = () => {
+    const up = (e: PointerEvent) => {
       const shift = drag.dDay * MINUTES_PER_DAY + drag.dMin;
-      if (drag.moved && shift !== 0) onShift(drag.entry, drag.mode === "move" ? shift : 0, shift);
+      if (drag.moved && shift !== 0) {
+        if (drag.mode === "move" && copyKey(e)) onCopy(drag.entry, shift);
+        else onShift(drag.entry, drag.mode === "move" ? shift : 0, shift);
+      }
       setDrag(null);
       // The click that ends a drag comes right after this; it must not open the block.
       if (dragging.current) setTimeout(() => { dragging.current = false; }, 50);
@@ -308,7 +320,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
           dragging.current = true;
           navigator.vibrate?.(20);
         }
-        setDrag({ entry, mode, x: e.clientX, y: e.clientY, dMin: 0, dDay: 0, moved: e.pointerType !== "mouse" });
+        setDrag({ entry, mode, x: e.clientX, y: e.clientY, dMin: 0, dDay: 0, moved: e.pointerType !== "mouse", copy: mode === "move" && copyKey(e) });
       };
       if (e.pointerType === "mouse") return begin();
       clearTimeout(hold.current);
@@ -378,7 +390,14 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
   return (
     <div className="grid-wrap" onDragLeave={(ev) => !ev.currentTarget.contains(ev.relatedTarget as Node) && setDropAt(null)}>
       <div className="grid-head">
-        <div className="gutter" />
+        <div className="gutter">
+          {scaleInfo && days.length > 0 && (
+            <>
+              <b title="Номер недели">Н{isoWeek(days[Math.floor(days.length / 2)])}</b>
+              <span title={`Часовой пояс: ${zone()}`}>{zoneLabel(days[0])}</span>
+            </>
+          )}
+        </div>
         {days.map((d) => (
           <div key={d} className={`day ${d === today ? "today" : ""}`} onClick={() => onDay(d)}>
             <div className="w">{WEEKDAYS_SHORT[dayOfWeek(d) - 1]}</div>
@@ -412,7 +431,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
           </div>
           {days.map((d, di) => (
             <DayColumn key={d} day={d} isToday={d === today} list={entries.get(d) ?? EMPTY} colorOf={colorOf} dimPast={dimPast} now={now} hourPx={hourPx}
-              held={di === heldDay ? drag!.entry : null}
+              held={di === heldDay && !drag!.copy ? drag!.entry : null}
               ghost={drag?.moved && heldDay + drag.dDay === di ? drag : null}
               draw={draw?.day === d ? draw : dropAt?.day === d ? dropAt : null} actions={actions} />
           ))}

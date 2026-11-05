@@ -19,6 +19,7 @@ import { TaskListView } from "./TaskListView";
 import { TrashView } from "./TrashView";
 import { SearchView } from "./SearchView";
 import { StatsView } from "./StatsView";
+import { SyncButton } from "./SyncButton";
 import { useTabReminders } from "./TabReminders";
 
 const SESSION_KEY = "tiktak.session";
@@ -221,6 +222,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           <Icon name="search" size={22} />
         </button>
         <div className="spacer rail-extra" />
+        <SyncButton />
         <button className={`icon-btn ${section === "settings" ? "active" : ""}`} title="Настройки" aria-label="Настройки" onClick={() => go("settings")}>
           <Icon name="settings" size={22} />
         </button>
