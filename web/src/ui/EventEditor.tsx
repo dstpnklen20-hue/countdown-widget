@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { type LocalDate, daysBetween, formatTime, parseTime, plusDays } from "../core/date";
 import type { ReminderSpec } from "../data/actions";
-import { PERSONAL_CALENDAR_ID, type Task, blank, cssColor } from "../data/model";
+import { INBOX_ID, PERSONAL_CALENDAR_ID, type Task, blank, cssColor } from "../data/model";
 import { allDayDue, dayOf, dueDay, localTimeOf, timedDue, todayDate } from "../domain/dates";
 import { type SeriesScope, SCOPES, atOccurrence } from "../domain/series";
 import { repeatDescription } from "../domain/tasks";
@@ -68,7 +68,7 @@ const ALL_DAY_PRESETS = [
 ];
 
 export function EventEditor({ draft, onClose, onTask, onPreview }: {
-  draft: EventDraft; onClose: () => void; onTask: (id: string) => void;
+  draft: EventDraft; onClose: () => void; onTask: (id: string, at?: DOMRect) => void;
   /** A new event as it is now, to show in the calendar under the window; null when it closes. */
   onPreview: (t: Task | null) => void;
 }) {
@@ -94,6 +94,9 @@ export function EventEditor({ draft, onClose, onTask, onPreview }: {
   const [ask, setAsk] = useState<null | "save" | "delete">(null);
   const [dateOpen, setDateOpen] = useState(isNew);
   const [moreOpen, setMoreOpen] = useState(false);
+  /** A new entry can be a task instead: same title and time, a checkbox instead of a calendar. */
+  const [asTask, setAsTask] = useState(false);
+  const [listId, setListId] = useState(INBOX_ID);
   const today = useToday();
   const calendars = store.live("calendars").sort((a, b) => a.sortOrder - b.sortOrder);
   const calendarColor = cssColor(calendars.find((c) => c.id === calendarId)?.color);
@@ -106,11 +109,19 @@ export function EventEditor({ draft, onClose, onTask, onPreview }: {
 
   // The picked time stays marked in the calendar while the event is being filled in, and follows the fields.
   useEffect(() => {
-    if (isNew) onPreview({ ...edited(), id: PREVIEW_ID, title: title.trim() || "Новое событие" });
-  }, [isNew, title, span, calendarId, color, type, repeat]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (isNew) onPreview({ ...(asTask ? taskOf(edited()) : edited()), id: PREVIEW_ID, title: title.trim() || (asTask ? "Новая задача" : "Новое событие") });
+  }, [isNew, asTask, listId, title, span, calendarId, color, type, repeat]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => onPreview(null), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** The entry as a task of [listId]: what only events have is left out. */
+  const taskOf = (t: Task): Task => ({ ...t, isEvent: 0, listId, calendarId: null, eventType: null, location: null });
+
   const save = (scope: SeriesScope = "ALL") => {
+    if (isNew && asTask) {
+      const id = actions.saveEvent(taskOf(edited()), reminders);
+      toast({ text: `Задача «${title.trim() || "(Без названия)"}» создана` });
+      return onTask(id, draft.anchor);
+    }
     if (isNew) actions.saveEvent(edited(), reminders);
     else actions.saveEvent(edited(), reminders, store.get("tasks", master.id) ?? master, occurrence, scope);
     onClose();
@@ -133,7 +144,7 @@ export function EventEditor({ draft, onClose, onTask, onPreview }: {
   const makeTask = () => {
     if (!master) return;
     actions.update({ ...(store.get("tasks", master.id) ?? master), isEvent: 0 });
-    onTask(master.id);
+    onTask(master.id, draft.anchor);
   };
 
   const setAllDay = (allDay: boolean) => {
@@ -143,13 +154,21 @@ export function EventEditor({ draft, onClose, onTask, onPreview }: {
   };
 
   // A click elsewhere closes the card, unless that would lose what was typed.
-  const state = JSON.stringify([title, span, repeat, calendarId, location, content, color, type, countdown, reminders]);
+  const state = JSON.stringify([title, span, repeat, calendarId, location, content, color, type, countdown, reminders, asTask, listId]);
   const started = useRef(state);
   const canClose = isNew ? !title.trim() : state === started.current;
 
   const presets = span.allDay ? ALL_DAY_PRESETS : REMINDER_PRESETS;
   return (
-    <EntryCard anchor={draft.anchor} label={isNew ? "Новое событие" : "Событие"} canClose={canClose} onClose={onClose}>
+    <EntryCard anchor={draft.anchor} label={isNew ? (asTask ? "Новая задача" : "Новое событие") : "Событие"} canClose={canClose} onClose={onClose}>
+      {isNew && (
+        <div className="card-head">
+          <div className="seg" role="group" aria-label="Что создать">
+            <button className={asTask ? "" : "on"} aria-pressed={!asTask} onClick={() => setAsTask(false)}>Событие</button>
+            <button className={asTask ? "on" : ""} aria-pressed={asTask} onClick={() => setAsTask(true)}>Задача</button>
+          </div>
+        </div>
+      )}
       <div className="card-head">
         <button className="date-btn" aria-expanded={dateOpen} onClick={() => setDateOpen(!dateOpen)}>
           <Icon name="calendar" size={16} /><span>{formatEventSpan(edited(), today)}</span>
@@ -193,11 +212,11 @@ export function EventEditor({ draft, onClose, onTask, onPreview }: {
         <input className="plain detail-title" autoFocus={isNew} value={title} placeholder="Название" aria-label="Название"
           onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (repeating ? setAsk("save") : save())} />
         <textarea className="plain" rows={Math.max(2, Math.min(content.split("\n").length, 14))} value={content} placeholder="Описание" aria-label="Описание" onChange={(e) => setContent(e.target.value)} />
-        <div className="prop card-place">
+        {!asTask && <div className="prop card-place">
           <span className="icon"><Icon name="place" size={16} /></span>
           <input className="plain" value={location} placeholder="Место" aria-label="Место" onChange={(e) => setLocation(e.target.value)} />
-        </div>
-        {moreOpen && (
+        </div>}
+        {moreOpen && !asTask && (
           <div className="card-section">
             <select className="field" value={type ?? ""} aria-label="Тип события" onChange={(e) => setType(e.target.value || null)}>
               {EVENT_TYPES.map((t) => <option key={t.label} value={t.key ?? ""}>{t.label}</option>)}
@@ -207,9 +226,9 @@ export function EventEditor({ draft, onClose, onTask, onPreview }: {
             <Swatches value={color} onChange={setColor} palette={CALENDAR_COLORS} />
           </div>
         )}
-        <div className="prop card-adds">
+        {!asTask && <div className="prop card-adds">
           <button className={`chip ${moreOpen ? "on" : ""}`} onClick={() => setMoreOpen(!moreOpen)}>+ Тип, цвет, отсчёт</button>
-        </div>
+        </div>}
         {repeating && repeat !== master?.repeatRule && <div className="muted small">Новый повтор: {repeatDescription({ ...base, repeatRule: repeat })}</div>}
         {ask && (
           <div className="menu" style={{ position: "static" }} role="menu" aria-label={ask === "save" ? "Сохранить для" : "Удалить"}>
@@ -223,7 +242,13 @@ export function EventEditor({ draft, onClose, onTask, onPreview }: {
         )}
       </div>
       <div className="card-foot">
-        {calendars.length > 0 && (
+        {asTask && (
+          <select className="plain-select" value={listId} aria-label="Список" onChange={(e) => setListId(e.target.value)}>
+            {store.live("task_lists").sort((a, b) => Number(b.isInbox) - Number(a.isInbox) || a.sortOrder - b.sortOrder)
+              .map((l) => <option key={l.id} value={l.id}>{l.isInbox || l.id === INBOX_ID ? "Входящие" : l.name}</option>)}
+          </select>
+        )}
+        {!asTask && calendars.length > 0 && (
           <select className="plain-select" value={calendarId} aria-label="Календарь" onChange={(e) => setCalendarId(e.target.value)}>
             {calendars.map((c) => <option key={c.id} value={c.id}>● {c.name}</option>)}
           </select>

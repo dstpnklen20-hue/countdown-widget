@@ -1,5 +1,6 @@
 package com.claudecode.countdown.ui.calendar
 
+import androidx.compose.runtime.snapshotFlow
 import com.claudecode.countdown.domain.calendarTitle
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -193,13 +194,17 @@ internal fun TimeGrid(
     LaunchedEffect(settings.hourHeight) { hourDp = settings.hourHeight.toFloat() }
     val hourHeight = hourDp.dp
     val hourPx = with(density) { hourHeight.toPx() }
-    // Where to scroll once the zoomed grid has its new height (it cannot scroll there before).
+    // Where to scroll once the zoomed grid has its new height (it cannot scroll there before). One collector
+    // takes the latest target each frame: restarting an effect per pinch step never got to scroll while the
+    // fingers moved fast, and the next steps counted from the stale position, so the blocks lagged and jumped.
     var zoomScroll by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(zoomScroll) {
-        val target = zoomScroll ?: return@LaunchedEffect
-        withFrameNanos { }
-        scroll.scrollTo(target)
-        zoomScroll = null
+    LaunchedEffect(Unit) {
+        snapshotFlow { zoomScroll }.collect { target ->
+            if (target == null) return@collect
+            withFrameNanos { }
+            scroll.scrollTo(target)
+            if (zoomScroll == target) zoomScroll = null
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -356,7 +361,7 @@ internal fun TimeGrid(
                     Modifier
                         .fillMaxSize()
                         .pinchToZoom(
-                            scroll = scroll,
+                            scrollValue = { zoomScroll ?: scroll.value },
                             hourDp = { hourDp },
                             onZoom = { height, target ->
                                 hourDp = height
@@ -453,7 +458,8 @@ private fun zoneShort(zone: ZoneId): String = zone.getDisplayName(TextStyle.SHOR
  * left to the scroll. Runs in the initial pass so the scroll never sees a pinch.
  */
 private fun Modifier.pinchToZoom(
-    scroll: ScrollState,
+    /** Where the grid is scrolled to, or is about to be after the last step. */
+    scrollValue: () -> Int,
     hourDp: () -> Float,
     /** The new hour height and the scroll position that keeps the content under the fingers. */
     onZoom: (Float, Int) -> Unit,
@@ -474,7 +480,7 @@ private fun Modifier.pinchToZoom(
                     if (new != old) {
                         zoomed = true
                         val focus = event.calculateCentroid().y
-                        onZoom(new, ((scroll.value + focus) * (new / old) - focus).roundToInt().coerceAtLeast(0))
+                        onZoom(new, ((scrollValue() + focus) * (new / old) - focus).roundToInt().coerceAtLeast(0))
                     }
                 }
                 event.changes.forEach { if (it.positionChanged()) it.consume() }

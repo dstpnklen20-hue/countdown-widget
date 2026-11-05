@@ -41,12 +41,16 @@ fun EventEditRoute(draft: EventDraft, pastEvents: List<Task>, onClose: () -> Uni
                 onClose()
             }
         },
-        onMakeTask = master?.let { m ->
-            {
-                container.appScope.launch {
-                    repo.update(m.copy(isEvent = false))
-                    withContext(Dispatchers.Main) { onTaskInstead(m.id) }
+        onMakeTask = { edited, reminders ->
+            container.appScope.launch {
+                val id = if (master != null) {
+                    repo.update(master.copy(isEvent = false))
+                    master.id
+                } else {
+                    // A new one is saved straight as a task: what only events have is left out.
+                    repo.saveEvent(edited.copy(isEvent = false, calendarId = null, eventType = null, location = null), reminders)
                 }
+                withContext(Dispatchers.Main) { onTaskInstead(id) }
             }
         },
         onClose = onClose,

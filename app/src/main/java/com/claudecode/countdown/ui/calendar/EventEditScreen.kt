@@ -134,7 +134,8 @@ fun EventEditScreen(
     allDayMinutes: Int,
     onSave: (Task, List<ReminderSpec>, SeriesScope) -> Unit,
     onDelete: ((SeriesScope) -> Unit)?,
-    onMakeTask: (() -> Unit)?,
+    /** Turns the event into a task; it gets what is filled in now, for a new one that is all there is. */
+    onMakeTask: ((Task, List<ReminderSpec>) -> Unit)?,
     onClose: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -401,7 +402,9 @@ fun EventEditScreen(
             }
             if (onMakeTask != null || onDelete != null) HorizontalDivider(Modifier.padding(vertical = 8.dp))
             if (onMakeTask != null) {
-                TextButton(onClick = onMakeTask, modifier = Modifier.padding(start = 52.dp)) { Text("Сделать задачей") }
+                TextButton(onClick = { onMakeTask(build(), reminders) }, modifier = Modifier.padding(start = 52.dp)) {
+                    Text(if (isNew) "Сохранить как задачу" else "Сделать задачей")
+                }
             }
             if (onDelete != null) {
                 TextButton(onClick = { if (series) askScope = "delete" else onDelete(SeriesScope.ALL) }, modifier = Modifier.padding(start = 52.dp)) {

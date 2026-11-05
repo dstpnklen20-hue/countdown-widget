@@ -261,7 +261,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           <TaskDetail key={selectedTask.id} task={selectedTask} onClose={() => setSelected(null)} onOpen={(t) => open(t)} onFocus={startFocus} />
         </aside>
       ))}
-      {event && <EventEditor draft={event} onPreview={setPreview} onClose={() => setEvent(null)} onTask={(id) => { setEvent(null); setSection(section === "calendar" ? "calendar" : "tasks"); setSelected(id); }} />}
+      {event && <EventEditor draft={event} onPreview={setPreview} onClose={() => setEvent(null)} onTask={(id, at) => { setEvent(null); setSection(section === "calendar" ? "calendar" : "tasks"); if (at) setAnchor(at); setSelected(id); }} />}
     </div>
   );
 }
