@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type LocalDate, dayOfWeek, formatTime, parts, plusDays } from "../core/date";
 import type { Task } from "../data/model";
 import { type CalendarEntry, MINUTES_PER_DAY, MIN_BLOCK_MINUTES, isVirtual, layoutBlocks } from "../domain/calendar";
@@ -7,7 +7,7 @@ import { happens, isDone } from "../domain/tasks";
 import { Check } from "./common";
 import { WEEKDAYS_SHORT } from "./format";
 import { Icon } from "./icons";
-import { TASK_DRAG } from "./ArrangePanel";
+import { FROM_CALENDAR, TASK_DRAG } from "./ArrangePanel";
 
 /** Drags on the grid land on 5 minutes, as in the app; with Shift or Alt held, on any minute. */
 const SNAP = 5;
@@ -23,6 +23,12 @@ export const MIN_HOUR_PX = 32;
 export const MAX_HOUR_PX = 160;
 /** The new event while its editor is open: drawn like an entry, not stored. */
 export const PREVIEW_ID = "virtual:preview";
+
+/** A plain task (not an event, a countdown, a holiday or a future repeat): it can go back to the panel. */
+export const canUnplan = (e: CalendarEntry) => !happens(e.task) && !isVirtual(e.task) && !e.projected && e.task.id !== PREVIEW_ID;
+
+/** The "Распланировать" panel under the pointer, if it is there. */
+const panelAt = (x: number, y: number) => (document.elementFromPoint(x, y) as HTMLElement | null)?.closest?.(".arrange") as HTMLElement | null;
 
 export function entryTitle(e: CalendarEntry): string {
   const t = e.parts > 1 ? `${e.task.title} (${e.part}/${e.parts})` : e.task.title;
@@ -72,7 +78,9 @@ export function EntryChip({ e, color, past, onOpen, onToggle, onMenu }: {
   const filled = happens(t);
   const done = isDone(t) && !t.isEvent;
   return (
-    <div role="button" tabIndex={0} className={`chip-entry ${past || done ? "past" : ""} ${t.eventType === "AWAY" ? "away" : ""} ${t.id === PREVIEW_ID ? "draft" : ""}`}
+    <div role="button" tabIndex={0} draggable={canUnplan(e)}
+      onDragStart={(ev) => { ev.dataTransfer.setData(TASK_DRAG, t.id); ev.dataTransfer.setData(FROM_CALENDAR, "1"); ev.dataTransfer.effectAllowed = "move"; }}
+      className={`chip-entry ${past || done ? "past" : ""} ${t.eventType === "AWAY" ? "away" : ""} ${t.id === PREVIEW_ID ? "draft" : ""}`}
       style={blockColors(color, filled, !!past || done, 45)}
       onClick={(ev) => { ev.stopPropagation(); onOpen(e, ev.currentTarget.getBoundingClientRect()); }}
       onKeyDown={(ev) => ev.key === "Enter" && onOpen(e, ev.currentTarget.getBoundingClientRect())}
@@ -114,6 +122,14 @@ interface BlockActions {
 }
 
 const EMPTY: CalendarEntry[] = [];
+
+/** Lights the panel up while a block can be dropped on it. */
+function markPanel(panel: HTMLElement | null) {
+  const el = document.querySelector<HTMLElement>(".arrange");
+  if (!el) return;
+  if (panel === el) el.dataset.drop = "1";
+  else delete el.dataset.drop;
+}
 const wrap = (m: number) => ((m % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
 
 /** One day's blocks. What it draws depends only on these props, so moving the mouse elsewhere costs nothing. */
@@ -186,7 +202,7 @@ const DayColumn = memo(function DayColumn({ day, isToday, list, colorOf, dimPast
   );
 });
 
-export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, setHourPx, dragging, carrying, scaleInfo, onDay, onNew, onOpen, onToggle, onMenu, onShift, onCopy, onDropTask }: {
+export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, setHourPx, dragging, carrying, scaleInfo, onDay, onNew, onOpen, onToggle, onMenu, onShift, onCopy, onDropTask, onUnplan }: {
   days: LocalDate[]; today: LocalDate; now: number; entries: Map<LocalDate, CalendarEntry[]>; colorOf: (t: Task) => string; dimPast: boolean;
   hourPx: number; setHourPx: (n: number) => void; dragging: React.MutableRefObject<boolean>;
   /** The panel is open: the all-day row stays, as a place to drop a task. */
@@ -200,6 +216,8 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
   onCopy: (e: CalendarEntry, minutes: number) => void;
   /** A task dragged from the panel: to a time of [day], or (null) into its all-day row. */
   onDropTask: (taskId: string, day: LocalDate, minute: number | null) => void;
+  /** A task block dropped on the "Распланировать" panel: it loses its date. */
+  onUnplan: (taskId: string) => void;
 }) {
   const [dropAt, setDropAt] = useState<Draw | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -219,6 +237,9 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ctrl + wheel (a pinch on a trackpad) changes the scale, like a pinch on the phone; the hour under the pointer stays.
+  // The scroll follows in the same frame as the new heights (below): a frame between them showed the blocks
+  // in the wrong place, which on a fast wheel looked like trails. Several events in one frame add up.
+  const zoomAt = useRef<{ minute: number; y: number } | null>(null);
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
@@ -226,16 +247,23 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
       if (!e.ctrlKey) return;
       e.preventDefault();
       const old = hourRef.current;
-      const next = Math.min(Math.max(old + (e.deltaY < 0 ? 8 : -8), MIN_HOUR_PX), MAX_HOUR_PX);
+      const delta = e.deltaY * (e.deltaMode === 1 ? 33 : 1);
+      const next = Math.min(Math.max(Math.round(old * Math.exp(-delta * 0.0015)), MIN_HOUR_PX), MAX_HOUR_PX);
       if (next === old) return;
       const y = e.clientY - el.getBoundingClientRect().top;
-      const minute = ((el.scrollTop + y) / old) * 60;
+      zoomAt.current = { minute: zoomAt.current?.minute ?? ((el.scrollTop + y) / old) * 60, y };
+      hourRef.current = next;
       setHour.current(next);
-      requestAnimationFrame(() => el.scrollTo({ top: (minute / 60) * next - y }));
     };
     el.addEventListener("wheel", wheel, { passive: false });
     return () => el.removeEventListener("wheel", wheel);
   }, []);
+  useLayoutEffect(() => {
+    const at = zoomAt.current;
+    const el = scroller.current;
+    zoomAt.current = null;
+    if (at && el) el.scrollTop = (at.minute / 60) * hourPx - at.y;
+  }, [hourPx]);
 
   const minuteAt = (clientY: number, step = SNAP) => {
     const top = grid.current!.getBoundingClientRect().top;
@@ -254,11 +282,16 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
       const moved = drag.moved || Math.abs(e.clientY - drag.y) > 4 || Math.abs(e.clientX - drag.x) > 4;
       if (moved) dragging.current = true;
       const copy = drag.mode === "move" && copyKey(e);
+      markPanel(moved && drag.mode === "move" && canUnplan(drag.entry) ? panelAt(e.clientX, e.clientY) : null);
       if (dMin !== drag.dMin || dDay !== drag.dDay || moved !== drag.moved || copy !== drag.copy) setDrag({ ...drag, dMin, dDay, moved, copy });
     };
     const up = (e: PointerEvent) => {
       const shift = drag.dDay * MINUTES_PER_DAY + drag.dMin;
-      if (drag.moved && shift !== 0) {
+      markPanel(null);
+      // Over the panel only a task is taken; an event dropped there stays where it was.
+      const onPanel = drag.moved && drag.mode === "move" && !!panelAt(e.clientX, e.clientY);
+      if (onPanel && canUnplan(drag.entry)) onUnplan(drag.entry.task.id);
+      else if (!onPanel && drag.moved && shift !== 0) {
         if (drag.mode === "move" && copyKey(e)) onCopy(drag.entry, shift);
         else onShift(drag.entry, drag.mode === "move" ? shift : 0, shift);
       }
@@ -268,6 +301,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
     };
     // The browser took the gesture over: nothing was dropped, so nothing moves.
     const cancel = () => {
+      markPanel(null);
       setDrag(null);
       setTimeout(() => { dragging.current = false; }, 50);
     };

@@ -8,6 +8,8 @@ import { Icon } from "./icons";
 
 /** The type of a task carried by the mouse (also from the Kanban board). */
 export const TASK_DRAG = "text/x-tiktak-task";
+/** Set beside [TASK_DRAG] when the task comes from the calendar: the panel takes it back. */
+export const FROM_CALENDAR = "text/x-tiktak-from-calendar";
 
 type GroupBy = "list" | "tag" | "priority";
 type Scope = "unplanned" | "all";
@@ -20,7 +22,7 @@ interface Group { key: string; title: string; color?: string; tasks: Task[] }
  * is dragged onto a time of the grid or into the all-day row. "Без времени" leaves out what already
  * has a time, so what is left to plan is what is shown.
  */
-export function ArrangePanel({ onOpen, onClose }: { onOpen: (t: Task, at: DOMRect) => void; onClose: () => void }) {
+export function ArrangePanel({ onOpen, onClose, onUnplan }: { onOpen: (t: Task, at: DOMRect) => void; onClose: () => void; onUnplan: (taskId: string) => void }) {
   const { store } = useData();
   const today = useToday();
   const [by, setBy] = useLocal<GroupBy>("arrange.by", "list");
@@ -30,6 +32,7 @@ export function ArrangePanel({ onOpen, onClose }: { onOpen: (t: Task, at: DOMRec
   const [expanded, setExpanded] = useState<string[]>([]);
   const [shown, setShown] = useState<Record<string, number>>({});
   const [listMenu, setListMenu] = useState(false);
+  const [over, setOver] = useState(false);
 
   const lists = useMemo(() => store.live("task_lists").sort((a, b) => Number(b.isInbox) - Number(a.isInbox) || a.sortOrder - b.sortOrder), [store.version]); // eslint-disable-line react-hooks/exhaustive-deps
   const listName = (l: { id: string; isInbox: number; name: string }) => (l.isInbox || l.id === INBOX_ID ? "Входящие" : l.name);
@@ -90,7 +93,21 @@ export function ArrangePanel({ onOpen, onClose }: { onOpen: (t: Task, at: DOMRec
       : visible.length === 1 ? listName(visible[0]) : `${listName(visible[0])}, ещё ${visible.length - 1}`;
 
   return (
-    <aside className="arrange" aria-label="Распланировать задачи">
+    <aside className={`arrange ${over ? "drop-here" : ""}`} aria-label="Распланировать задачи"
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(FROM_CALENDAR)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setOver(true);
+      }}
+      onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(false)}
+      onDrop={(e) => {
+        setOver(false);
+        const id = e.dataTransfer.types.includes(FROM_CALENDAR) ? e.dataTransfer.getData(TASK_DRAG) : "";
+        if (!id) return;
+        e.preventDefault();
+        onUnplan(id);
+      }}>
       <div className="arrange-head">
         <b>Распланировать</b>
         <div className="spacer" />

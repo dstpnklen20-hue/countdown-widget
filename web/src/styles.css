@@ -384,7 +384,7 @@ mark { background: color-mix(in srgb, var(--primary) 30%, transparent); color: i
 .block .t svg { flex: none; margin-top: 2px; opacity: 0.8; }
 .block .when { font-size: 11px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .block .check, .chip-entry .check { width: 14px; height: 14px; flex: none; border-width: 1.5px; border-color: currentColor; margin-top: 1px; border-radius: 3px; }
-.block .check.on, .chip-entry .check.on { background: currentColor; }
+.block .check.on, .chip-entry .check.on { color: inherit; background: currentColor; border-color: currentColor; }
 .block .check.on svg, .chip-entry .check.on svg { color: var(--bg); margin: 0; opacity: 1; }
 .block.draft, .chip-entry.draft { outline: 2px solid var(--primary); outline-offset: -1px; box-shadow: var(--shadow); z-index: 4; cursor: default; }
 .chip-entry { display: flex; align-items: center; gap: 4px; cursor: pointer; }
@@ -486,3 +486,8 @@ mark { background: color-mix(in srgb, var(--primary) 30%, transparent); color: i
 .parent-link { align-self: flex-start; max-width: 100%; padding: 0; border: none; background: none; color: var(--muted); font-size: 12px; cursor: pointer; }
 .parent-link span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .parent-link:hover { color: var(--primary); }
+
+/* A task from the calendar carried over the panel: it will lose its date there. */
+.arrange[data-drop], .arrange.drop-here { outline: 2px dashed var(--primary); outline-offset: -6px; background: color-mix(in srgb, var(--primary) 8%, var(--bg)); }
+.arrange .drop-hint { margin: 4px 10px 8px; padding: 10px; border: 1px dashed var(--primary); border-radius: 8px; color: var(--primary); font-size: 12px; text-align: center; }
+.card-head .seg button { padding: 3px 10px; font-size: 13px; }

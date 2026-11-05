@@ -227,6 +227,18 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
     actions.update(placed);
     toast({ text: `Копия: «${placed.title}»`, undo: () => actions.delete(store.get("tasks", placed.id) ?? placed) });
   };
+  /** A task carried from the calendar to the panel: it loses its date and waits there to be planned again. */
+  const unplan = (taskId: string) => {
+    const t = store.get("tasks", taskId);
+    if (!t || t.dueAt == null) return;
+    if (t.repeatRule) {
+      toast({ text: "У повторяющейся задачи дату не убрать: сначала отключите повтор" });
+      return;
+    }
+    const before = t;
+    actions.setDue(t, null, null);
+    toast({ text: `«${t.title}» — без даты, в панели`, undo: () => actions.update({ ...before, updatedAt: store.get("tasks", t.id)?.updatedAt ?? before.updatedAt }) });
+  };
   /** A task dragged from the panel gets that time, keeping its length (half an hour when it has none), or that day. */
   const dropTask = (taskId: string, day: LocalDate, minute: number | null) => {
     const t = store.get("tasks", taskId);
@@ -268,7 +280,7 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
         <SyncButton onlyProblems />
         <button className="icon-btn" title="Поиск" aria-label="Поиск" onClick={onSearch}><Icon name="search" /></button>
         <div style={{ position: "relative" }}>
-          <button className="icon-btn" title="Календари и вид" aria-label="Календари и вид" onClick={() => setLayers(!layers)}><Icon name="layers" /></button>
+          <button className={`icon-btn ${layers ? "active" : ""}`} data-toggle="layers" title="Календари и вид" aria-label="Календари и вид" aria-expanded={layers} onClick={() => setLayers(!layers)}><Icon name="layers" /></button>
           {layers && <LayersMenu s={s} calendars={calendars} onClose={() => setLayers(false)} />}
         </div>
         {mode !== "year" && mode !== "schedule" && (
@@ -298,10 +310,10 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
           onOpen={openEntry} onMenu={openMenu} onDay={openDay} onMore={() => setScheduleDays(scheduleDays + SCHEDULE_DAYS)} />}
         {days.length > 0 && (
           <TimeGrid days={days} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast} hourPx={s.hourPx} setHourPx={s.setHourPx} dragging={dragging} carrying={arrange} scaleInfo={s.scaleInfo}
-            onDay={openDay} onNew={newEvent} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onShift={onShift} onCopy={onCopy} onDropTask={dropTask} />
+            onDay={openDay} onNew={newEvent} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onShift={onShift} onCopy={onCopy} onDropTask={dropTask} onUnplan={unplan} />
         )}
       </div>
-      {arrange && mode !== "year" && mode !== "schedule" && <ArrangePanel onOpen={(t, at) => onOpen(t, undefined, at)} onClose={() => setArrange(false)} />}
+      {arrange && mode !== "year" && mode !== "schedule" && <ArrangePanel onOpen={(t, at) => onOpen(t, undefined, at)} onClose={() => setArrange(false)} onUnplan={unplan} />}
       </div>
       {menu && (
         <EntryMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
@@ -368,7 +380,10 @@ function LayersMenu({ s, calendars, onClose }: { s: Settings; calendars: Calenda
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (editing || file) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose();
+    const close = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!ref.current?.contains(t) && !t.closest?.('[data-toggle="layers"]')) onClose();
+    };
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
   }, [editing, file, onClose]);
