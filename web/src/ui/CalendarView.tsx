@@ -46,7 +46,7 @@ type Settings = ReturnType<typeof useCalendarSettings>;
 interface PendingShift { entry: CalendarEntry; start: number; end: number }
 
 export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: {
-  onOpen: (t: Task, occurrence?: string) => void; onNewEvent: (d: EventDraft) => void; onMenu: () => void; onSearch: () => void;
+  onOpen: (t: Task, occurrence?: string, anchor?: DOMRect) => void; onNewEvent: (d: EventDraft) => void; onMenu: () => void; onSearch: () => void;
   /** The new event while its editor is open: it stays visible in the calendar. */
   preview: Task | null;
 }) {
@@ -144,18 +144,17 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
   const dragging = useRef(false);
 
   const calendarIdForNew = calendars.some((c) => c.id === s.defaultCalendar) ? s.defaultCalendar : PERSONAL_CALENDAR_ID;
-  const newEvent = (day: LocalDate, minute: number | null, endMinute?: number, x?: number) => {
+  const newEvent = (day: LocalDate, minute: number | null, endMinute?: number) => {
     const start = minute != null ? timedDue(day, minute) : allDayDue(day);
     const calendarId = calendarIdForNew === PERSONAL_CALENDAR_ID ? null : calendarIdForNew;
     onNewEvent({
       task: null,
-      x,
       init: minute != null
         ? { startAt: start.at, dueAt: endMinute != null ? epochAt(day, endMinute) : start.at + s.eventMinutes * 60_000, isAllDay: 0, timeZone: start.timeZone, calendarId }
         : { startAt: start.at, dueAt: start.at, isAllDay: 1, timeZone: start.timeZone, calendarId },
     });
   };
-  const openEntry = (e: CalendarEntry) => !isVirtual(e.task) && onOpen(e.task, e.occurrence);
+  const openEntry = (e: CalendarEntry, at?: DOMRect) => { if (!isVirtual(e.task)) onOpen(e.task, e.occurrence, at); };
   const openDay = (d: LocalDate) => { setAnchor(d); setMode("day"); };
   const current = (e: CalendarEntry) => store.get("tasks", e.task.id) ?? e.task;
   const toggleEntry = (e: CalendarEntry) => {
@@ -256,7 +255,7 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {mode === "month" && (
           <MonthGrid first={range[0]} month={parts(withDayOfMonth(anchor, 1))[1]} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast}
-            onDay={openDay} onNew={(d, x) => newEvent(d, null, undefined, x)} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onDropTask={dropTask} />
+            onDay={openDay} onNew={(d) => newEvent(d, null)} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onDropTask={dropTask} />
         )}
         {mode === "year" && <YearView year={parts(anchor)[0]} firstDay={s.firstDay} today={today} entries={entries}
           onDay={openDay} onMonth={(m) => { setAnchor(m); setMode("month"); }} />}
@@ -267,11 +266,11 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
             onDay={openDay} onNew={newEvent} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onShift={onShift} onDropTask={dropTask} />
         )}
       </div>
-      {arrange && mode !== "year" && mode !== "schedule" && <ArrangePanel onOpen={onOpen} onClose={() => setArrange(false)} />}
+      {arrange && mode !== "year" && mode !== "schedule" && <ArrangePanel onOpen={(t, at) => onOpen(t, undefined, at)} onClose={() => setArrange(false)} />}
       </div>
       {menu && (
         <EntryMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
-          { label: "Открыть", icon: "edit", onClick: () => openEntry(menu.entry) },
+          { label: "Открыть", icon: "edit", onClick: () => openEntry(menu.entry, new DOMRect(menu.x, menu.y, 0, 0)) },
           ...(!menu.entry.task.isEvent && !menu.entry.projected && menu.entry.task.displayMode !== "COUNTDOWN"
             ? [{ label: isDone(menu.entry.task) ? "Вернуть в работу" : "Выполнить", icon: "done", onClick: () => toggleEntry(menu.entry) }] : []),
           { label: "Копия", icon: "tasks", onClick: () => toast({ text: `Копия: «${actions.duplicate(current(menu.entry), menu.entry.occurrence).title}»` }) },
@@ -436,7 +435,7 @@ function CalendarDialog({ calendar, onClose }: { calendar: CalendarLayer | null;
 
 function MonthGrid({ first, month, today, now, entries, colorOf, dimPast, onDay, onNew, onOpen, onToggle, onMenu, onDropTask }: {
   first: LocalDate; month: number; today: LocalDate; now: number; entries: Map<LocalDate, CalendarEntry[]>; colorOf: (t: Task) => string; dimPast: boolean;
-  onDay: (d: LocalDate) => void; onNew: (d: LocalDate, x: number) => void; onOpen: (e: CalendarEntry) => void;
+  onDay: (d: LocalDate) => void; onNew: (d: LocalDate) => void; onOpen: (e: CalendarEntry, at?: DOMRect) => void;
   onToggle: (e: CalendarEntry) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void;
   onDropTask: (taskId: string, day: LocalDate, minute: number | null) => void;
 }) {
@@ -447,7 +446,7 @@ function MonthGrid({ first, month, today, now, entries, colorOf, dimPast, onDay,
       {cells.map((d) => {
         const list = entries.get(d) ?? [];
         return (
-          <div key={d} className={`cell ${parts(d)[1] !== month ? "other" : ""} ${d === today ? "today" : ""}`} onClick={(ev) => onNew(d, ev.clientX)}
+          <div key={d} className={`cell ${parts(d)[1] !== month ? "other" : ""} ${d === today ? "today" : ""}`} onClick={() => onNew(d)}
             onDragOver={(ev) => ev.dataTransfer.types.includes(TASK_DRAG) && ev.preventDefault()}
             onDrop={(ev) => {
               const id = ev.dataTransfer.getData(TASK_DRAG);
@@ -492,7 +491,7 @@ function YearView({ year, firstDay, today, entries, onDay, onMonth }: {
 /** Days ahead as a list of their entries, like the app's «Расписание». */
 function ScheduleView({ from, days, today, now, entries, colorOf, dimPast, onOpen, onMenu, onDay, onMore }: {
   from: LocalDate; days: number; today: LocalDate; now: number; entries: Map<LocalDate, CalendarEntry[]>; colorOf: (t: Task) => string; dimPast: boolean;
-  onOpen: (e: CalendarEntry) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void; onDay: (d: LocalDate) => void; onMore: () => void;
+  onOpen: (e: CalendarEntry, at?: DOMRect) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void; onDay: (d: LocalDate) => void; onMore: () => void;
 }) {
   const list = Array.from({ length: days }, (_, i) => plusDays(from, i)).filter((d) => entries.get(d)?.length || d === today);
   return (
@@ -511,7 +510,7 @@ function ScheduleView({ from, days, today, now, entries, colorOf, dimPast, onOpe
                 const color = colorOf(e.task);
                 const faded = (isDone(e.task) && !e.task.isEvent) || (dimPast && entryEnd(e) < now);
                 return (
-                  <button key={k} className={`sched-entry ${faded ? "past" : ""}`} onClick={() => onOpen(e)} onContextMenu={(ev) => onMenu(e, ev)}
+                  <button key={k} className={`sched-entry ${faded ? "past" : ""}`} onClick={(ev) => onOpen(e, ev.currentTarget.getBoundingClientRect())} onContextMenu={(ev) => onMenu(e, ev)}
                     style={blockColors(color, happens(e.task), faded, 45)}>
                     <span className="t">{entryTitle(e)}</span>
                     <span className="small">{e.start == null ? "Весь день" : `${formatTime(e.start)}–${formatTime((e.end ?? e.start) % MINUTES_PER_DAY)}`}{e.task.location ? ` · ${e.task.location}` : ""}</span>

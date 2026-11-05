@@ -3,20 +3,14 @@ import { argbOf, cssColor } from "../data/model";
 import { PALETTE, PRIORITY_COLORS } from "./format";
 import { Icon } from "./icons";
 
-export function Dialog({ title, children, actions, onClose, side, closeOutside = true }: {
-  title: string; children: ReactNode; actions?: ReactNode; onClose: () => void;
-  /** Sit at this side of the screen, leaving the page visible. */
-  side?: "left" | "right";
-  /** Whether a click outside closes it (not while something typed would be lost). */
-  closeOutside?: boolean;
-}) {
+export function Dialog({ title, children, actions, onClose }: { title: string; children: ReactNode; actions?: ReactNode; onClose: () => void }) {
   useEffect(() => {
     const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [onClose]);
   return (
-    <div className={`dialog-scrim ${side ? `side ${side}` : ""}`} onMouseDown={(e) => closeOutside && e.target === e.currentTarget && onClose()}>
+    <div className="dialog-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dialog" role="dialog" aria-label={title}>
         <h2>{title}</h2>
         {children}
@@ -64,7 +58,12 @@ export interface MenuItem {
 }
 
 /** A button that opens a small menu under it. */
-export function MenuButton({ icon = "more", label, items, children }: { icon?: string; label: string; items: MenuItem[]; children?: ReactNode }) {
+export function MenuButton({ icon = "more", iconColor, label, items, up, children }: {
+  icon?: string; iconColor?: string; label: string; items: MenuItem[];
+  /** Opens above the button (at the bottom of a card). */
+  up?: boolean;
+  children?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -79,11 +78,11 @@ export function MenuButton({ icon = "more", label, items, children }: { icon?: s
         <button className="btn ghost" onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>{children}</button>
       ) : (
         <button className="icon-btn" title={label} aria-label={label} onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>
-          <Icon name={icon} />
+          <Icon name={icon} color={iconColor} />
         </button>
       )}
       {open && (
-        <div className="menu" style={{ right: 0, top: "100%" }}>
+        <div className="menu" style={up ? { right: 0, bottom: "100%" } : { right: 0, top: "100%" }}>
           {items.map((it) => (
             <button key={it.label} className={it.danger ? "error-text" : undefined} onClick={(e) => { e.stopPropagation(); setOpen(false); it.onClick(); }}>
               {it.icon && <Icon name={it.icon} size={18} />}

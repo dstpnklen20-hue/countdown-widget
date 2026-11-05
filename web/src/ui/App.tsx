@@ -6,6 +6,7 @@ import type { FilterKey } from "../domain/tasks";
 import type { Task } from "../data/model";
 import { CalendarView } from "./CalendarView";
 import { type AppContext, Ctx, type Toast, useData, useLocal } from "./context";
+import { EntryCard } from "./EntryCard";
 import { EventEditor, type EventDraft } from "./EventEditor";
 import { FocusView } from "./FocusView";
 import { HabitsView } from "./HabitsView";
@@ -154,10 +155,17 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   /** The calendar takes the whole width: the rail slides away until its ☰ button calls it back. */
   const [railShown, setRailShown] = useState(false);
 
-  /** Tasks open in the side panel, events in their editor. */
-  const open = (task: Task, occurrence?: string) => {
-    if (task.isEvent) setEvent({ task, occurrence });
-    else setSelected(task.id);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  /**
+   * Events open in a card beside what was clicked. Tasks do too in the calendar, where the day has
+   * to stay in view, and in the side panel elsewhere.
+   */
+  const open = (task: Task, occurrence?: string, at?: DOMRect) => {
+    if (task.isEvent) setEvent({ task, occurrence, anchor: at });
+    else {
+      if (at) setAnchor(at);
+      setSelected(task.id);
+    }
   };
   const go = (s: Section) => {
     setSection(s);
@@ -221,11 +229,15 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         {section === "settings" && <SettingsView onLogout={onLogout} />}
       </main>
 
-      {selectedTask && !selectedTask.deleted && !selectedTask.isEvent && (
+      {selectedTask && !selectedTask.deleted && !selectedTask.isEvent && (section === "calendar" ? (
+        <EntryCard anchor={anchor} label="Задача" onClose={() => setSelected(null)}>
+          <TaskDetail key={selectedTask.id} task={selectedTask} onClose={() => setSelected(null)} onOpen={(t) => open(t)} />
+        </EntryCard>
+      ) : (
         <aside className="detail">
-          <TaskDetail task={selectedTask} onClose={() => setSelected(null)} onOpen={(t) => open(t)} />
+          <TaskDetail key={selectedTask.id} task={selectedTask} onClose={() => setSelected(null)} onOpen={(t) => open(t)} />
         </aside>
-      )}
+      ))}
       {event && <EventEditor draft={event} onPreview={setPreview} onClose={() => setEvent(null)} onTask={(id) => { setEvent(null); setSection(section === "calendar" ? "calendar" : "tasks"); setSelected(id); }} />}
     </div>
   );

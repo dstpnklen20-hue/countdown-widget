@@ -62,7 +62,7 @@ export function blockColors(color: string, filled: boolean, faded: boolean, task
 }
 
 export function EntryChip({ e, color, past, onOpen, onToggle, onMenu }: {
-  e: CalendarEntry; color: string; past?: boolean; onOpen: (e: CalendarEntry) => void;
+  e: CalendarEntry; color: string; past?: boolean; onOpen: (e: CalendarEntry, at?: DOMRect) => void;
   onToggle?: (e: CalendarEntry) => void; onMenu?: (e: CalendarEntry, ev: React.MouseEvent) => void;
 }) {
   const t = e.task;
@@ -71,7 +71,8 @@ export function EntryChip({ e, color, past, onOpen, onToggle, onMenu }: {
   return (
     <div role="button" tabIndex={0} className={`chip-entry ${past || done ? "past" : ""} ${t.eventType === "AWAY" ? "away" : ""} ${t.id === PREVIEW_ID ? "draft" : ""}`}
       style={blockColors(color, filled, !!past || done, 45)}
-      onClick={(ev) => { ev.stopPropagation(); onOpen(e); }} onKeyDown={(ev) => ev.key === "Enter" && onOpen(e)}
+      onClick={(ev) => { ev.stopPropagation(); onOpen(e, ev.currentTarget.getBoundingClientRect()); }}
+      onKeyDown={(ev) => ev.key === "Enter" && onOpen(e, ev.currentTarget.getBoundingClientRect())}
       onContextMenu={(ev) => onMenu?.(e, ev)} title={t.title}>
       {!filled && !e.projected && onToggle && <Check done={isDone(t)} priority={0} onToggle={() => onToggle(e)} />}
       {t.repeatRule && t.id !== PREVIEW_ID && <Icon name="repeat" size={11} />}
@@ -96,7 +97,7 @@ interface Draw { day: LocalDate; from: number; to: number; y?: number }
 
 /** What a block can do; these keep their identity, so a column redraws only when its own data changes. */
 interface BlockActions {
-  open: (e: CalendarEntry) => void;
+  open: (e: CalendarEntry, at: DOMRect) => void;
   toggle: (e: CalendarEntry) => void;
   menu: (e: CalendarEntry, ev: React.MouseEvent) => void;
   press: (ev: React.PointerEvent, e: CalendarEntry, mode: Drag["mode"]) => void;
@@ -145,7 +146,7 @@ const DayColumn = memo(function DayColumn({ day, isToday, list, colorOf, dimPast
               opacity: held === e ? 0.35 : e.projected && !filled && !faded ? 0.6 : undefined,
             }}
             onPointerDown={(ev) => actions.press(ev, e, "move")}
-            onClick={(ev) => { ev.stopPropagation(); actions.open(e); }}
+            onClick={(ev) => { ev.stopPropagation(); actions.open(e, ev.currentTarget.getBoundingClientRect()); }}
             onContextMenu={(ev) => actions.menu(e, ev)} title={t.title}>
             <div className="t">
               {!filled && !fixed && <Check done={isDone(t)} priority={0} onToggle={() => actions.toggle(e)} />}
@@ -185,7 +186,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
   hourPx: number; setHourPx: (n: number) => void; dragging: React.MutableRefObject<boolean>;
   /** The panel is open: the all-day row stays, as a place to drop a task. */
   carrying: boolean;
-  onDay: (d: LocalDate) => void; onNew: (d: LocalDate, minute: number | null, end?: number, x?: number) => void; onOpen: (e: CalendarEntry) => void;
+  onDay: (d: LocalDate) => void; onNew: (d: LocalDate, minute: number | null, end?: number) => void; onOpen: (e: CalendarEntry, at?: DOMRect) => void;
   onToggle: (e: CalendarEntry) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void;
   onShift: (e: CalendarEntry, start: number, end: number) => void;
   /** A task dragged from the panel: to a time of [day], or (null) into its all-day row. */
@@ -252,15 +253,20 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
       // The click that ends a drag comes right after this; it must not open the block.
       if (dragging.current) setTimeout(() => { dragging.current = false; }, 50);
     };
+    // The browser took the gesture over: nothing was dropped, so nothing moves.
+    const cancel = () => {
+      setDrag(null);
+      setTimeout(() => { dragging.current = false; }, 50);
+    };
     const noScroll = (e: TouchEvent) => e.preventDefault();
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
+    window.addEventListener("pointercancel", cancel);
     window.addEventListener("touchmove", noScroll, { passive: false });
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("pointercancel", cancel);
       window.removeEventListener("touchmove", noScroll);
     };
   }, [drag]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -274,7 +280,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
       if (to !== draw.to) setDraw({ ...draw, to });
     };
     const up = (e: PointerEvent) => {
-      onNew(draw.day, draw.from, Math.abs(e.clientY - (draw.y ?? e.clientY)) >= CLICK_PX ? draw.to : undefined, e.clientX);
+      onNew(draw.day, draw.from, Math.abs(e.clientY - (draw.y ?? e.clientY)) >= CLICK_PX ? draw.to : undefined);
       setDraw(null);
     };
     window.addEventListener("pointermove", move);
@@ -288,7 +294,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
   const hold = useRef<ReturnType<typeof setTimeout>>();
   const latest = useRef<BlockActions>(null as unknown as BlockActions);
   latest.current = {
-    open: (e) => { if (!dragging.current) onOpen(e); },
+    open: (e, at) => { if (!dragging.current) onOpen(e, at); },
     toggle: onToggle,
     menu: onMenu,
     /** Mouse: drag at once. Touch: hold still for a moment first, so a swipe still scrolls. */
@@ -325,7 +331,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
     },
     // Touch: a tap is a new event at that time (the mouse draws one instead).
     tapEmpty: (ev, day) => {
-      if (lastPointer.current !== "mouse") onNew(day, minuteAt(ev.clientY), undefined, ev.clientX);
+      if (lastPointer.current !== "mouse") onNew(day, minuteAt(ev.clientY));
     },
     dragOver: (ev, day) => {
       if (!ev.dataTransfer.types.includes(TASK_DRAG)) return;
@@ -343,7 +349,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
     },
   };
   const actions = useMemo<BlockActions>(() => ({
-    open: (e) => latest.current.open(e),
+    open: (e, at) => latest.current.open(e, at),
     toggle: (e) => latest.current.toggle(e),
     menu: (e, ev) => latest.current.menu(e, ev),
     press: (ev, e, mode) => latest.current.press(ev, e, mode),
@@ -387,7 +393,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
             {hidden > 0 && <button className="more-link" onClick={() => setAllDayOpen(!allDayOpen)}>{allDayOpen ? "свернуть" : `+${hidden}`}</button>}
           </div>
           {days.map((d, i) => (
-            <div key={d} className="col" onClick={(ev) => onNew(d, null, undefined, ev.clientX)} onDragOver={overAllDay} onDrop={(ev) => dropIntoAllDay(ev, d)}>
+            <div key={d} className="col" onClick={() => onNew(d, null)} onDragOver={overAllDay} onDrop={(ev) => dropIntoAllDay(ev, d)}>
               {(allDayOpen ? allDay[i] : allDay[i].slice(0, ALL_DAY_ROWS)).map((e) => (
                 <EntryChip key={`${e.task.id}:${e.occurrence}:${e.part}`} e={e} color={colorOf(e.task)} past={dimPast && entryEnd(e) < now}
                   onOpen={onOpen} onToggle={onToggle} onMenu={onMenu} />
