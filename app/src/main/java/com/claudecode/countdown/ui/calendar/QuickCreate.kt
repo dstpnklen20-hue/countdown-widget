@@ -1,5 +1,6 @@
 package com.claudecode.countdown.ui.calendar
 
+import com.claudecode.countdown.domain.MIN_BLOCK_MINUTES
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -85,7 +86,7 @@ data class QuickDraft(
         if (day < time.startDate || day > time.endDate) return null
         val from = if (day == time.startDate) time.start.toSecondOfDay() / 60 else 0
         val to = if (day == time.endDate) time.end.toSecondOfDay() / 60 else 24 * 60
-        return from until maxOf(to, from + 15)
+        return from until maxOf(to, from + MIN_BLOCK_MINUTES)
     }
 }
 

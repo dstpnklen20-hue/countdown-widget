@@ -45,13 +45,13 @@ private const val KEEP_PAST_DAYS = 31L
 
 /**
  * Entries to put into the phone's calendar: events (all of them) and open tasks with a date
- * (top level; countdowns as all-day events). Repeats go as RRULE with their skipped days, so the
+ * (subtasks too; countdowns as all-day events). Repeats go as RRULE with their skipped days, so the
  * calendar shows every occurrence; holidays and birthdays are not stored and stay out.
  */
 fun exportedEvents(tasks: List<Task>, now: Long, zone: ZoneId = ZoneId.systemDefault()): List<ExportedEvent> {
     val since = now - KEEP_PAST_DAYS * 86_400_000L
     return tasks.mapNotNull { t ->
-        if (t.deleted || t.parentId != null || t.dueAt == null) return@mapNotNull null
+        if (t.deleted || t.dueAt == null) return@mapNotNull null
         if (!t.isEvent && t.isDone) return@mapNotNull null
         exported(t, zone)?.takeIf { e -> e.rrule != null && !ruleEnded(t, since, zone) || (e.end ?: e.start) >= since }
     }

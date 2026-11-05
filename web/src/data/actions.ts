@@ -1,3 +1,4 @@
+import { splitListName } from "../domain/listIcon";
 import type { LocalDate } from "../core/date";
 import { plusDays, toEpochDay } from "../core/date";
 import { QuickAddParser } from "../core/quickAdd";
@@ -60,7 +61,7 @@ export class Actions {
     if (!text.trim()) return null;
     const parsed = new QuickAddParser(todayDate(), nowMinute()).parse(text);
     const lists = this.store.live("task_lists");
-    const listId = (parsed.listName && lists.find((l) => l.name.toLowerCase() === parsed.listName!.toLowerCase())?.id)
+    const listId = (parsed.listName && lists.find((l) => splitListName(l.name).text.toLowerCase() === parsed.listName!.toLowerCase() || l.name.toLowerCase() === parsed.listName!.toLowerCase())?.id)
       ?? (filter.startsWith("list:") ? filter.slice(5) : INBOX_ID);
     let due: Due | null = parsed.date ? (parsed.time != null ? timedDue(parsed.date, parsed.time) : allDayDue(parsed.date)) : null;
     if (!due) {
@@ -107,7 +108,7 @@ export class Actions {
    * Completing a repeating task keeps it open and moves it to the next occurrence; a completed copy
    * is stored for history (TaskRepository.setDone).
    */
-  setDone(task: Task, done: boolean): () => void {
+  setDone(task: Task, done: boolean, status: "DONE" | "WONT_DO" = "DONE"): () => void {
     const at = now();
     const back = () => this.update(task);
     if (!done) {
@@ -116,11 +117,11 @@ export class Actions {
     }
     const next = nextOccurrence(task, at);
     if (!next) {
-      this.update({ ...task, status: "DONE", completedAt: at });
+      this.update({ ...task, status, completedAt: at });
       return back;
     }
     const [copy] = this.store.put("tasks",
-      { ...task, id: newId(), status: "DONE", completedAt: at, repeatRule: null, displayMode: "NORMAL", createdAt: at, updatedAt: at },
+      { ...task, id: newId(), status, completedAt: at, repeatRule: null, displayMode: "NORMAL", createdAt: at, updatedAt: at },
       next);
     const checked = this.checklist(task.id).filter((c) => c.checked);
     if (checked.length) this.store.put("checklist_items", ...checked.map((c) => ({ ...c, checked: 0 as const })));
@@ -403,7 +404,7 @@ export class Actions {
     return items.length;
   }
 
-  /** A copy of the task (an event as it is on [occurrence] when given), with its reminders and tags. */
+  /** A copy of the task (an event as it is on [occurrence] when given), with its reminders, tags and checklist. */
   duplicate(task: Task, occurrence?: LocalDate): Task {
     const source = occurrence && task.repeatRule ? { ...atOccurrence(task, occurrence), repeatRule: null, exDates: null } : task;
     const at = now();
@@ -413,6 +414,10 @@ export class Actions {
     this.setReminders(copy.id, this.reminders(task.id).map((r) => ({ offsetMinutes: r.offsetMinutes ?? 0, kind: r.kind })));
     const tags = this.tagNames(task.id);
     if (tags.length) this.setTags(copy.id, tags);
+    const items = this.checklist(task.id);
+    if (items.length) {
+      this.store.put("checklist_items", ...items.map((c) => blank.checklistItem({ taskId: copy.id, title: c.title, sortOrder: c.sortOrder })));
+    }
     return copy;
   }
 

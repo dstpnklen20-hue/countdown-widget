@@ -1,5 +1,6 @@
 package com.claudecode.countdown.ui.calendar
 
+import com.claudecode.countdown.domain.calendarTitle
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
@@ -84,6 +85,7 @@ import com.claudecode.countdown.data.db.EventType
 import com.claudecode.countdown.data.db.Task
 import com.claudecode.countdown.domain.CalendarEntry
 import com.claudecode.countdown.domain.MINUTES_PER_DAY
+import com.claudecode.countdown.domain.MIN_BLOCK_MINUTES
 import com.claudecode.countdown.domain.TimeBlock
 import com.claudecode.countdown.domain.layoutBlocks
 import com.claudecode.countdown.domain.localTimeOf
@@ -106,7 +108,7 @@ private val ZONE_LABEL_WIDTH = 40.dp
 /** How far a block drawn over another one is moved in. */
 private val NEST_INDENT = 10.dp
 /** Times snap to this many minutes while a block is moved or stretched. */
-private const val SNAP_MINUTES = 15
+private const val SNAP_MINUTES = 5
 /** Pressing this close to a block's bottom edge stretches it instead of moving it. */
 private val RESIZE_EDGE = 16.dp
 /** A swipe let go faster than this turns at least one step. */
@@ -584,7 +586,7 @@ private fun DayColumn(
                     target = dropTarget,
                 )
             )
-            // Free space: a new entry starting at the quarter hour under the finger. Blocks take their own taps.
+            // Free space: a new entry starting at the 5 minutes under the finger. Blocks take their own taps.
             .pointerInput(day) {
                 detectTapGestures { offset ->
                     val minute = ((offset.y / (size.height / 24f)) * 60).toInt().coerceIn(0, MINUTES_PER_DAY - 1) / SNAP_MINUTES * SNAP_MINUTES
@@ -635,7 +637,8 @@ private fun DayColumn(
                                 val step = snap((dyTotal / (heightPx / 24f) * 60).roundToInt())
                                 if (step != lastStep) {
                                     lastStep = step
-                                    onSnapStep()
+                                    // The steps are fine now: a buzz at each quarter hour is enough to feel the way.
+                                    if (step % 15 == 0) onSnapStep()
                                 }
                             }
                         }
@@ -688,7 +691,7 @@ private fun DragPreview(d: Drag, hourHeight: Dp, columnWidth: Dp) {
     val e = d.entry
     val minutes = d.snapped
     val start = if (d.resize) e.start!! else e.start!! + minutes
-    val end = (e.end!! + minutes).coerceAtLeast(start + SNAP_MINUTES)
+    val end = (e.end!! + minutes).coerceAtLeast(start + MIN_BLOCK_MINUTES)
     val color = entryColor(e.task)
     Box(
         Modifier
@@ -703,7 +706,7 @@ private fun DragPreview(d: Drag, hourHeight: Dp, columnWidth: Dp) {
     ) {
         Column {
             Text(clockText(start) + "–" + clockText(end), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = textOn(color))
-            Text(e.task.title, style = MaterialTheme.typography.labelSmall, color = textOn(color), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(e.task.calendarTitle, style = MaterialTheme.typography.labelSmall, color = textOn(color), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

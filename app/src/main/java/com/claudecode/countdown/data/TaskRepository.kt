@@ -1,5 +1,6 @@
 package com.claudecode.countdown.data
 
+import com.claudecode.countdown.domain.splitListName
 import com.claudecode.countdown.data.db.stampAfter
 import com.claudecode.countdown.data.db.AppDatabase
 import com.claudecode.countdown.data.db.ChecklistItem
@@ -59,6 +60,9 @@ class TaskRepository(
     private val sections = db.sectionDao()
 
     fun observeTopLevel() = tasks.observeTopLevel()
+    fun observeDatedSubtasks() = tasks.observeDatedSubtasks()
+    /** Everything a calendar widget can show: the top level plus subtasks with a date. */
+    fun observeCalendarTasks(): Flow<List<Task>> = combine(tasks.observeTopLevel(), tasks.observeDatedSubtasks()) { top, subtasks -> top + subtasks }
     fun observeTask(id: String) = tasks.observe(id)
     fun observeSubtasks(parentId: String) = tasks.observeSubtasks(parentId)
     fun observeSubtaskProgress() = tasks.observeSubtaskProgress()
@@ -91,7 +95,7 @@ class TaskRepository(
      */
     suspend fun quickAdd(text: String, filter: TaskFilter, pickedDue: Due?, pickedPriority: Int): Task {
         val parsed = parseQuickAdd(text)
-        val listId = parsed.listName?.let { name -> lists.all().firstOrNull { it.name.equals(name, ignoreCase = true) }?.id }
+        val listId = parsed.listName?.let { name -> lists.all().firstOrNull { it.name.equals(name, ignoreCase = true) || splitListName(it.name).text.equals(name, ignoreCase = true) }?.id }
             ?: (filter as? TaskFilter.ListFilter)?.listId
             ?: TaskList.INBOX_ID
         val parsedDue = parsed.date?.let { d -> parsed.time?.let { timedDue(d, it) } ?: allDayDue(d) }

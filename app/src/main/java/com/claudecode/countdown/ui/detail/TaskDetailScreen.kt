@@ -1,5 +1,7 @@
 package com.claudecode.countdown.ui.detail
 
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.runtime.produceState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -109,7 +111,7 @@ import com.claudecode.countdown.ui.priorityName
 import com.claudecode.countdown.ui.rememberNow
 
 /** Lengths offered for a task at a time (null: just a moment). */
-private val DURATION_PRESETS = listOf(null, 15, 30, 45, 60, 90, 120, 180, 240)
+private val DURATION_PRESETS = listOf(null, 5, 10, 15, 30, 45, 60, 90, 120, 180, 240)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -220,6 +222,19 @@ fun TaskDetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 32.dp),
         ) {
+            t.parentId?.let { parentId ->
+                val parent by produceState<Task?>(null, parentId) { value = vm.taskOf(parentId) }
+                parent?.takeIf { !it.deleted }?.let { p ->
+                    Text(
+                        "↑ " + p.title.ifBlank { "(без названия)" },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(8.dp)).clickable { onOpenTask(p.id) }.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
             Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 // An event has nothing to tick: its icon instead of the checkbox.
                 if (t.isEvent) {

@@ -1,5 +1,6 @@
 package com.claudecode.countdown.widget
 
+import com.claudecode.countdown.domain.calendarTitle
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -73,7 +74,7 @@ private val SHORT_DAYS = listOf("П", "В", "С", "Ч", "П", "С", "В")
 private data class CalendarData(val tasks: List<Task>, val lists: List<TaskList>, val calendars: List<CalendarLayer>)
 
 private fun calendarData(context: Context) = context.container.tasks.let { repo ->
-    combine(repo.observeTopLevel(), repo.observeLists(), repo.observeCalendars()) { t, l, c -> CalendarData(t, l, c) }
+    combine(repo.observeCalendarTasks(), repo.observeLists(), repo.observeCalendars()) { t, l, c -> CalendarData(t, l, c) }
 }
 
 /** Entries shown on the widgets: events of shown calendars, open tasks of live lists. */
@@ -317,7 +318,7 @@ private fun DateContent(context: Context, today: LocalDate, next: CalendarEntry?
                 Box(GlanceModifier.width(4.dp).height(30.dp).cornerRadius(2.dp).background(Color(color ?: p.accent))) {}
                 Spacer(GlanceModifier.width(8.dp))
                 Column {
-                    Text(next.task.title, maxLines = 1, style = TextStyle(color = text, fontSize = 13.sp, fontWeight = FontWeight.Medium))
+                    Text(next.task.calendarTitle, maxLines = 1, style = TextStyle(color = text, fontSize = 13.sp, fontWeight = FontWeight.Medium))
                     val start = next.start
                     val whenText = when {
                         next.date != today -> next.date.format(DateTimeFormatter.ofPattern("EE, d MMM", ru)) + (start?.let { ", %02d:%02d".format(it / 60, it % 60) } ?: "")

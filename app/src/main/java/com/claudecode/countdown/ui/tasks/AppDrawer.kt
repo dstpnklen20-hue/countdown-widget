@@ -1,5 +1,8 @@
 package com.claudecode.countdown.ui.tasks
 
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
+import com.claudecode.countdown.domain.splitListName
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -274,10 +277,12 @@ private fun ListItem(
     onEdit: () -> Unit,
 ) {
     val filter = TaskFilter.ListFilter(list.id)
+    val name = splitListName(list.name)
     DrawerItem(
         icon = Icons.AutoMirrored.Outlined.List,
         iconTint = list.color?.let { Color(it) },
-        label = list.name,
+        emoji = name.icon,
+        label = name.text,
         count = snapshot.openCount(filter),
         selected = selected == filter,
         indent = indent,
@@ -372,6 +377,8 @@ private fun DrawerItem(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     iconTint: Color? = null,
+    /** Stands in for [icon]: the emoji at the start of a list's name. */
+    emoji: String? = null,
     trailing: ImageVector? = null,
     indent: Boolean = false,
 ) {
@@ -386,7 +393,8 @@ private fun DrawerItem(
             .padding(start = if (indent) 32.dp else 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = iconTint ?: if (selected) scheme.primary else scheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+        if (emoji != null) Text(emoji, Modifier.width(22.dp), fontSize = 17.sp, textAlign = TextAlign.Center, maxLines = 1)
+        else Icon(icon, null, tint = iconTint ?: if (selected) scheme.primary else scheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(16.dp))
         Text(
             label,

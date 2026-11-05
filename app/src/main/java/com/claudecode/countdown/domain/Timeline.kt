@@ -8,6 +8,9 @@ const val MINUTES_PER_DAY = 24 * 60
 /** Tasks with a time but no length take this much of the timeline. */
 const val DEFAULT_BLOCK_MINUTES = 30
 
+/** The shortest length a block can be stretched to. */
+const val MIN_BLOCK_MINUTES = 5
+
 /** A block on a day's timeline, in minutes after midnight; [end] is exclusive. */
 data class TimeBlock<T>(val item: T, val start: Int, val end: Int)
 

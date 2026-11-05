@@ -12,6 +12,10 @@ data class Progress(val taskId: String, val total: Int, val done: Int)
 
 data class TaskTagName(val taskId: String, val tagId: String, val name: String, val color: Int?)
 
+private const val DATED_SUBTASKS =
+    "SELECT s.* FROM tasks s JOIN tasks p ON s.parentId = p.id " +
+        "WHERE s.deleted = 0 AND p.deleted = 0 AND s.dueAt IS NOT NULL AND (s.status != 'OPEN' OR p.status = 'OPEN')"
+
 @Dao
 interface TaskDao {
     @Upsert
@@ -28,6 +32,16 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE deleted = 0 AND parentId IS NULL")
     suspend fun topLevel(): List<Task>
+
+    /**
+     * Subtasks the calendar shows, beside the top-level rows: those with a date of their own and a live
+     * parent. An open one goes away with its finished parent. Port: calendarRows in web/src/domain/calendar.ts.
+     */
+    @Query(DATED_SUBTASKS)
+    fun observeDatedSubtasks(): Flow<List<Task>>
+
+    @Query(DATED_SUBTASKS)
+    suspend fun datedSubtasks(): List<Task>
 
     @Query("SELECT * FROM tasks WHERE deleted = 0 AND parentId = :parentId ORDER BY sortOrder, createdAt")
     fun observeSubtasks(parentId: String): Flow<List<Task>>

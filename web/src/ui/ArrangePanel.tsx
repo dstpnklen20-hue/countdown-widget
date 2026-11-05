@@ -20,7 +20,7 @@ interface Group { key: string; title: string; color?: string; tasks: Task[] }
  * is dragged onto a time of the grid or into the all-day row. "Без времени" leaves out what already
  * has a time, so what is left to plan is what is shown.
  */
-export function ArrangePanel({ onOpen, onClose }: { onOpen: (t: Task) => void; onClose: () => void }) {
+export function ArrangePanel({ onOpen, onClose }: { onOpen: (t: Task, at: DOMRect) => void; onClose: () => void }) {
   const { store } = useData();
   const today = useToday();
   const [by, setBy] = useLocal<GroupBy>("arrange.by", "list");
@@ -69,7 +69,7 @@ export function ArrangePanel({ onOpen, onClose }: { onOpen: (t: Task) => void; o
         <div className="arr-row" draggable={depth === 0} style={{ marginLeft: depth * 14, background: `color-mix(in srgb, ${color} 55%, var(--bg))` }}
           title={depth === 0 ? "Перетащите на нужное время" : t.title}
           onDragStart={(e) => { e.dataTransfer.setData(TASK_DRAG, t.id); e.dataTransfer.effectAllowed = "move"; }}
-          onClick={() => onOpen(t)}>
+          onClick={(ev) => onOpen(t, ev.currentTarget.getBoundingClientRect())}>
           <span className="arr-title">{t.title || "(без названия)"}</span>
           {day && <span className="arr-day">{formatDay(day, today)}</span>}
           {subs.length > 0 && (

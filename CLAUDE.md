@@ -135,7 +135,10 @@ https://dstpnklen20-hue.github.io/countdown-widget/ . `tasks` = `main`.
 - Календарь: `ui/CalendarView.tsx` (виды, меню блока), `ui/TimeGrid.tsx` (сетка: колонки `DayColumn` под `memo`, перенос,
   черновик нового события с id `virtual:preview`), `ui/ArrangePanel.tsx` (панель «Распланировать»). Перетаскивание задач —
   тип `TASK_DRAG`. Открывается всегда на сегодня (неделю не запоминать: так выглядело как сдвиг дат).
+  Задача и событие в календаре открываются в `ui/EntryCard.tsx` (рядом с блоком); в списках задача — та же вёрстка в панели `.detail`.
 - `Store.version` меняется только с данными (от него зависят useMemo); состояние синхронизации — `useSyncStatus`.
+- Подзадачи с датой в календаре: `calendarRows` (`domain/calendar.ts`) ↔ `TaskDao.observeDatedSubtasks` — менять вместе.
+  Значок списка — эмодзи в начале `name` (`domain/listIcon.ts` ↔ `domain/ListIcon.kt`), отдельной колонки нет.
 - Store: `index(kind, field)` — живые строки по полю (taskId, parentId), кэшируются до следующей правки;
   строки списков (`TaskRow`) получают готовые props (`rowProps`), чтобы перерисовывалась только изменённая.
 - Проверка без живого сервера: `VITE_SUPABASE_URL=http://localhost:54321` + поддельный Supabase

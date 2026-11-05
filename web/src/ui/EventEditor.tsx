@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type LocalDate, daysBetween, formatTime, parseTime, plusDays } from "../core/date";
 import type { ReminderSpec } from "../data/actions";
 import { PERSONAL_CALENDAR_ID, type Task, blank, cssColor } from "../data/model";
 import { allDayDue, dayOf, dueDay, localTimeOf, timedDue, todayDate } from "../domain/dates";
 import { type SeriesScope, SCOPES, atOccurrence } from "../domain/series";
 import { repeatDescription } from "../domain/tasks";
-import { Dialog, Swatches } from "./common";
-import { useData } from "./context";
-import { CALENDAR_COLORS, REMINDER_PRESETS, reminderLabel } from "./format";
+import { MenuButton, Swatches } from "./common";
+import { useData, useToday } from "./context";
+import { CALENDAR_COLORS, REMINDER_PRESETS, formatEventSpan, reminderLabel } from "./format";
+import { EntryCard } from "./EntryCard";
+import { Icon } from "./icons";
 import { RepeatPicker } from "./RepeatPicker";
+import { copyTaskLink } from "./TaskDetail";
 import { PREVIEW_ID } from "./TimeGrid";
 
 /** An event to edit ([task]) or to create (from [init]); [occurrence] is the day of a repeat that was clicked. */
@@ -16,8 +19,8 @@ export interface EventDraft {
   task: Task | null;
   init?: Partial<Task>;
   occurrence?: LocalDate;
-  /** Where on the screen the time was picked: the window opens on the other side, so it stays visible. */
-  x?: number;
+  /** What was clicked: the card opens beside it. A new event opens beside its own block. */
+  anchor?: DOMRect;
 }
 
 interface Span { startDate: LocalDate; start: number; endDate: LocalDate; end: number; allDay: boolean }
@@ -89,6 +92,9 @@ export function EventEditor({ draft, onClose, onTask, onPreview }: {
     master ? actions.reminders(master.id).filter((r) => r.absoluteAt == null).map((r) => ({ offsetMinutes: r.offsetMinutes ?? 0, kind: r.kind }))
       : actions.defaultReminders(base.calendarId, !!base.isAllDay));
   const [ask, setAsk] = useState<null | "save" | "delete">(null);
+  const [dateOpen, setDateOpen] = useState(isNew);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const today = useToday();
   const calendars = store.live("calendars").sort((a, b) => a.sortOrder - b.sortOrder);
   const calendarColor = cssColor(calendars.find((c) => c.id === calendarId)?.color);
 
@@ -136,73 +142,108 @@ export function EventEditor({ draft, onClose, onTask, onPreview }: {
     if (isNew) setReminders(actions.defaultReminders(calendarId === PERSONAL_CALENDAR_ID ? null : calendarId, allDay));
   };
 
+  // A click elsewhere closes the card, unless that would lose what was typed.
+  const state = JSON.stringify([title, span, repeat, calendarId, location, content, color, type, countdown, reminders]);
+  const started = useRef(state);
+  const canClose = isNew ? !title.trim() : state === started.current;
+
   const presets = span.allDay ? ALL_DAY_PRESETS : REMINDER_PRESETS;
   return (
-    <Dialog title={isNew ? "Новое событие" : "Событие"} onClose={onClose}
-      side={draft.x == null ? undefined : draft.x > window.innerWidth / 2 ? "left" : "right"}
-      closeOutside={isNew ? !title.trim() : false} actions={<>
-      {!isNew && <button className="btn danger" onClick={() => (repeating ? setAsk("delete") : remove("ALL"))}>Удалить</button>}
-      {!isNew && <button className="btn ghost" onClick={copy}>Копия</button>}
-      {!isNew && <button className="btn ghost" onClick={makeTask}>Сделать задачей</button>}
-      <div className="spacer" />
-      <button className="btn" onClick={onClose}>Отмена</button>
-      <button className="btn primary" onClick={() => (repeating ? setAsk("save") : save())}>Сохранить</button>
-    </>}>
-      <div className="form">
-        <input className="field" autoFocus value={title} placeholder="Название" style={{ fontSize: 17 }}
+    <EntryCard anchor={draft.anchor} label={isNew ? "Новое событие" : "Событие"} canClose={canClose} onClose={onClose}>
+      <div className="card-head">
+        <button className="date-btn" aria-expanded={dateOpen} onClick={() => setDateOpen(!dateOpen)}>
+          <Icon name="calendar" size={16} /><span>{formatEventSpan(edited(), today)}</span>
+        </button>
+        {repeat && <Icon name="repeat" size={14} color="var(--muted)" />}
+        <div className="spacer" />
+        <button className="icon-btn" aria-label="Закрыть" onClick={onClose}><Icon name="close" size={18} /></button>
+      </div>
+      <div className="card-body">
+        {dateOpen && (
+          <div className="card-section">
+            <label className="row"><input type="checkbox" checked={span.allDay} onChange={(e) => setAllDay(e.target.checked)} />Весь день</label>
+            <div className="two">
+              <input className="field" type="date" value={span.startDate} aria-label="Начало, дата" onChange={(e) => e.target.value && setSpan(withStart(span, e.target.value, span.start))} />
+              {!span.allDay && <input className="field" type="time" value={formatTime(span.start)} aria-label="Начало, время"
+                onChange={(e) => { const t = parseTime(e.target.value); if (t != null) setSpan(withStart(span, span.startDate, t)); }} />}
+            </div>
+            <div className="two">
+              <input className="field" type="date" value={span.endDate} aria-label="Конец, дата" onChange={(e) => e.target.value && setSpan(withEnd(span, e.target.value, span.end))} />
+              {!span.allDay && <input className="field" type="time" value={formatTime(span.end)} aria-label="Конец, время"
+                onChange={(e) => { const t = parseTime(e.target.value); if (t != null) setSpan(withEnd(span, span.endDate, t)); }} />}
+            </div>
+            <RepeatPicker day={span.startDate} rule={repeat} onChange={setRepeat} />
+            <div className="prop">
+              {reminders.map((r) => (
+                <button key={`${r.offsetMinutes}:${r.kind}`} className="chip" title="Убрать" onClick={() => setReminders(reminders.filter((x) => x !== r))}>
+                  {r.kind === "ALARM" ? "⏰" : "🔔"} {reminderLabel(r.offsetMinutes, span.allDay)} ✕
+                </button>
+              ))}
+              <select className="field" style={{ width: "auto" }} value="" aria-label="Добавить напоминание"
+                onChange={(e) => {
+                  const m = Number(e.target.value);
+                  if (e.target.value !== "" && !reminders.some((r) => r.offsetMinutes === m)) setReminders([...reminders, { offsetMinutes: m, kind: "NOTIFY" }]);
+                }}>
+                <option value="">+ Напоминание</option>
+                {presets.map((p) => <option key={p.minutes} value={p.minutes}>{p.label}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+        <input className="plain detail-title" autoFocus={isNew} value={title} placeholder="Название" aria-label="Название"
           onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (repeating ? setAsk("save") : save())} />
-        <label className="row"><input type="checkbox" checked={span.allDay} onChange={(e) => setAllDay(e.target.checked)} />Весь день</label>
-        <div className="two">
-          <input className="field" type="date" value={span.startDate} aria-label="Начало, дата" onChange={(e) => e.target.value && setSpan(withStart(span, e.target.value, span.start))} />
-          {!span.allDay && <input className="field" type="time" value={formatTime(span.start)} aria-label="Начало, время"
-            onChange={(e) => { const t = parseTime(e.target.value); if (t != null) setSpan(withStart(span, span.startDate, t)); }} />}
+        <textarea className="plain" rows={Math.max(2, Math.min(content.split("\n").length, 14))} value={content} placeholder="Описание" aria-label="Описание" onChange={(e) => setContent(e.target.value)} />
+        <div className="prop card-place">
+          <span className="icon"><Icon name="place" size={16} /></span>
+          <input className="plain" value={location} placeholder="Место" aria-label="Место" onChange={(e) => setLocation(e.target.value)} />
         </div>
-        <div className="two">
-          <input className="field" type="date" value={span.endDate} aria-label="Конец, дата" onChange={(e) => e.target.value && setSpan(withEnd(span, e.target.value, span.end))} />
-          {!span.allDay && <input className="field" type="time" value={formatTime(span.end)} aria-label="Конец, время"
-            onChange={(e) => { const t = parseTime(e.target.value); if (t != null) setSpan(withEnd(span, span.endDate, t)); }} />}
+        {moreOpen && (
+          <div className="card-section">
+            <select className="field" value={type ?? ""} aria-label="Тип события" onChange={(e) => setType(e.target.value || null)}>
+              {EVENT_TYPES.map((t) => <option key={t.label} value={t.key ?? ""}>{t.label}</option>)}
+            </select>
+            <label className="row"><input type="checkbox" checked={countdown} onChange={(e) => setCountdown(e.target.checked)} />Отсчёт дней до события</label>
+            <div className="muted small">Цвет {color == null && calendarColor ? "(сейчас — цвет календаря)" : ""}</div>
+            <Swatches value={color} onChange={setColor} palette={CALENDAR_COLORS} />
+          </div>
+        )}
+        <div className="prop card-adds">
+          <button className={`chip ${moreOpen ? "on" : ""}`} onClick={() => setMoreOpen(!moreOpen)}>+ Тип, цвет, отсчёт</button>
         </div>
-        <RepeatPicker day={span.startDate} rule={repeat} onChange={setRepeat} />
+        {repeating && repeat !== master?.repeatRule && <div className="muted small">Новый повтор: {repeatDescription({ ...base, repeatRule: repeat })}</div>}
+        {ask && (
+          <div className="menu" style={{ position: "static" }} role="menu" aria-label={ask === "save" ? "Сохранить для" : "Удалить"}>
+            <div className="muted small" style={{ padding: "6px 12px" }}>{ask === "save" ? "Изменить повторяющееся событие:" : "Удалить повторяющееся событие:"}</div>
+            {SCOPES.map((sc) => (
+              <button key={sc.key} className={ask === "delete" && sc.key === "ALL" ? "error-text" : undefined}
+                onClick={() => (ask === "save" ? save(sc.key) : remove(sc.key))}>{sc.label}</button>
+            ))}
+            <button onClick={() => setAsk(null)}>Отмена</button>
+          </div>
+        )}
+      </div>
+      <div className="card-foot">
         {calendars.length > 0 && (
-          <select className="field" value={calendarId} aria-label="Календарь" onChange={(e) => setCalendarId(e.target.value)}>
+          <select className="plain-select" value={calendarId} aria-label="Календарь" onChange={(e) => setCalendarId(e.target.value)}>
             {calendars.map((c) => <option key={c.id} value={c.id}>● {c.name}</option>)}
           </select>
         )}
-        <select className="field" value={type ?? ""} aria-label="Тип события" onChange={(e) => setType(e.target.value || null)}>
-          {EVENT_TYPES.map((t) => <option key={t.label} value={t.key ?? ""}>{t.label}</option>)}
-        </select>
-        <input className="field" value={location} placeholder="Место" onChange={(e) => setLocation(e.target.value)} />
-        <textarea className="field" rows={3} value={content} placeholder="Описание" onChange={(e) => setContent(e.target.value)} />
-        <div className="prop">
-          {reminders.map((r) => (
-            <button key={`${r.offsetMinutes}:${r.kind}`} className="chip" title="Убрать" onClick={() => setReminders(reminders.filter((x) => x !== r))}>
-              {r.kind === "ALARM" ? "⏰" : "🔔"} {reminderLabel(r.offsetMinutes, span.allDay)} ✕
-            </button>
-          ))}
-          <select className="field" style={{ width: "auto" }} value="" aria-label="Добавить напоминание"
-            onChange={(e) => {
-              const m = Number(e.target.value);
-              if (e.target.value !== "" && !reminders.some((r) => r.offsetMinutes === m)) setReminders([...reminders, { offsetMinutes: m, kind: "NOTIFY" }]);
-            }}>
-            <option value="">+ Напоминание</option>
-            {presets.map((p) => <option key={p.minutes} value={p.minutes}>{p.label}</option>)}
-          </select>
-        </div>
-        <label className="row"><input type="checkbox" checked={countdown} onChange={(e) => setCountdown(e.target.checked)} />Отсчёт дней до события</label>
-        <div className="muted small">Цвет {color == null && calendarColor ? "(сейчас — цвет календаря)" : ""}</div>
-        <Swatches value={color} onChange={setColor} palette={CALENDAR_COLORS} />
-        {repeating && repeat !== master?.repeatRule && <div className="muted small">Новый повтор: {repeatDescription({ ...base, repeatRule: repeat })}</div>}
+        <div className="spacer" />
+        {!isNew && (
+          <MenuButton label="Ещё" up items={[
+            { label: "Копия", icon: "copy", onClick: copy },
+            {
+              label: "Копировать ссылку", icon: "link", onClick: () => {
+                void copyTaskLink(master.id).then((ok) => toast({ text: ok ? "Ссылка на событие скопирована" : "Браузер не дал скопировать ссылку" }));
+              },
+            },
+            { label: "Сделать задачей", icon: "done", onClick: makeTask },
+            { label: "Удалить", icon: "trash", danger: true, onClick: () => (repeating ? setAsk("delete") : remove("ALL")) },
+          ]} />
+        )}
+        {(isNew || !canClose) && <button className="btn" onClick={onClose}>Отмена</button>}
+        <button className="btn primary" onClick={() => (repeating ? setAsk("save") : save())}>Сохранить</button>
       </div>
-      {ask && (
-        <div className="menu" style={{ position: "static", marginTop: 12 }} role="menu" aria-label={ask === "save" ? "Сохранить для" : "Удалить"}>
-          <div className="muted small" style={{ padding: "6px 12px" }}>{ask === "save" ? "Изменить повторяющееся событие:" : "Удалить повторяющееся событие:"}</div>
-          {SCOPES.map((s) => (
-            <button key={s.key} className={ask === "delete" && s.key === "ALL" ? "error-text" : undefined}
-              onClick={() => (ask === "save" ? save(s.key) : remove(s.key))}>{s.label}</button>
-          ))}
-          <button onClick={() => setAsk(null)}>Отмена</button>
-        </div>
-      )}
-    </Dialog>
+    </EntryCard>
   );
 }

@@ -29,6 +29,9 @@ data class CalendarEntry(
     val timed: Boolean get() = start != null
 }
 
+/** A task's name on the calendar: a subtask says that it is one. */
+val Task.calendarTitle: String get() = if (parentId != null) "↳ $title" else title
+
 /** Entries longer than this are not spread over the days between (likely a typo in the dates). */
 private const val MAX_SPAN_DAYS = 62L
 

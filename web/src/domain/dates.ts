@@ -33,6 +33,17 @@ export const localTimeOf = (ms: number, z: string = zone()): LocalTime => {
   return d.hour * 60 + d.minute;
 };
 
+/** ISO week number of [day]. */
+export const isoWeek = (day: LocalDate): number => DateTime.fromISO(day, { zone: "utc" }).weekNumber;
+
+/** The zone's offset on [day], the way a time scale says it: "GMT+4", "GMT+5:30". */
+export function zoneLabel(day: LocalDate, z: string = zone()): string {
+  const off = DateTime.fromISO(`${day}T12:00`, { zone: z }).offset;
+  if (off === 0) return "GMT";
+  const abs = Math.abs(off);
+  return `GMT${off < 0 ? "−" : "+"}${Math.floor(abs / 60)}${abs % 60 ? `:${String(abs % 60).padStart(2, "0")}` : ""}`;
+}
+
 export const todayDate = (): LocalDate => DateTime.now().setZone(zone()).toISODate()!;
 export const nowMinute = (): LocalTime => {
   const d = DateTime.now().setZone(zone());

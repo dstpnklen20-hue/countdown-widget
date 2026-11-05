@@ -1,5 +1,6 @@
 package com.claudecode.countdown.ui.calendar
 
+import com.claudecode.countdown.domain.calendarTitle
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -210,7 +211,7 @@ internal fun entryTimeText(e: CalendarEntry): String {
 private fun clock(minute: Int): String = if (minute >= MINUTES_PER_DAY) "24:00" else "%02d:%02d".format(minute / 60, minute % 60)
 
 internal fun entryTitle(e: CalendarEntry): String =
-    if (e.parts > 1 && e.timed) "${e.task.title} (${e.part}-й день из ${e.parts})" else e.task.title
+    if (e.parts > 1 && e.timed) "${e.task.calendarTitle} (${e.part}-й день из ${e.parts})" else e.task.calendarTitle
 
 /**
  * An entry of the schedule. Events are cards filled with their colour, like Google Calendar;

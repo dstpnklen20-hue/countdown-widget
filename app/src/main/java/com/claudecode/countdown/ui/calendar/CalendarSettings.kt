@@ -66,7 +66,7 @@ import java.time.ZoneId
 import java.time.format.TextStyle
 
 
-private val DURATIONS = listOf(15, 30, 45, 60, 90, 120)
+private val DURATIONS = listOf(5, 10, 15, 30, 45, 60, 90, 120)
 
 
 /** Calendar settings, as Google Calendar has them: the week, new events, working and quiet hours, zones. */

@@ -4,7 +4,7 @@ import { advanced, nextAfter, parseRule, toRRule } from "../core/repeatRule";
 import { type Task, newId } from "../data/model";
 import { dueDay, zone } from "./dates";
 import { skippedDays } from "./tasks";
-import { DEFAULT_BLOCK_MINUTES } from "./calendar";
+import { DEFAULT_BLOCK_MINUTES, MIN_BLOCK_MINUTES } from "./calendar";
 
 /** Port of domain/Series.kt: which occurrences of a repeating event a change applies to, as Google Calendar asks. */
 export type SeriesScope = "ONE" | "FOLLOWING" | "ALL";
@@ -67,10 +67,10 @@ export function shifted(t: Task, occurrence: LocalDate, startMinutes: number, en
   const start = occ.startAt != null && occ.startAt < due ? occ.startAt : null;
   if (start != null) {
     const s = plusMinutesAt(start, startMinutes);
-    return { ...occ, startAt: s, dueAt: Math.max(plusMinutesAt(due, endMinutes), s + 15 * 60_000) };
+    return { ...occ, startAt: s, dueAt: Math.max(plusMinutesAt(due, endMinutes), s + MIN_BLOCK_MINUTES * 60_000) };
   }
   if (startMinutes === endMinutes) return { ...occ, dueAt: plusMinutesAt(due, startMinutes) };
-  const end = Math.max(plusMinutesAt(due, DEFAULT_BLOCK_MINUTES + endMinutes), due + 15 * 60_000);
+  const end = Math.max(plusMinutesAt(due, DEFAULT_BLOCK_MINUTES + endMinutes), due + MIN_BLOCK_MINUTES * 60_000);
   return { ...occ, startAt: due, dueAt: end };
 }
 
