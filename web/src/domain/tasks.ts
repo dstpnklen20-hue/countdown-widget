@@ -11,7 +11,7 @@ export const isCountdown = (t: Task) => t.displayMode === "COUNTDOWN";
 /** Events and countdowns are things that happen; the rest are tasks to do. */
 export const happens = (t: Task) => !!t.isEvent || isCountdown(t);
 
-export type FilterKey = "inbox" | "today" | "tomorrow" | "week" | "all" | "countdowns" | "completed" | `list:${string}` | `tag:${string}`;
+export type FilterKey = "inbox" | "today" | "tomorrow" | "week" | "all" | "countdowns" | "completed" | "wontdo" | `list:${string}` | `tag:${string}`;
 
 export const SMART: { key: FilterKey; label: string; icon: string }[] = [
   { key: "inbox", label: "Входящие", icon: "inbox" },
@@ -21,6 +21,7 @@ export const SMART: { key: FilterKey; label: string; icon: string }[] = [
   { key: "all", label: "Все", icon: "all" },
   { key: "countdowns", label: "Отсчёты", icon: "hourglass" },
   { key: "completed", label: "Выполнено", icon: "done" },
+  { key: "wontdo", label: "Не буду делать", icon: "close" },
 ];
 
 export function isOverdue(t: Task, now: number, today: LocalDate): boolean {
@@ -40,7 +41,8 @@ export function matches(filter: FilterKey, t: Task, tagIds: Set<string>, today: 
     case "inbox": return t.listId === INBOX_ID;
     case "all": return true;
     case "countdowns": return false;
-    case "completed": return isDone(t);
+    case "completed": return t.status === "DONE";
+    case "wontdo": return t.status === "WONT_DO";
     case "today": return day != null && (day === today || (!isDone(t) && day < today));
     case "tomorrow": return day === plusDays(today, 1);
     case "week": return day != null && day < plusDays(today, 7) && (day >= today || !isDone(t));
@@ -100,7 +102,7 @@ export function groupTasks(filter: FilterKey, tasks: Task[], now: number, today:
       .sort((a, b) => (listOrder.get(a[0]) ?? 1e9) - (listOrder.get(b[0]) ?? 1e9))
       .map(([listId, ts]) => group("LIST", ts, { listId }));
   };
-  if (filter === "completed") {
+  if (filter === "completed" || filter === "wontdo") {
     const done = [...tasks].sort((a, b) => doneAt(b) - doneAt(a));
     if (!done.length) return [];
     if (sort === "DATE") {

@@ -62,7 +62,7 @@ export function Sidebar({ open, filter, onFilter, onTrash }: {
         <button key={s.key} className={`side-item ${filter === s.key ? "active" : ""}`} onClick={() => onFilter(s.key)}>
           <Icon name={s.icon} size={18} />
           {s.label}
-          {s.key !== "completed" && <span className="count">{counts(s.key) || ""}</span>}
+          {s.key !== "completed" && s.key !== "wontdo" && <span className="count">{counts(s.key) || ""}</span>}
         </button>
       ))}
 

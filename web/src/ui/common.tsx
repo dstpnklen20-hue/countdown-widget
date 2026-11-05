@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { argbOf, cssColor } from "../data/model";
 import { PALETTE, PRIORITY_COLORS } from "./format";
 import { Icon } from "./icons";
@@ -21,7 +21,7 @@ export function Dialog({ title, children, actions, onClose }: { title: string; c
 }
 
 /** The round-cornered box of a task, coloured by priority like the app's PriorityCheckbox. */
-export function Check({ done, priority, onToggle, label }: { done: boolean; priority: number; onToggle: () => void; label?: string }) {
+export function Check({ done, wont, priority, onToggle, label }: { done: boolean; wont?: boolean; priority: number; onToggle: () => void; label?: string }) {
   const color = PRIORITY_COLORS[priority];
   return (
     <button
@@ -30,7 +30,7 @@ export function Check({ done, priority, onToggle, label }: { done: boolean; prio
       aria-label={label ?? (done ? "Вернуть в работу" : "Выполнить")}
       onClick={(e) => { e.stopPropagation(); onToggle(); }}
     >
-      {done && <Icon name="done" size={14} />}
+      {done && <Icon name={wont ? "close" : "done"} size={14} />}
     </button>
   );
 }
@@ -51,6 +51,8 @@ export function Swatches({ value, onChange, allowNone = true, palette = PALETTE 
 }
 
 export interface MenuItem {
+  /** A line above this item: the start of another group. */
+  group?: boolean;
   label: string;
   icon?: string;
   danger?: boolean;
@@ -66,6 +68,16 @@ export function MenuButton({ icon = "more", iconColor, label, items, up, childre
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  // A long menu near the edge of the screen shifts to stay on it.
+  useLayoutEffect(() => {
+    const el = list.current;
+    if (!open || !el) return;
+    el.style.transform = "";
+    const r = el.getBoundingClientRect();
+    const dy = r.top < 8 ? 8 - r.top : r.bottom > window.innerHeight - 8 ? Math.max(window.innerHeight - 8 - r.bottom, 8 - r.top) : 0;
+    if (dy) el.style.transform = `translateY(${dy}px)`;
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
@@ -82,9 +94,9 @@ export function MenuButton({ icon = "more", iconColor, label, items, up, childre
         </button>
       )}
       {open && (
-        <div className="menu" style={up ? { right: 0, bottom: "100%" } : { right: 0, top: "100%" }}>
+        <div ref={list} className="menu" role="menu" style={up ? { right: 0, bottom: "100%" } : { right: 0, top: "100%" }}>
           {items.map((it) => (
-            <button key={it.label} className={it.danger ? "error-text" : undefined} onClick={(e) => { e.stopPropagation(); setOpen(false); it.onClick(); }}>
+            <button key={it.label} role="menuitem" className={`${it.danger ? "error-text" : ""} ${it.group ? "menu-group" : ""}`} onClick={(e) => { e.stopPropagation(); setOpen(false); it.onClick(); }}>
               {it.icon && <Icon name={it.icon} size={18} />}
               {it.label}
             </button>

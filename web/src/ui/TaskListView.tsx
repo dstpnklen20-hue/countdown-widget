@@ -69,10 +69,10 @@ export function TaskListView({ filter, selected, onOpen, onMenu }: {
       </div>
       {kanban && list ? <KanbanBoard list={list} selected={selected} onOpen={open} onToggle={toggle} /> : (
       <div className="main-body">
-        {filter !== "completed" && <QuickAdd filter={filter} onAdded={(t) => toast({ text: `Добавлено: ${t.title}${t.dueAt ? " · " + formatDue(t, today) : ""}` })} />}
+        {filter !== "completed" && filter !== "wontdo" && <QuickAdd filter={filter} onAdded={(t) => toast({ text: `Добавлено: ${t.title}${t.dueAt ? " · " + formatDue(t, today) : ""}` })} />}
         {groups.length === 0 && (
-          <Empty emoji={filter === "completed" ? "🏁" : filter === "countdowns" ? "⏳" : "🌿"} text={
-            filter === "completed" ? "Выполненных задач пока нет" : filter === "countdowns" ? "Здесь живут события с отсчётом: «Отпуск 15 июля»" : "Задач нет — можно отдохнуть"
+          <Empty emoji={filter === "completed" ? "🏁" : filter === "wontdo" ? "🤷" : filter === "countdowns" ? "⏳" : "🌿"} text={
+            filter === "completed" ? "Выполненных задач пока нет" : filter === "wontdo" ? "Здесь будут задачи, от которых вы отказались: их можно вернуть" : filter === "countdowns" ? "Здесь живут события с отсчётом: «Отпуск 15 июля»" : "Задач нет — можно отдохнуть"
           } />
         )}
         {groups.map((g) => {
@@ -147,7 +147,7 @@ export const TaskRow = memo(function TaskRow({ task: t, due, overdue, color, lis
     <div className={`task-row ${done ? "done" : ""} ${selected ? "selected" : ""}`} onClick={() => onOpen(t)} role="button" tabIndex={0}
       onKeyDown={(e) => e.key === "Enter" && onOpen(t)}>
       {color && <span className="bar" style={{ background: color }} />}
-      {countdown != null ? <Icon name="hourglass" size={18} color="var(--primary)" /> : <Check done={done} priority={t.priority} onToggle={() => onToggle(t)} />}
+      {countdown != null ? <Icon name="hourglass" size={18} color="var(--primary)" /> : <Check done={done} wont={t.status === "WONT_DO"} priority={t.priority} onToggle={() => onToggle(t)} />}
       <span className="title">{t.title || "(без названия)"}</span>
       <span className="meta">
         {tags && tags.split(NL).map((tag) => <span key={tag} className="chip">#{tag}</span>)}

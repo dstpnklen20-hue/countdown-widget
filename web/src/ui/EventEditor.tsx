@@ -11,6 +11,7 @@ import { CALENDAR_COLORS, REMINDER_PRESETS, formatEventSpan, reminderLabel } fro
 import { EntryCard } from "./EntryCard";
 import { Icon } from "./icons";
 import { RepeatPicker } from "./RepeatPicker";
+import { copyTaskLink } from "./TaskDetail";
 import { PREVIEW_ID } from "./TimeGrid";
 
 /** An event to edit ([task]) or to create (from [init]); [occurrence] is the day of a repeat that was clicked. */
@@ -230,7 +231,12 @@ export function EventEditor({ draft, onClose, onTask, onPreview }: {
         <div className="spacer" />
         {!isNew && (
           <MenuButton label="Ещё" up items={[
-            { label: "Копия", icon: "tasks", onClick: copy },
+            { label: "Копия", icon: "copy", onClick: copy },
+            {
+              label: "Копировать ссылку", icon: "link", onClick: () => {
+                void copyTaskLink(master.id).then((ok) => toast({ text: ok ? "Ссылка на событие скопирована" : "Браузер не дал скопировать ссылку" }));
+              },
+            },
             { label: "Сделать задачей", icon: "done", onClick: makeTask },
             { label: "Удалить", icon: "trash", danger: true, onClick: () => (repeating ? setAsk("delete") : remove("ALL")) },
           ]} />

@@ -74,7 +74,7 @@ export function EntryChip({ e, color, past, onOpen, onToggle, onMenu }: {
       onClick={(ev) => { ev.stopPropagation(); onOpen(e, ev.currentTarget.getBoundingClientRect()); }}
       onKeyDown={(ev) => ev.key === "Enter" && onOpen(e, ev.currentTarget.getBoundingClientRect())}
       onContextMenu={(ev) => onMenu?.(e, ev)} title={t.title}>
-      {!filled && !e.projected && onToggle && <Check done={isDone(t)} priority={0} onToggle={() => onToggle(e)} />}
+      {!filled && !e.projected && onToggle && <Check done={isDone(t)} wont={t.status === "WONT_DO"} priority={0} onToggle={() => onToggle(e)} />}
       {t.repeatRule && t.id !== PREVIEW_ID && <Icon name="repeat" size={11} />}
       <span className="chip-text">{e.start != null && !t.isAllDay ? `${formatTime(e.start)} ` : ""}{entryTitle(e)}</span>
     </div>
@@ -149,7 +149,7 @@ const DayColumn = memo(function DayColumn({ day, isToday, list, colorOf, dimPast
             onClick={(ev) => { ev.stopPropagation(); actions.open(e, ev.currentTarget.getBoundingClientRect()); }}
             onContextMenu={(ev) => actions.menu(e, ev)} title={t.title}>
             <div className="t">
-              {!filled && !fixed && <Check done={isDone(t)} priority={0} onToggle={() => actions.toggle(e)} />}
+              {!filled && !fixed && <Check done={isDone(t)} wont={t.status === "WONT_DO"} priority={0} onToggle={() => actions.toggle(e)} />}
               {t.repeatRule && !draft && <Icon name="repeat" size={11} />}
               <span>{entryTitle(e)}</span>
             </div>

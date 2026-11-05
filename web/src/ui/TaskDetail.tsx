@@ -7,6 +7,7 @@ import { Check, MenuButton, Swatches } from "./common";
 import { useData, useNow, useToday } from "./context";
 import { PRIORITY_COLORS, PRIORITY_NAMES, REMINDER_PRESETS, formatDue, formatDuration, reminderLabel } from "./format";
 import { Icon } from "./icons";
+import { printTask } from "./printTask";
 import { RepeatPicker } from "./RepeatPicker";
 
 const DURATIONS = [5, 10, 15, 30, 45, 60, 90, 120, 180, 240];
@@ -38,7 +39,30 @@ function useDraft(value: string, save: (v: string) => void, key: string): [strin
   return [draft, change, flush];
 }
 
-export function TaskDetail({ task, onClose, onOpen }: { task: Task; onClose: () => void; onOpen: (t: Task) => void }) {
+/**
+ * Copies the address that opens this task or event, for a note or a message. Falls back on the
+ * older way when the browser refuses the clipboard (no permission, the page isn't in focus).
+ */
+export async function copyTaskLink(id: string): Promise<boolean> {
+  const link = `${location.origin}${location.pathname}#task=${id}`;
+  try {
+    await navigator.clipboard.writeText(link);
+    return true;
+  } catch {
+    const field = document.createElement("textarea");
+    field.value = link;
+    field.setAttribute("style", "position:fixed;opacity:0");
+    document.body.append(field);
+    field.select();
+    const done = document.execCommand("copy");
+    field.remove();
+    return done;
+  }
+}
+
+export function TaskDetail({ task, onClose, onOpen, onFocus }: {
+  task: Task; onClose: () => void; onOpen: (t: Task) => void; onFocus: (t: Task) => void;
+}) {
   const { store, actions, toast } = useData();
   const today = useToday();
   const now = useNow();
@@ -62,6 +86,7 @@ export function TaskDetail({ task, onClose, onOpen }: { task: Task; onClose: () 
   const time = start != null && !task.isAllDay ? localTimeOf(start) : null;
   const length = durationMinutes(task);
   const done = isDone(task);
+  const wont = task.status === "WONT_DO";
   const reminders = actions.reminders(task.id);
   const checklist = actions.checklist(task.id);
   const subtasks = store.live("tasks").filter((t) => t.parentId === task.id).sort((a, b) => a.sortOrder - b.sortOrder);
@@ -91,7 +116,7 @@ export function TaskDetail({ task, onClose, onOpen }: { task: Task; onClose: () 
   return (
     <>
       <div className="card-head">
-        <Check done={done} priority={task.priority} onToggle={() => actions.setDone(task, !done)} />
+        <Check done={done} wont={wont} priority={task.priority} onToggle={() => actions.setDone(task, !done)} />
         <button className={`date-btn ${overdue ? "overdue" : ""} ${when ? "" : "empty"}`} aria-expanded={dateOpen} onClick={() => setDateOpen(!dateOpen)}>
           <Icon name="calendar" size={16} /><span>{when ?? "Срок"}</span>
         </button>
@@ -214,13 +239,43 @@ export function TaskDetail({ task, onClose, onOpen }: { task: Task; onClose: () 
         )}
         <div className="spacer" />
         <MenuButton label="Ещё" up items={[
+          { label: "Добавить подзадачу", icon: "subtask", onClick: () => setAdding("sub") },
+          wont
+            ? { label: "Вернуть в работу", icon: "restore", onClick: () => actions.setDone(task, false) }
+            : {
+              label: "Не буду делать", icon: "close", onClick: () => {
+                const undo = actions.setDone(task, true, "WONT_DO");
+                toast({ text: `«${task.title}»: не буду делать`, undo });
+              },
+            },
+          { label: "Теги", icon: "tag", onClick: () => setAdding("tag") },
+          { label: "Начать фокус", icon: "focus", onClick: () => onFocus(task) },
+          {
+            group: true, label: "Дублировать", icon: "copy", onClick: () => {
+              const copy = actions.duplicate(fresh());
+              toast({ text: `Копия: «${copy.title}»` });
+              onOpen(copy);
+            },
+          },
+          {
+            label: "Копировать ссылку", icon: "link", onClick: () => {
+              void copyTaskLink(task.id).then((ok) => toast({ text: ok ? "Ссылка на задачу скопирована" : "Браузер не дал скопировать ссылку" }));
+            },
+          },
           { label: "Сделать событием", icon: "event", onClick: () => actions.update(asEvent(task)) },
           {
             label: task.displayMode === "COUNTDOWN" ? "Обычная задача (без отсчёта)" : "Событие с отсчётом", icon: "hourglass",
             onClick: () => actions.update({ ...task, displayMode: task.displayMode === "COUNTDOWN" ? "NORMAL" : "COUNTDOWN" }),
           },
           {
-            label: "Удалить", icon: "trash", danger: true, onClick: () => {
+            label: "Печать", icon: "print", onClick: () => printTask({
+              title, when, list: listLabel(store.get("task_lists", task.listId) ?? { id: INBOX_ID, isInbox: 1, name: "" }), content,
+              checklist: checklist.map((c) => ({ title: c.title, checked: !!c.checked })),
+              subtasks: subtasks.map((st) => ({ title: st.title, done: isDone(st) })),
+            }),
+          },
+          {
+            group: true, label: "Удалить", icon: "trash", danger: true, onClick: () => {
               actions.delete(task);
               onClose();
               toast({ text: "Задача удалена", undo: () => actions.restore({ ...task, deleted: 1, updatedAt: Date.now() - 1000 }) });

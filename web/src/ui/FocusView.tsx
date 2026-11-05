@@ -49,6 +49,25 @@ function next(t: Timer, s: Settings): Timer {
   return { ...t, phase: "FOCUS", status: "IDLE", endAt: 0, remainingMs: 0 };
 }
 
+/**
+ * Starts a focus on a task from outside the timer's screen. If a timer is already going it keeps
+ * going, on this task. The timer's screen reads the saved state when it opens.
+ */
+export function focusOn(taskId: string): void {
+  const read = <T,>(key: string, fallback: T): T => {
+    try { return { ...fallback, ...JSON.parse(localStorage.getItem(key) ?? "{}") }; } catch { return fallback; }
+  };
+  const timer = read<Timer>("tiktak.pomodoro", IDLE);
+  const settings = read<Settings>("tiktak.pomodoroSettings", DEFAULTS);
+  const now = Date.now();
+  const next: Timer = timer.status === "IDLE"
+    ? { ...timer, phase: "FOCUS", status: "RUNNING", taskId, startedAt: now, endAt: now + durationMs("FOCUS", settings), remainingMs: 0 }
+    : { ...timer, taskId };
+  if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
+  unlockSound();
+  try { localStorage.setItem("tiktak.pomodoro", JSON.stringify(next)); } catch { /* storage refused */ }
+}
+
 export function FocusView({ onStats }: { onStats: () => void }) {
   const { store, actions, toast } = useData();
   const today = useToday();
@@ -108,7 +127,7 @@ export function FocusView({ onStats }: { onStats: () => void }) {
     };
   }, [store.version, today]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const tasks = store.live("tasks").filter((t) => !isDone(t) && !t.isEvent && !t.parentId && t.displayMode !== "COUNTDOWN")
+  const tasks = store.live("tasks").filter((t) => t.id === timer.taskId || (!isDone(t) && !t.isEvent && !t.parentId && t.displayMode !== "COUNTDOWN"))
     .sort((a, b) => a.title.localeCompare(b.title, "ru"));
   const progress = 1 - left / total;
   const r = 110, c = 2 * Math.PI * r;

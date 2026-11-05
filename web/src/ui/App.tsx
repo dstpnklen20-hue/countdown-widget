@@ -8,7 +8,7 @@ import { CalendarView } from "./CalendarView";
 import { type AppContext, Ctx, type Toast, useData, useLocal } from "./context";
 import { EntryCard } from "./EntryCard";
 import { EventEditor, type EventDraft } from "./EventEditor";
-import { FocusView } from "./FocusView";
+import { FocusView, focusOn } from "./FocusView";
 import { HabitsView } from "./HabitsView";
 import { Icon } from "./icons";
 import { MatrixView } from "./MatrixView";
@@ -173,6 +173,27 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     setMenuOpen(false);
     setRailShown(false);
   };
+  const startFocus = (t: Task) => {
+    focusOn(t.id);
+    go("focus");
+  };
+  // A copied link: #task=<id> opens that task or event once its record is here (the first sync may still be going).
+  const [linked, setLinked] = useState(() => location.hash.match(/^#task=(.+)$/)?.[1] ?? null);
+  useEffect(() => {
+    const read = () => setLinked(location.hash.match(/^#task=(.+)$/)?.[1] ?? null);
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
+  useEffect(() => {
+    const t = linked ? store.get("tasks", linked) : undefined;
+    if (!t) return;
+    if (!t.deleted) {
+      if (section !== "calendar" && !t.isEvent) go("tasks");
+      open(t);
+    }
+    setLinked(null);
+    history.replaceState(null, "", location.pathname + location.search);
+  }, [linked, store.version]); // eslint-disable-line react-hooks/exhaustive-deps
   useTabReminders((t) => { setSection(t.isEvent ? "calendar" : "tasks"); open(t); });
   const selectedTask = store.get("tasks", selected);
   // A task turned into an event moves to the event editor.
@@ -231,11 +252,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
 
       {selectedTask && !selectedTask.deleted && !selectedTask.isEvent && (section === "calendar" ? (
         <EntryCard anchor={anchor} label="Задача" onClose={() => setSelected(null)}>
-          <TaskDetail key={selectedTask.id} task={selectedTask} onClose={() => setSelected(null)} onOpen={(t) => open(t)} />
+          <TaskDetail key={selectedTask.id} task={selectedTask} onClose={() => setSelected(null)} onOpen={(t) => open(t)} onFocus={startFocus} />
         </EntryCard>
       ) : (
         <aside className="detail">
-          <TaskDetail key={selectedTask.id} task={selectedTask} onClose={() => setSelected(null)} onOpen={(t) => open(t)} />
+          <TaskDetail key={selectedTask.id} task={selectedTask} onClose={() => setSelected(null)} onOpen={(t) => open(t)} onFocus={startFocus} />
         </aside>
       ))}
       {event && <EventEditor draft={event} onPreview={setPreview} onClose={() => setEvent(null)} onTask={(id) => { setEvent(null); setSection(section === "calendar" ? "calendar" : "tasks"); setSelected(id); }} />}
