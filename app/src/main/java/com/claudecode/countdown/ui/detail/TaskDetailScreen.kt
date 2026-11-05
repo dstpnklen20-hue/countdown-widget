@@ -109,7 +109,7 @@ import com.claudecode.countdown.ui.priorityName
 import com.claudecode.countdown.ui.rememberNow
 
 /** Lengths offered for a task at a time (null: just a moment). */
-private val DURATION_PRESETS = listOf(null, 15, 30, 45, 60, 90, 120, 180, 240)
+private val DURATION_PRESETS = listOf(null, 5, 10, 15, 30, 45, 60, 90, 120, 180, 240)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable

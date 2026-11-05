@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { type LocalDate, dayOfWeek, formatTime, parts, plusDays } from "../core/date";
 import type { Task } from "../data/model";
-import { type CalendarEntry, MINUTES_PER_DAY, isVirtual, layoutBlocks } from "../domain/calendar";
+import { type CalendarEntry, MINUTES_PER_DAY, MIN_BLOCK_MINUTES, isVirtual, layoutBlocks } from "../domain/calendar";
 import { epochAt, localTimeOf } from "../domain/dates";
 import { happens, isDone } from "../domain/tasks";
 import { Check } from "./common";
@@ -9,8 +9,11 @@ import { WEEKDAYS_SHORT } from "./format";
 import { Icon } from "./icons";
 import { TASK_DRAG } from "./ArrangePanel";
 
-/** Taps and drags on the grid land on quarter hours, as in the app. */
-const SNAP = 15;
+/** Drags on the grid land on 5 minutes, as in the app; with Shift or Alt held, on any minute. */
+const SNAP = 5;
+const stepOf = (e: { shiftKey: boolean; altKey: boolean }) => (e.shiftKey || e.altKey ? 1 : SNAP);
+/** A press that moved less than this is a click: a new event of the usual length, not a tiny range. */
+const CLICK_PX = 6;
 /** All-day entries shown per day before "+N". */
 const ALL_DAY_ROWS = 2;
 export const DEFAULT_HOUR_PX = 64;
@@ -89,7 +92,7 @@ interface Drag {
 }
 
 /** A range being drawn on an empty column with the mouse: a new event of that length. */
-interface Draw { day: LocalDate; from: number; to: number }
+interface Draw { day: LocalDate; from: number; to: number; y?: number }
 
 /** What a block can do; these keep their identity, so a column redraws only when its own data changes. */
 interface BlockActions {
@@ -158,7 +161,7 @@ const DayColumn = memo(function DayColumn({ day, isToday, list, colorOf, dimPast
       })}
       {ghost && (() => {
         const s = ghost.mode === "move" ? ghost.entry.start! + ghost.dMin : ghost.entry.start!;
-        const end = Math.max(ghost.entry.end! + ghost.dMin, s + SNAP);
+        const end = Math.max(ghost.entry.end! + ghost.dMin, s + MIN_BLOCK_MINUTES);
         const color = colorOf(ghost.entry.task);
         return (
           <div className="block ghost" style={{ top: (s / 60) * hourPx, height: Math.max(((end - s) / 60) * hourPx, 18), left: 0, width: "calc(100% - 2px)", background: color, color: onColor(color) }}>
@@ -224,9 +227,9 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
     return () => el.removeEventListener("wheel", wheel);
   }, []);
 
-  const minuteAt = (clientY: number) => {
+  const minuteAt = (clientY: number, step = SNAP) => {
     const top = grid.current!.getBoundingClientRect().top;
-    return Math.min(Math.max(Math.floor((((clientY - top) / hourRef.current) * 60) / SNAP) * SNAP, 0), MINUTES_PER_DAY - SNAP);
+    return Math.min(Math.max(Math.floor((((clientY - top) / hourRef.current) * 60) / step) * step, 0), MINUTES_PER_DAY - MIN_BLOCK_MINUTES);
   };
 
   // While a block is held: follow the pointer, drop it on release. Only a real move is a drag; press and release is a click.
@@ -235,7 +238,8 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
     const colWidth = (grid.current?.querySelector(".daycol") as HTMLElement | null)?.offsetWidth ?? 100;
     const index = days.indexOf(drag.entry.date);
     const move = (e: PointerEvent) => {
-      const dMin = Math.round((((e.clientY - drag.y) / hourRef.current) * 60) / SNAP) * SNAP;
+      const step = stepOf(e);
+      const dMin = Math.round((((e.clientY - drag.y) / hourRef.current) * 60) / step) * step;
       const dDay = drag.mode === "move" ? Math.min(Math.max(Math.round((e.clientX - drag.x) / colWidth), -index), days.length - 1 - index) : 0;
       const moved = drag.moved || Math.abs(e.clientY - drag.y) > 4 || Math.abs(e.clientX - drag.x) > 4;
       if (moved) dragging.current = true;
@@ -265,11 +269,12 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
   useEffect(() => {
     if (!draw) return;
     const move = (e: PointerEvent) => {
-      const to = Math.max(minuteAt(e.clientY) + SNAP, draw.from + SNAP);
+      const step = stepOf(e);
+      const to = Math.min(Math.max(minuteAt(e.clientY, step) + step, draw.from + MIN_BLOCK_MINUTES), MINUTES_PER_DAY);
       if (to !== draw.to) setDraw({ ...draw, to });
     };
     const up = (e: PointerEvent) => {
-      onNew(draw.day, draw.from, draw.to > draw.from + SNAP ? draw.to : undefined, e.clientX);
+      onNew(draw.day, draw.from, Math.abs(e.clientY - (draw.y ?? e.clientY)) >= CLICK_PX ? draw.to : undefined, e.clientX);
       setDraw(null);
     };
     window.addEventListener("pointermove", move);
@@ -315,8 +320,8 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
     pressEmpty: (ev, day) => {
       lastPointer.current = ev.pointerType;
       if (ev.pointerType !== "mouse" || ev.button !== 0) return;
-      const from = minuteAt(ev.clientY);
-      setDraw({ day, from, to: from + SNAP });
+      const from = minuteAt(ev.clientY, stepOf(ev));
+      setDraw({ day, from, to: from + MIN_BLOCK_MINUTES, y: ev.clientY });
     },
     // Touch: a tap is a new event at that time (the mouse draws one instead).
     tapEmpty: (ev, day) => {
@@ -326,7 +331,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
       if (!ev.dataTransfer.types.includes(TASK_DRAG)) return;
       ev.preventDefault();
       ev.dataTransfer.dropEffect = "move";
-      const from = minuteAt(ev.clientY);
+      const from = minuteAt(ev.clientY, stepOf(ev));
       if (dropAt?.day !== day || dropAt.from !== from) setDropAt({ day, from, to: Math.min(from + 30, MINUTES_PER_DAY) });
     },
     drop: (ev, day) => {
@@ -334,7 +339,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
       if (!id) return;
       ev.preventDefault();
       setDropAt(null);
-      onDropTask(id, day, minuteAt(ev.clientY));
+      onDropTask(id, day, minuteAt(ev.clientY, stepOf(ev)));
     },
   };
   const actions = useMemo<BlockActions>(() => ({

@@ -103,3 +103,13 @@ test("a reminder skips a deleted occurrence", () => {
   const after = timedDue(monday, 9 * 60 + 30).at;
   expect(reminderTrigger(master, reminder({ taskId: master.id }), undefined, after)).toBe(timedDue(plusDays(monday, 2), 9 * 60).at);
 });
+
+test("a block can be as short as 5 minutes, not shorter", () => {
+  const master = daily();
+  const short = shifted(master, monday, 0, -55);
+  expect(short.dueAt! - short.startAt!).toBe(5 * 60_000);
+  const tooShort = shifted(master, monday, 0, -58);
+  expect(tooShort.dueAt! - tooShort.startAt!).toBe(5 * 60_000);
+  // Any minute is kept as it is, not rounded to a quarter hour.
+  expect(localTimeOf(shifted(master, monday, 7, 7).startAt!)).toBe(9 * 60 + 7);
+});

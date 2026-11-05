@@ -10,6 +10,8 @@ import { isDone, skippedDays } from "./tasks";
 export const MINUTES_PER_DAY = 1440;
 /** Tasks with a time but no length take this much of the timeline. */
 export const DEFAULT_BLOCK_MINUTES = 30;
+/** The shortest length a block can be stretched to (Timeline.kt). */
+export const MIN_BLOCK_MINUTES = 5;
 /** Entries longer than this are not spread over the days between (likely a typo in the dates). */
 const MAX_SPAN_DAYS = 62;
 

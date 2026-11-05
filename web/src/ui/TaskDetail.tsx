@@ -9,7 +9,7 @@ import { PRIORITY_COLORS, PRIORITY_NAMES, REMINDER_PRESETS, formatDuration, remi
 import { Icon } from "./icons";
 import { RepeatPicker } from "./RepeatPicker";
 
-const DURATIONS = [15, 30, 45, 60, 90, 120, 180, 240];
+const DURATIONS = [5, 10, 15, 30, 45, 60, 90, 120, 180, 240];
 /** Text typed into a field is saved after a short pause (and when leaving it). */
 function useDraft(value: string, save: (v: string) => void, key: string): [string, (v: string) => void, () => void] {
   const [draft, setDraft] = useState(value);

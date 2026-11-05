@@ -366,7 +366,7 @@ function LayersMenu({ s, calendars, onClose }: { s: Settings; calendars: Calenda
       </label>
       <label className="row layer-check">Новое событие
         <select className="field" style={{ width: "auto" }} value={s.eventMinutes} onChange={(e) => s.setEventMinutes(Number(e.target.value))}>
-          {[15, 30, 45, 60, 90, 120].map((m) => <option key={m} value={m}>{m} мин</option>)}
+          {[5, 10, 15, 30, 45, 60, 90, 120].map((m) => <option key={m} value={m}>{m} мин</option>)}
         </select>
       </label>
       <label className="row layer-check">Календарь новых
@@ -381,7 +381,7 @@ function LayersMenu({ s, calendars, onClose }: { s: Settings; calendars: Calenda
           <button className="btn small" style={{ width: "auto" }} aria-label="Крупнее" onClick={() => s.setHourPx(Math.min(s.hourPx + 8, MAX_HOUR_PX))}>+</button>
         </span>
       </div>
-      <div className="muted small" style={{ padding: "0 10px 6px" }}>Или Ctrl + колёсико над сеткой</div>
+      <div className="muted small" style={{ padding: "0 10px 6px" }}>Или Ctrl + колёсико над сеткой. Мышью время ставится с шагом 5 минут, с Shift или Alt — с точностью до минуты</div>
       <button onClick={() => setFile(true)}><Icon name="sync" size={16} />Импорт и экспорт .ics</button>
       {editing && <CalendarDialog calendar={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
       {file && <CalendarFile onClose={() => setFile(false)} />}

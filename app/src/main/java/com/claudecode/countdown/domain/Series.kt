@@ -69,10 +69,10 @@ fun Task.shifted(occurrence: LocalDate, startMinutes: Long, endMinutes: Long, zo
     fun move(at: Long, minutes: Long) = Instant.ofEpochMilli(at).atZone(zone).plusMinutes(minutes).toInstant().toEpochMilli()
     val start = occ.startAt?.takeIf { it < due }
     return when {
-        start != null -> occ.copy(startAt = move(start, startMinutes), dueAt = move(due, endMinutes).coerceAtLeast(move(start, startMinutes) + 15 * 60_000L))
+        start != null -> occ.copy(startAt = move(start, startMinutes), dueAt = move(due, endMinutes).coerceAtLeast(move(start, startMinutes) + MIN_BLOCK_MINUTES * 60_000L))
         startMinutes == endMinutes -> occ.copy(dueAt = move(due, startMinutes))
         else -> {
-            val end = move(due, DEFAULT_BLOCK_MINUTES + endMinutes).coerceAtLeast(due + 15 * 60_000L)
+            val end = move(due, DEFAULT_BLOCK_MINUTES + endMinutes).coerceAtLeast(due + MIN_BLOCK_MINUTES * 60_000L)
             occ.copy(startAt = due, dueAt = end)
         }
     }

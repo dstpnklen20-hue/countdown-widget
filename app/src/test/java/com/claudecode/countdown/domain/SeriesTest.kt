@@ -87,6 +87,17 @@ class SeriesTest {
     }
 
     @Test
+    fun aBlockCanBeAsShortAsFiveMinutes() {
+        val master = daily()
+        val short = master.shifted(monday, 0, -55, zone)
+        assertEquals(5 * 60_000L, short.dueAt!! - short.startAt!!)
+        val tooShort = master.shifted(monday, 0, -58, zone)
+        assertEquals(5 * 60_000L, tooShort.dueAt!! - tooShort.startAt!!)
+        // Any minute is kept as it is, not rounded to a quarter hour.
+        assertEquals(LocalTime.of(9, 7), localTimeOf(master.shifted(monday, 7, 7, zone).startAt!!))
+    }
+
+    @Test
     fun snoozedReminderOfARepeatingEventFiresTodayNotTomorrow() {
         val after = timedDue(monday, LocalTime.of(9, 1)).at
         val snoozed = Reminder(taskId = "x", offsetMinutes = 0, snoozedUntil = after + 10 * 60_000L)
