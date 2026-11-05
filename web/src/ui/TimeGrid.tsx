@@ -49,6 +49,15 @@ export function onColor(css: string): string {
   return lum > 165 ? "#1c1d21" : "#ffffff";
 }
 
+/**
+ * Colours of a block or chip. What is over, and what is done, is one even pale tone with grey text,
+ * whatever its colour was (see `.past` in the styles); [taskMix] is how strong an open task's tint is.
+ */
+export function blockColors(color: string, filled: boolean, faded: boolean, taskMix: number): React.CSSProperties {
+  if (faded) return { "--tint": color } as React.CSSProperties;
+  return filled ? { background: color, color: onColor(color) } : { background: `color-mix(in srgb, ${color} ${taskMix}%, var(--bg))`, color: "var(--text)" };
+}
+
 export function EntryChip({ e, color, past, onOpen, onToggle, onMenu }: {
   e: CalendarEntry; color: string; past?: boolean; onOpen: (e: CalendarEntry) => void;
   onToggle?: (e: CalendarEntry) => void; onMenu?: (e: CalendarEntry, ev: React.MouseEvent) => void;
@@ -57,11 +66,8 @@ export function EntryChip({ e, color, past, onOpen, onToggle, onMenu }: {
   const filled = happens(t);
   const done = isDone(t) && !t.isEvent;
   return (
-    <div role="button" tabIndex={0} className={`chip-entry ${t.eventType === "AWAY" ? "away" : ""} ${t.id === PREVIEW_ID ? "draft" : ""}`}
-      style={{
-        ...(filled ? { background: color, color: onColor(color) } : { background: `color-mix(in srgb, ${color} 45%, var(--bg))`, color: "var(--text)" }),
-        opacity: (past && filled) || done ? 0.55 : undefined,
-      }}
+    <div role="button" tabIndex={0} className={`chip-entry ${past || done ? "past" : ""} ${t.eventType === "AWAY" ? "away" : ""} ${t.id === PREVIEW_ID ? "draft" : ""}`}
+      style={blockColors(color, filled, !!past || done, 45)}
       onClick={(ev) => { ev.stopPropagation(); onOpen(e); }} onKeyDown={(ev) => ev.key === "Enter" && onOpen(e)}
       onContextMenu={(ev) => onMenu?.(e, ev)} title={t.title}>
       {!filled && !e.projected && onToggle && <Check done={isDone(t)} priority={0} onToggle={() => onToggle(e)} />}
@@ -126,14 +132,14 @@ const DayColumn = memo(function DayColumn({ day, isToday, list, colorOf, dimPast
         const top = (p.start / 60) * hourPx;
         const height = Math.max(((p.end - p.start) / 60) * hourPx, 18);
         const fixed = isVirtual(t) || (e.projected && !t.isEvent);
+        const faded = !draft && (done || (dimPast && entryEnd(e) < now));
         return (
-          <div key={`${t.id}:${e.occurrence}:${e.part}`} className={`block ${filled ? "" : "task"} ${t.eventType === "AWAY" ? "away" : ""} ${draft ? "draft" : ""}`}
+          <div key={`${t.id}:${e.occurrence}:${e.part}`} className={`block ${filled ? "" : "task"} ${faded ? "past" : ""} ${t.eventType === "AWAY" ? "away" : ""} ${draft ? "draft" : ""}`}
             style={{
               top, height, left: `calc(${p.lane * width}% + ${indent}px)`, width: `calc(${width}% - ${indent + 2}px)`,
-              background: filled ? color : `color-mix(in srgb, ${color} 55%, var(--bg))`, color: filled ? onColor(color) : "var(--text)",
-              borderLeftColor: color,
-              // What is over fades, but a task not done yet stays visible: it still needs doing.
-              opacity: held === e ? 0.35 : done || (e.projected && !filled) || (dimPast && filled && !draft && entryEnd(e) < now) ? 0.55 : undefined,
+              ...blockColors(color, filled, faded, 55),
+              borderLeftColor: faded ? undefined : color,
+              opacity: held === e ? 0.35 : e.projected && !filled && !faded ? 0.6 : undefined,
             }}
             onPointerDown={(ev) => actions.press(ev, e, "move")}
             onClick={(ev) => { ev.stopPropagation(); actions.open(e); }}

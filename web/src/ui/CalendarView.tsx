@@ -8,7 +8,7 @@ import { type CalendarEntry, MINUTES_PER_DAY, calendarEntries, isVirtual, russia
 import { type SeriesScope, SCOPES, shifted } from "../domain/series";
 import { durationMinutes, happens, isDone } from "../domain/tasks";
 import { Dialog, Swatches } from "./common";
-import { DEFAULT_HOUR_PX, EntryChip, MAX_HOUR_PX, MIN_HOUR_PX, TimeGrid, entryEnd, entryTitle, onColor } from "./TimeGrid";
+import { DEFAULT_HOUR_PX, EntryChip, MAX_HOUR_PX, MIN_HOUR_PX, TimeGrid, blockColors, entryEnd, entryTitle } from "./TimeGrid";
 import { useData, useLocal, useNow, useToday } from "./context";
 import type { EventDraft } from "./EventEditor";
 import { CALENDAR_COLORS, MONTHS_NOM, PRIORITY_COLORS, WEEKDAYS_SHORT, formatDay, formatFullDate, monthTitle, periodTitle, reminderLabel } from "./format";
@@ -509,10 +509,10 @@ function ScheduleView({ from, days, today, now, entries, colorOf, dimPast, onOpe
               {!(entries.get(d)?.length) && <div className="muted small" style={{ padding: "8px 0" }}>Ничего не запланировано</div>}
               {(entries.get(d) ?? []).map((e, k) => {
                 const color = colorOf(e.task);
-                const filled = happens(e.task);
+                const faded = (isDone(e.task) && !e.task.isEvent) || (dimPast && entryEnd(e) < now);
                 return (
-                  <button key={k} className={`sched-entry ${isDone(e.task) && !e.task.isEvent ? "done" : ""}`} onClick={() => onOpen(e)} onContextMenu={(ev) => onMenu(e, ev)}
-                    style={{ background: filled ? color : `color-mix(in srgb, ${color} 45%, var(--bg))`, color: filled ? onColor(color) : "var(--text)", opacity: dimPast && entryEnd(e) < now ? 0.55 : undefined }}>
+                  <button key={k} className={`sched-entry ${faded ? "past" : ""}`} onClick={() => onOpen(e)} onContextMenu={(ev) => onMenu(e, ev)}
+                    style={blockColors(color, happens(e.task), faded, 45)}>
                     <span className="t">{entryTitle(e)}</span>
                     <span className="small">{e.start == null ? "Весь день" : `${formatTime(e.start)}–${formatTime((e.end ?? e.start) % MINUTES_PER_DAY)}`}{e.task.location ? ` · ${e.task.location}` : ""}</span>
                   </button>

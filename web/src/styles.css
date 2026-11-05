@@ -221,7 +221,6 @@ label.row { display: flex; align-items: center; gap: 8px; }
   display: block; width: 100%; text-align: left; border: none; font-size: 12px; padding: 1px 6px; margin-bottom: 2px;
   border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.chip-entry.done { text-decoration: line-through; opacity: 0.6; }
 .more-link { font-size: 11px; color: var(--muted); padding-left: 4px; }
 .grid-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .grid-head { display: flex; border-bottom: 1px solid var(--line); }
@@ -246,7 +245,6 @@ label.row { display: flex; align-items: center; gap: 8px; }
 }
 .block .t { font-weight: 600; }
 .block.task { border-left: 3px solid; }
-.block.done { opacity: 0.55; text-decoration: line-through; }
 .nowline { position: absolute; left: 0; right: 0; height: 2px; background: var(--danger); z-index: 2; }
 .nowline::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
 
@@ -322,7 +320,6 @@ label.row { display: flex; align-items: center; gap: 8px; }
 .sched-list { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .sched-entry { display: flex; flex-direction: column; align-items: flex-start; border: none; border-radius: 8px; padding: 6px 10px; text-align: left; }
 .sched-entry .t { font-weight: 600; }
-.sched-entry.done { text-decoration: line-through; opacity: 0.6; }
 .block .resize { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; cursor: ns-resize; }
 .block.ghost { z-index: 5; box-shadow: var(--shadow); pointer-events: none; opacity: 0.9; }
 .block, .chip-entry.away { touch-action: pan-y; }
@@ -419,3 +416,14 @@ mark { background: color-mix(in srgb, var(--primary) 30%, transparent); color: i
 @media (max-width: 760px) { .arrange { display: none; } }
 @media (max-width: 1100px) { .arrange { width: 260px; } }
 @media (max-width: 760px) { .block .t > svg, .chip-entry > svg { display: none; } .block { padding: 2px 3px; } }
+
+/* What is over or done: one even pale tone with grey text, whatever its colour was. */
+:root { --past-mix: 26%; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --past-mix: 16%; } }
+:root[data-theme="dark"] { --past-mix: 16%; }
+.block.past, .chip-entry.past, .sched-entry.past {
+  background: color-mix(in srgb, var(--tint) var(--past-mix), var(--bg)); color: var(--muted);
+}
+.block.past { border-left-color: transparent; }
+.block.past .t { font-weight: 500; }
+.block.past .when { opacity: 1; }
