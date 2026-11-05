@@ -89,6 +89,7 @@ export function TaskDetail({ task, onClose, onOpen, onFocus }: {
   const wont = task.status === "WONT_DO";
   const reminders = actions.reminders(task.id);
   const checklist = actions.checklist(task.id);
+  const parent = store.get("tasks", task.parentId);
   const subtasks = store.live("tasks").filter((t) => t.parentId === task.id).sort((a, b) => a.sortOrder - b.sortOrder);
   const tags = actions.tagNames(task.id);
   const allTags = store.live("tags").filter((t) => !tags.includes(t.name));
@@ -176,6 +177,11 @@ export function TaskDetail({ task, onClose, onOpen, onFocus }: {
           </div>
         )}
 
+        {parent && !parent.deleted && (
+          <button className="parent-link" title="Открыть задачу, к которой она относится" onClick={() => onOpen(parent)}>
+            <span>↑ {parent.title || "(без названия)"}</span>
+          </button>
+        )}
         <input className="plain detail-title" value={title} placeholder="Название" onChange={(e) => setTitle(e.target.value)} onBlur={flushTitle} aria-label="Название" />
         <textarea className="plain" rows={Math.max(2, Math.min(content.split("\n").length, 14))} value={content} placeholder="Описание"
           onChange={(e) => setContent(e.target.value)} onBlur={flushContent} aria-label="Описание" />

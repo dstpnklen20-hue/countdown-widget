@@ -1,5 +1,6 @@
 package com.claudecode.countdown.widget
 
+import com.claudecode.countdown.domain.calendarTitle
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -72,7 +73,7 @@ class ScheduleWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val repo = context.container.tasks
-        val source = combine(repo.observeTopLevel(), repo.observeLists(), repo.observeCalendars()) { tasks, lists, calendars -> Triple(tasks, lists, calendars) }
+        val source = combine(repo.observeCalendarTasks(), repo.observeLists(), repo.observeCalendars()) { tasks, lists, calendars -> Triple(tasks, lists, calendars) }
         val initial = source.first()
         val theme = context.container.widgetTheme
         provideContent {
@@ -191,7 +192,7 @@ private fun LineView(context: Context, line: ScheduleLine, today: LocalDate, p: 
                     .padding(horizontal = 10.dp, vertical = 5.dp)
                     .clickable(actionStartActivity(openTask(context, e.task.id))),
             ) {
-                Text((if (line.event) "" else "○ ") + e.task.title, maxLines = 1, style = TextStyle(color = ink, fontSize = 13.sp, fontWeight = FontWeight.Medium))
+                Text((if (line.event) "" else "○ ") + e.task.calendarTitle, maxLines = 1, style = TextStyle(color = ink, fontSize = 13.sp, fontWeight = FontWeight.Medium))
                 Text(timeText(e), maxLines = 1, style = TextStyle(color = ink, fontSize = 11.sp))
             }
         }

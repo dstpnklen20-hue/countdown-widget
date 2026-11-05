@@ -274,12 +274,18 @@ fun CalendarScreen(
 
     // Which calendars and kinds are shown (the side menu).
     val calendarColors = remember(calendars) { calendars.associate { it.id to it.color } }
-    // Open tasks whose day has passed: shown on today, marked overdue.
-    val overdueIds = remember(snapshot.tasks, today) {
-        snapshot.tasks.filter { !it.happens && !it.isDone && it.dueDay()?.let { d -> d < today } == true }.mapTo(HashSet()) { it.id }
+    // The top level plus subtasks with a date of their own.
+    val datedSubtasks by remember(repo) { repo.observeDatedSubtasks() }.collectAsStateWithLifecycle(emptyList())
+    val shownTasks = remember(snapshot.tasks, datedSubtasks, snapshot.lists) {
+        val lists = snapshot.lists.mapTo(HashSet()) { it.id }
+        snapshot.tasks + datedSubtasks.filter { it.listId in lists }
     }
-    val tasks = remember(snapshot.tasks, settings, birthdays, today.year, overdueIds) {
-        val stored = snapshot.tasks.filter { t ->
+    // Open tasks whose day has passed: shown on today, marked overdue.
+    val overdueIds = remember(shownTasks, today) {
+        shownTasks.filter { !it.happens && !it.isDone && it.dueDay()?.let { d -> d < today } == true }.mapTo(HashSet()) { it.id }
+    }
+    val tasks = remember(shownTasks, settings, birthdays, today.year, overdueIds) {
+        val stored = shownTasks.filter { t ->
             when {
                 t.isEvent -> settings.calendarEvents && (t.calendarId ?: CalendarLayer.PERSONAL_ID) !in settings.hiddenCalendars
                 t.happens -> settings.calendarEvents

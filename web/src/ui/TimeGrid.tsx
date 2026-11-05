@@ -26,6 +26,7 @@ export const PREVIEW_ID = "virtual:preview";
 
 export function entryTitle(e: CalendarEntry): string {
   const t = e.parts > 1 ? `${e.task.title} (${e.part}/${e.parts})` : e.task.title;
+  if (e.task.parentId) return `↳ ${t}`;
   return e.task.eventType === "FOCUS" ? `◎ ${t}` : t;
 }
 

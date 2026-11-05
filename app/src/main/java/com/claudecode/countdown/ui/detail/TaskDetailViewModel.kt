@@ -165,6 +165,9 @@ class TaskDetailViewModel(
     fun renameChecklistItem(item: ChecklistItem, text: String) = viewModelScope.launch { repo.updateChecklistItem(item.copy(title = text)) }
     fun deleteChecklistItem(item: ChecklistItem) = viewModelScope.launch { repo.deleteChecklistItem(item) }
 
+    /** The stored task with this id: a subtask shows which task it belongs to. */
+    suspend fun taskOf(id: String) = repo.get(id)
+
     fun addSubtask(text: String) = viewModelScope.launch {
         val parent = repo.get(taskId) ?: return@launch
         repo.create(Task(title = text, listId = parent.listId, parentId = taskId))

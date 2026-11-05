@@ -1,5 +1,6 @@
 package com.claudecode.countdown.ui.calendar
 
+import com.claudecode.countdown.domain.calendarTitle
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
@@ -705,7 +706,7 @@ private fun DragPreview(d: Drag, hourHeight: Dp, columnWidth: Dp) {
     ) {
         Column {
             Text(clockText(start) + "–" + clockText(end), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = textOn(color))
-            Text(e.task.title, style = MaterialTheme.typography.labelSmall, color = textOn(color), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(e.task.calendarTitle, style = MaterialTheme.typography.labelSmall, color = textOn(color), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

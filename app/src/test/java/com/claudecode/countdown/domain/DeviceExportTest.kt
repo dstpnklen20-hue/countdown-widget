@@ -66,6 +66,12 @@ class DeviceExportTest {
     }
 
     @Test
+    fun aSubtaskWithADateGoesToo() {
+        val sub = Task(title = "Купить краску", parentId = "parent", dueAt = at(monday, 12))
+        assertEquals("Купить краску", exportedEvents(listOf(sub), now, zone).single().title)
+    }
+
+    @Test
     fun theFingerprintChangesWithTheEntry() {
         val t = Task(title = "Встреча", isEvent = true, startAt = at(monday, 9), dueAt = at(monday, 10))
         val a = exportedEvents(listOf(t), now, zone).single().fingerprint

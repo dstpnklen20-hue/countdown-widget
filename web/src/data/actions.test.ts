@@ -80,3 +80,11 @@ test("a copy is a new open task with the same reminders, tags and checklist", ()
 test("blank rows of a section are complete enough to be copied", () => {
   expect(blank.checklistItem({ taskId: "x" }).checked).toBe(0);
 });
+
+test("quick add finds a list by its name without the icon", () => {
+  const store = memory();
+  const actions = new Actions(store);
+  const list = actions.createList("🏠 Дом", null, null);
+  expect(actions.quickAdd("Полить цветы ~Дом", "inbox")!.listId).toBe(list.id);
+  expect(actions.quickAdd("Убрать ~🏠 Дом", "inbox")!.title).toContain("Убрать");
+});

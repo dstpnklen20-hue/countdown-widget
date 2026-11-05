@@ -128,7 +128,7 @@ class DeviceCalendar(
         if (!allowed()) return@withLock report("Нет разрешения на календарь")
         runCatching {
             val local = calendars().firstOrNull { it.id == calendar } ?: return@withLock report("Календарь не найден — выберите другой")
-            val wanted = exportedEvents(db.taskDao().topLevel(), System.currentTimeMillis())
+            val wanted = exportedEvents(db.taskDao().topLevel() + db.taskDao().datedSubtasks(), System.currentTimeMillis())
             val existing = ours(calendar)
             val ops = ArrayList<ContentProviderOperation>()
             val wrote = ArrayList<ExportedEvent>()

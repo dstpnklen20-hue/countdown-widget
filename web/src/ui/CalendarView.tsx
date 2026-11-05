@@ -4,7 +4,7 @@ import {
 } from "../core/date";
 import { type CalendarLayer, cssColor, PERSONAL_CALENDAR_ID, type Task, argbOf } from "../data/model";
 import { allDayDue, epochAt, nowMinute, timedDue } from "../domain/dates";
-import { type CalendarEntry, MINUTES_PER_DAY, calendarEntries, isVirtual, russianHolidays } from "../domain/calendar";
+import { type CalendarEntry, MINUTES_PER_DAY, calendarEntries, calendarRows, isVirtual, russianHolidays } from "../domain/calendar";
 import { type SeriesScope, SCOPES, shifted } from "../domain/series";
 import { durationMinutes, happens, isDone } from "../domain/tasks";
 import { Dialog, Swatches } from "./common";
@@ -100,7 +100,7 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
 
   const stored = useMemo(() => {
     const hidden = new Set(s.hidden);
-    const tasks = store.live("tasks").filter((t) => t.dueAt != null && !t.parentId &&
+    const tasks = calendarRows(store.live("tasks")).filter((t) => t.dueAt != null &&
       (t.isEvent ? !hidden.has(t.calendarId ?? PERSONAL_CALENDAR_ID) : happens(t) || (s.showTasks && (s.showDone || !isDone(t)))));
     const all = s.showHolidays ? [...tasks, ...russianHolidays(parts(today)[0] - 2)] : tasks;
     return calendarEntries(all, range[0], range[1]);

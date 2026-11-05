@@ -91,6 +91,20 @@ function occurrenceEntries(t: Task, day: LocalDate, projected: boolean): Calenda
 }
 
 /**
+ * The rows the calendar works with: everything at the top level, plus subtasks with a date of their
+ * own whose parent is still there. An open subtask goes away with its finished parent.
+ * Port: TaskDao.observeDatedSubtasks.
+ */
+export function calendarRows(live: Task[]): Task[] {
+  const byId = new Map(live.map((t) => [t.id, t]));
+  return live.filter((t) => {
+    if (!t.parentId) return true;
+    const parent = byId.get(t.parentId);
+    return !!parent && t.dueAt != null && (isDone(t) || !isDone(parent));
+  });
+}
+
+/**
  * Entries for [start]..[end] inclusive. Repeating open tasks and events are expanded into their
  * future occurrences (not for "repeat from completion", whose dates are unknown in advance).
  */

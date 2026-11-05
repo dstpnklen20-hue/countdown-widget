@@ -1,5 +1,6 @@
 package com.claudecode.countdown.ui.calendar
 
+import com.claudecode.countdown.domain.calendarTitle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -177,7 +178,7 @@ private fun MonthChip(e: CalendarEntry, faded: Boolean) {
     val scheme = MaterialTheme.colorScheme
     Text(
         // Only the title: in a phone-wide grid a time would leave no room for it.
-        (if (task.id in LocalOverdue.current) "! " else "") + task.title,
+        (if (task.id in LocalOverdue.current) "! " else "") + task.calendarTitle,
         modifier = Modifier
             .fillMaxWidth()
             .height(CHIP_HEIGHT.dp)
