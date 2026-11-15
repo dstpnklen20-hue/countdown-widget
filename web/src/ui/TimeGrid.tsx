@@ -209,7 +209,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
   carrying: boolean;
   /** The week's number and the time zone above the hours. */
   scaleInfo: boolean;
-  onDay: (d: LocalDate) => void; onNew: (d: LocalDate, minute: number | null, end?: number) => void; onOpen: (e: CalendarEntry, at?: DOMRect) => void;
+  onDay: (d: LocalDate) => void; onNew: (d: LocalDate, minute: number | null, end?: number, at?: DOMRect) => void; onOpen: (e: CalendarEntry, at?: DOMRect) => void;
   onToggle: (e: CalendarEntry) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void;
   onShift: (e: CalendarEntry, start: number, end: number) => void;
   /** A block dragged with Ctrl: a copy, [minutes] from it. */
@@ -264,6 +264,15 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
     zoomAt.current = null;
     if (at && el) el.scrollTop = (at.minute / 60) * hourPx - at.y;
   }, [hourPx]);
+
+  /** Where minutes [from]..[to] of [day] are on the screen: the new event's card opens beside them. */
+  const rectOf = (day: LocalDate, from: number, to: number): DOMRect | undefined => {
+    const col = grid.current?.querySelectorAll<HTMLElement>(".daycol")[days.indexOf(day)];
+    if (!col) return undefined;
+    const c = col.getBoundingClientRect();
+    const top = c.top + (from / 60) * hourRef.current;
+    return new DOMRect(c.left, top, c.width, Math.max(((to - from) / 60) * hourRef.current, 18));
+  };
 
   const minuteAt = (clientY: number, step = SNAP) => {
     const top = grid.current!.getBoundingClientRect().top;
@@ -327,7 +336,8 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
       if (to !== draw.to) setDraw({ ...draw, to });
     };
     const up = (e: PointerEvent) => {
-      onNew(draw.day, draw.from, Math.abs(e.clientY - (draw.y ?? e.clientY)) >= CLICK_PX ? draw.to : undefined);
+      const end = Math.abs(e.clientY - (draw.y ?? e.clientY)) >= CLICK_PX ? draw.to : undefined;
+      onNew(draw.day, draw.from, end, rectOf(draw.day, draw.from, end ?? draw.from + 60));
       setDraw(null);
     };
     window.addEventListener("pointermove", move);
@@ -378,7 +388,10 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
     },
     // Touch: a tap is a new event at that time (the mouse draws one instead).
     tapEmpty: (ev, day) => {
-      if (lastPointer.current !== "mouse") onNew(day, minuteAt(ev.clientY));
+      if (lastPointer.current !== "mouse") {
+        const from = minuteAt(ev.clientY);
+        onNew(day, from, undefined, rectOf(day, from, from + 60));
+      }
     },
     dragOver: (ev, day) => {
       if (!ev.dataTransfer.types.includes(TASK_DRAG)) return;
@@ -447,7 +460,7 @@ export function TimeGrid({ days, today, now, entries, colorOf, dimPast, hourPx, 
             {hidden > 0 && <button className="more-link" onClick={() => setAllDayOpen(!allDayOpen)}>{allDayOpen ? "свернуть" : `+${hidden}`}</button>}
           </div>
           {days.map((d, i) => (
-            <div key={d} className="col" onClick={() => onNew(d, null)} onDragOver={overAllDay} onDrop={(ev) => dropIntoAllDay(ev, d)}>
+            <div key={d} className="col" onClick={(ev) => onNew(d, null, undefined, ev.currentTarget.getBoundingClientRect())} onDragOver={overAllDay} onDrop={(ev) => dropIntoAllDay(ev, d)}>
               {(allDayOpen ? allDay[i] : allDay[i].slice(0, ALL_DAY_ROWS)).map((e) => (
                 <EntryChip key={`${e.task.id}:${e.occurrence}:${e.part}`} e={e} color={colorOf(e.task)} past={dimPast && entryEnd(e) < now}
                   onOpen={onOpen} onToggle={onToggle} onMenu={onMenu} />
