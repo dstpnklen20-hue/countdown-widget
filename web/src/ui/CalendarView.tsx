@@ -171,11 +171,12 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
   const dragging = useRef(false);
 
   const calendarIdForNew = calendars.some((c) => c.id === s.defaultCalendar) ? s.defaultCalendar : PERSONAL_CALENDAR_ID;
-  const newEvent = (day: LocalDate, minute: number | null, endMinute?: number) => {
+  const newEvent = (day: LocalDate, minute: number | null, endMinute?: number, at?: DOMRect) => {
     const start = minute != null ? timedDue(day, minute) : allDayDue(day);
     const calendarId = calendarIdForNew === PERSONAL_CALENDAR_ID ? null : calendarIdForNew;
     onNewEvent({
       task: null,
+      anchor: at,
       init: minute != null
         ? { startAt: start.at, dueAt: endMinute != null ? epochAt(day, endMinute) : start.at + s.eventMinutes * 60_000, isAllDay: 0, timeZone: start.timeZone, calendarId }
         : { startAt: start.at, dueAt: start.at, isAllDay: 1, timeZone: start.timeZone, calendarId },
@@ -302,7 +303,7 @@ export function CalendarView({ onOpen, onNewEvent, onMenu, onSearch, preview }: 
         onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {mode === "month" && (
           <MonthGrid first={range[0]} month={parts(withDayOfMonth(anchor, 1))[1]} today={today} now={now} entries={entries} colorOf={colorOf} dimPast={s.dimPast}
-            onDay={openDay} onNew={(d) => newEvent(d, null)} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onDropTask={dropTask} />
+            onDay={openDay} onNew={(d, at) => newEvent(d, null, undefined, at)} onOpen={openEntry} onToggle={toggleEntry} onMenu={openMenu} onDropTask={dropTask} />
         )}
         {mode === "year" && <YearView year={parts(anchor)[0]} firstDay={s.firstDay} today={today} entries={entries}
           onDay={openDay} onMonth={(m) => { setAnchor(m); setMode("month"); }} />}
@@ -486,7 +487,7 @@ function CalendarDialog({ calendar, onClose }: { calendar: CalendarLayer | null;
 
 function MonthGrid({ first, month, today, now, entries, colorOf, dimPast, onDay, onNew, onOpen, onToggle, onMenu, onDropTask }: {
   first: LocalDate; month: number; today: LocalDate; now: number; entries: Map<LocalDate, CalendarEntry[]>; colorOf: (t: Task) => string; dimPast: boolean;
-  onDay: (d: LocalDate) => void; onNew: (d: LocalDate) => void; onOpen: (e: CalendarEntry, at?: DOMRect) => void;
+  onDay: (d: LocalDate) => void; onNew: (d: LocalDate, at: DOMRect) => void; onOpen: (e: CalendarEntry, at?: DOMRect) => void;
   onToggle: (e: CalendarEntry) => void; onMenu: (e: CalendarEntry, ev: React.MouseEvent) => void;
   onDropTask: (taskId: string, day: LocalDate, minute: number | null) => void;
 }) {
@@ -497,7 +498,7 @@ function MonthGrid({ first, month, today, now, entries, colorOf, dimPast, onDay,
       {cells.map((d) => {
         const list = entries.get(d) ?? [];
         return (
-          <div key={d} className={`cell ${parts(d)[1] !== month ? "other" : ""} ${d === today ? "today" : ""}`} onClick={() => onNew(d)}
+          <div key={d} className={`cell ${parts(d)[1] !== month ? "other" : ""} ${d === today ? "today" : ""}`} onClick={(ev) => onNew(d, ev.currentTarget.getBoundingClientRect())}
             onDragOver={(ev) => ev.dataTransfer.types.includes(TASK_DRAG) && ev.preventDefault()}
             onDrop={(ev) => {
               const id = ev.dataTransfer.getData(TASK_DRAG);
